@@ -108,7 +108,7 @@ export function StageTimeline(
           return (
             <li
               key={step.key}
-              className={`flex gap-3 ${exiting ? 'rp-stage-row-exit' : ''}`}
+              className={`rp-stage-row flex gap-3 ${exiting ? 'rp-stage-row-exit' : ''}`}
               style={{ '--rp-stage-i': index } as CSSProperties}
             >
               <div className='flex flex-col items-center'>
