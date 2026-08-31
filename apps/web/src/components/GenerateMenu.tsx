@@ -121,10 +121,6 @@ export function GenerateMenu({ slug, active }: { slug: string; active: boolean }
               <div className='w-full shrink-0 md:w-80'>
                 <FishMark />
                 <h2 className='rp-display mt-4 text-xl text-white'>Generate from the corpus</h2>
-                <p className='mt-2 text-sm leading-relaxed text-white/70'>
-                  Turn what the portal holds into a briefing, a comparison or a timeline - every
-                  artefact cited back to its sources.
-                </p>
                 <Link
                   to={`/t/${slug}/generate`}
                   onClick={() => setOpen(false)}
