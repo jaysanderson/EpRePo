@@ -86,7 +86,7 @@ function Hero({
     <section className='relative isolate px-6 pb-24 pt-14 sm:pb-28 sm:pt-20'>
       <HeroBackdrop imageUrl={config.branding.heroImageUrl} />
 
-      <div className='rp-shell grid items-start gap-10 lg:grid-cols-[minmax(0,1fr)_22rem] lg:gap-14'>
+      <div className='rp-shell grid items-center gap-10 lg:grid-cols-[minmax(0,1fr)_22rem] lg:gap-14'>
         <div className='min-w-0'>
           <h1 className='rp-display rp-anim-rise text-4xl text-[var(--rp-on-hero)] sm:text-5xl lg:text-6xl'>
             What would you like to explore?

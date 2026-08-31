@@ -728,7 +728,7 @@ function ResourceHeader(
                     <Link
                       key={topicId}
                       to={`/t/${slug}/library?topics=${encodeURIComponent(topicId)}`}
-                      className='rp-focus rounded-[var(--rp-radius-chip)] bg-surface-2 px-2 py-1 text-[11px] font-medium text-ink-2 transition-colors duration-150 hover:text-ink'
+                      className='rp-focus rp-badge rp-badge-quiet transition-colors duration-150 hover:text-ink'
                     >
                       {label}
                     </Link>
@@ -1036,7 +1036,7 @@ function RecommendationCard(
           <p className='rp-clamp-2 text-sm font-medium leading-snug text-ink-2 transition-colors duration-150 group-hover:text-ink'>
             {resource.title}
           </p>
-          <span className='mt-1 inline-block text-[11px] uppercase tracking-[0.06em] text-ink-3'>
+          <span className='mt-1 inline-block text-[11px] text-ink-3'>
             {resource.type}
           </span>
         </div>

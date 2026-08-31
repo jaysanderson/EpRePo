@@ -116,7 +116,7 @@ export function KbSwitcher({ config }: { config: TenantConfig }) {
         aria-expanded={open}
         aria-label={`Switch portal - currently ${config.branding.productName}`}
         title='Switch portal'
-        className='rp-focus flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--rp-radius-btn)] text-ink-3 transition-colors duration-150 hover:bg-[var(--rp-surface-2)] hover:text-ink'
+        className='rp-focus ml-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--rp-radius-btn)] text-ink-3 transition-colors duration-150 hover:bg-[var(--rp-surface-2)] hover:text-ink'
       >
         {
           /* The header already shows this portal's logo, so the trigger is just

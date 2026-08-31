@@ -244,12 +244,12 @@ export function TenantLayout() {
                   value={headerQuery}
                   onChange={(event) => setHeaderQuery(event.target.value)}
                   placeholder={config.searchPlaceholder}
-                  className='rp-input rp-input-flush-end h-12 min-w-0 flex-1 text-base'
+                  className='rp-input rp-input-flush-end h-[calc(3rem*var(--rp-density-ctl,1))] min-w-0 flex-1 text-base'
                 />
                 <button
                   type='submit'
                   aria-label='Search'
-                  className='rp-focus flex h-12 w-12 shrink-0 items-center justify-center rounded-e-[var(--rp-radius-input)] border border-l-0 transition-colors duration-150'
+                  className='rp-focus flex h-[calc(3rem*var(--rp-density-ctl,1))] w-[calc(3rem*var(--rp-density-ctl,1))] shrink-0 items-center justify-center rounded-e-[var(--rp-radius-input)] border border-l-0 transition-colors duration-150'
                   style={{
                     borderColor: 'var(--rp-line)',
                     color: 'var(--rp-primary)',
@@ -283,7 +283,7 @@ export function TenantLayout() {
                 to={`/t/${config.slug}/help`}
                 aria-label='Help'
                 title='Help'
-                className='rp-focus flex h-11 w-11 shrink-0 items-center justify-center rounded-full border transition-colors duration-150'
+                className='rp-focus flex h-[calc(2.75rem*var(--rp-density-ctl,1))] w-[calc(2.75rem*var(--rp-density-ctl,1))] shrink-0 items-center justify-center rounded-full border transition-colors duration-150'
                 style={{
                   borderColor: 'color-mix(in srgb, var(--rp-primary) 25%, transparent)',
                   color: 'var(--rp-primary)',
@@ -310,7 +310,7 @@ export function TenantLayout() {
                 aria-label='My account'
                 title='My account'
                 aria-haspopup='dialog'
-                className='rp-focus flex h-11 w-11 shrink-0 items-center justify-center rounded-full border transition-colors duration-150'
+                className='rp-focus flex h-[calc(2.75rem*var(--rp-density-ctl,1))] w-[calc(2.75rem*var(--rp-density-ctl,1))] shrink-0 items-center justify-center rounded-full border transition-colors duration-150'
                 style={{
                   borderColor: 'color-mix(in srgb, var(--rp-primary) 25%, transparent)',
                   color: 'var(--rp-primary)',

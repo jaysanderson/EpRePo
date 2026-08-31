@@ -722,7 +722,9 @@ label.rp-btn:has(input:focus-visible) {
   justify-content: center;
   gap: 0.5rem;
   height: calc(2.25rem * var(--rp-density-ctl, 1));
-  padding: 0 0.875rem;
+  /* Pills need a touch more air at their rounded ends - the shape dial sets
+   * --rp-btn-px (see lib/theme.ts). */
+  padding: 0 var(--rp-btn-px, 0.875rem);
   border-radius: var(--rp-radius-btn);
   font-size: 0.875rem;
   font-weight: 500;
@@ -955,7 +957,7 @@ label.rp-btn:has(input:focus-visible) {
   align-self: flex-start;
   margin-block: 0.15rem;
   padding: 0.45rem 0.9rem;
-  border-radius: 9999px;
+  border-radius: var(--rp-radius-chip);
   background-color: var(--rp-surface-2);
   color: var(--rp-ink);
   font-size: 0.875rem;
@@ -1078,12 +1080,15 @@ label.rp-btn:has(input:focus-visible) {
  * ------------------------------------------------------------------------- */
 .rp-suggest-card {
   display: flex;
-  align-items: flex-start;
+  /* Centred so a one-line question sits mid-row when its grid neighbour
+   * wraps to two lines. */
+  align-items: center;
   gap: 0.75rem;
   width: 100%;
   padding: 1rem 1.1rem;
   text-align: left;
   border: 1px solid var(--rp-line);
+  border-radius: var(--rp-radius-btn);
   background: var(--rp-surface);
   color: var(--rp-ink);
   transition: background-color 150ms var(--rp-ease), border-color 150ms var(--rp-ease),

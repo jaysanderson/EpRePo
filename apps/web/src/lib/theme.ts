@@ -44,6 +44,13 @@ export const SHAPE_RADII: Record<
   soft: { surface: '16px', btn: '9999px', chip: '9999px', input: '14px' },
 }
 
+/** Horizontal button padding per shape - pill ends want a touch more air. */
+const BTN_PX: Record<ShapeId, string> = {
+  square: '0.875rem',
+  rounded: '0.875rem',
+  soft: '1.125rem',
+}
+
 export function fontStack(family: string): string {
   return `'${family}', ${SANS_FALLBACK}`
 }
@@ -80,6 +87,7 @@ export function shapeVars(shape: Branding['shape']): Record<string, string> {
     '--rp-radius-btn': radii.btn,
     '--rp-radius-chip': radii.chip,
     '--rp-radius-input': radii.input,
+    '--rp-btn-px': BTN_PX[shape ?? 'square'],
   }
 }
 

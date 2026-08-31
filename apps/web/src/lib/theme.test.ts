@@ -31,6 +31,7 @@ describe('shapeVars', () => {
       '--rp-radius-btn': '0px',
       '--rp-radius-chip': '0px',
       '--rp-radius-input': '0px',
+      '--rp-btn-px': '0.875rem',
     })
   })
 
