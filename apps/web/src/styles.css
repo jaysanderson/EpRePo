@@ -1154,3 +1154,19 @@ label.rp-btn:has(input:focus-visible) {
   ),
     linear-gradient(180deg, var(--rp-hero-from), #04162e);
 }
+
+/* ---------------------------------------------------------------------------
+ * Pointer affordance. A <button> has `cursor: default` by default, which reads
+ * as inert on icon-only controls with no text to signal they are clickable.
+ * ------------------------------------------------------------------------- */
+button:not(:disabled),
+[role='button']:not([aria-disabled='true']),
+label.rp-btn,
+summary {
+  cursor: pointer;
+}
+
+button:disabled,
+[role='button'][aria-disabled='true'] {
+  cursor: not-allowed;
+}

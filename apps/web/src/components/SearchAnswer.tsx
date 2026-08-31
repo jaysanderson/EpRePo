@@ -272,6 +272,10 @@ export function SearchAnswer({ slug, query, onResult }: SearchAnswerProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [citations, sources])
 
+  // Must sit above the early return below: a hook after a conditional return
+  // changes the hook count between renders (React error #310).
+  const phase = useAnswerPhase(text.length > 0, status === 'streaming' || status === 'done')
+
   if (status === 'idle') return null
 
   function retry() {
@@ -285,8 +289,6 @@ export function SearchAnswer({ slug, query, onResult }: SearchAnswerProps) {
     : status === 'error'
     ? 'Answer unavailable'
     : ''
-
-  const phase = useAnswerPhase(text.length > 0, status === 'streaming' || status === 'done')
 
   const headerSummary = status === 'streaming'
     ? (stageLabel ?? '')

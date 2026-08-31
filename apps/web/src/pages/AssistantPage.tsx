@@ -780,6 +780,10 @@ function AssistantCard({
     }
   }
 
+  // Must sit above every early return in this component: a hook after a
+  // conditional return changes the hook count between renders (React #310).
+  const phase = useAnswerPhase(message.text.length > 0, true)
+
   if (message.error && !message.text.trim()) {
     return (
       <div
@@ -807,8 +811,6 @@ function AssistantCard({
   const isSparselyGrounded = !message.pending && groundedness !== null &&
     groundedness !== undefined &&
     groundedness <= 2
-
-  const phase = useAnswerPhase(message.text.length > 0, message.pending || !message.pending)
 
   const evidenceSources: EvidenceSource[] = message.sources.map((source) => ({
     id: source.id,
@@ -1864,15 +1866,27 @@ export function AssistantPage() {
       <div className='flex w-full min-w-0 flex-1 flex-col'>
         {!isEmpty
           ? (
-            <div className='mb-2 flex shrink-0 items-center justify-between gap-2'>
-              <p className='min-w-0 truncate text-sm font-medium text-ink-2'>
+            <div className='mb-3 flex shrink-0 items-center justify-between gap-4'>
+              <h1 className='rp-display min-w-0 truncate text-xl text-ink sm:text-2xl'>
                 {currentSessionTitle()}
-              </p>
+              </h1>
               <button
                 type='button'
                 onClick={exportSession}
-                className='rp-btn rp-btn-ghost h-7 shrink-0 px-2 text-xs'
+                className='rp-btn rp-btn-outline shrink-0 gap-2'
               >
+                <svg
+                  viewBox='0 0 24 24'
+                  fill='none'
+                  stroke='currentColor'
+                  strokeWidth='1.7'
+                  strokeLinecap='round'
+                  strokeLinejoin='round'
+                  className='h-4 w-4'
+                  aria-hidden='true'
+                >
+                  <path d='M12 4v11m0 0l-4-4m4 4l4-4M5 19h14' />
+                </svg>
                 Export
               </button>
             </div>
