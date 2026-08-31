@@ -14,6 +14,8 @@ import {
   summarizeResources,
 } from '../api/client.ts'
 import { ResourceThumb } from '../components/ResourceThumb.tsx'
+import { GridDensity, ViewToggle } from '../components/ViewControls.tsx'
+import { useViewMode } from '../components/useViewMode.ts'
 import { LibraryBrowser, SORT_OPTIONS, SORT_VALUES, type SortValue } from './LibraryPage.tsx'
 import { sameLabel, typeLabel } from '../components/ui.tsx'
 import { SaveEvidenceButton } from '../components/SaveEvidence.tsx'
@@ -481,7 +483,10 @@ export function SearchPage() {
   // same row as the retrieval modes rather than floating above the grid.
   const [librarySort, setLibrarySort] = useState<SortValue>('newest')
   const [libraryDensity, setLibraryDensity] = useState(4)
-  const [libraryView, setLibraryView] = useState<'grid' | 'list'>('grid')
+  // The listing here is the same listing the library route renders, so it takes
+  // the same viewport-derived default: a phone opens in list, a desktop in grid,
+  // and the toggle below overrides either from the first click on.
+  const { view: libraryView, setView: setLibraryView } = useViewMode()
 
   useEffect(() => {
   }, [q])
@@ -733,53 +738,11 @@ export function SearchPage() {
         {!hasQuery
           ? (
             <div className='ml-auto flex items-center gap-2'>
-              <div
-                className='inline-flex overflow-hidden rounded-[var(--rp-radius-btn)] border border-line bg-surface'
-                role='radiogroup'
-                aria-label='Result layout'
-              >
-                {(['grid', 'list'] as const).map((option, index) => (
-                  <button
-                    key={option}
-                    type='button'
-                    role='radio'
-                    aria-checked={libraryView === option}
-                    onClick={() => setLibraryView(option)}
-                    className={`rp-focus px-3 py-1.5 text-xs font-medium capitalize transition-colors duration-150 ${
-                      index > 0 ? 'border-l border-line' : ''
-                    } ${
-                      libraryView === option
-                        ? 'text-white'
-                        : 'text-[var(--rp-ink-2)] hover:bg-[var(--rp-surface-2)]'
-                    }`}
-                    style={libraryView === option
-                      ? { backgroundColor: 'var(--rp-primary)' }
-                      : undefined}
-                  >
-                    {option}
-                  </button>
-                ))}
-              </div>
-              <label
-                htmlFor='search-density'
-                className={`text-xs font-medium text-ink-3 ${
-                  libraryView === 'list' ? 'hidden' : ''
-                }`}
-              >
-                Grid
-              </label>
-              <input
-                id='search-density'
-                type='range'
-                min={2}
-                max={7}
-                step={1}
+              <ViewToggle value={libraryView} onChange={setLibraryView} />
+              <GridDensity
                 value={libraryDensity}
-                onChange={(event) => setLibraryDensity(Number(event.target.value))}
-                aria-label='Cards across the grid'
-                className={`rp-focus w-24 accent-[var(--rp-primary)] ${
-                  libraryView === 'list' ? 'hidden' : ''
-                }`}
+                onChange={setLibraryDensity}
+                view={libraryView}
               />
               <label htmlFor='search-sort' className='text-xs font-medium text-ink-3'>
                 Sort

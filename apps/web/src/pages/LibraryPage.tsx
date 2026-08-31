@@ -5,6 +5,8 @@ import { Link, useOutletContext, useSearchParams } from 'react-router-dom'
 import type { CatalogItem } from '@research-portal/core'
 import { getCatalog, getFacets, summarizeResources } from '../api/client.ts'
 import { ResourceThumb } from '../components/ResourceThumb.tsx'
+import { GridDensity, ViewToggle } from '../components/ViewControls.tsx'
+import { useViewMode, type ViewMode } from '../components/useViewMode.ts'
 import { EmptyState, ErrorCard, prettyLabel, Skeleton } from '../components/ui.tsx'
 import type { TenantOutletContext } from './TenantLayout.tsx'
 
@@ -47,45 +49,6 @@ function formatYear(iso: string): string | null {
  */
 type CatalogItemMeta = CatalogItem & { kind?: string; published?: string }
 
-/**
- * Tailwind's `sm` breakpoint (40rem). Matched rather than its complement so the
- * boundary is exactly the one the `sm:` utilities use - `max-width` variants
- * have to guess at a sub-pixel epsilon and drift off it.
- */
-const SM_BREAKPOINT = '(min-width: 40rem)'
-
-/**
- * True on viewports narrower than the `sm` breakpoint, i.e. phones.
- *
- * The library's default layout depends on it: a grid card leads with a 4:3
- * thumbnail sized to the full column width, which on a 390px phone is roughly
- * a screenful of artwork per resource. A list row shows the same resource with
- * a small A4 thumbnail beside its text, so a phone starts in list view.
- */
-function useCompactViewport(): boolean {
-  const query = () =>
-    typeof globalThis.matchMedia === 'function' ? globalThis.matchMedia(SM_BREAKPOINT) : null
-  const [compact, setCompact] = useState(() => {
-    const media = query()
-    // No matchMedia (a non-DOM render) is treated as wide: the grid is the
-    // long-standing default and only a known-narrow viewport should override it.
-    return media ? !media.matches : false
-  })
-
-  useEffect(() => {
-    const media = query()
-    if (!media) return
-    const onChange = (event: MediaQueryListEvent) => setCompact(!event.matches)
-    // Re-read on mount: the viewport may have changed between the first render
-    // and this effect (an orientation flip during hydration, say).
-    setCompact(!media.matches)
-    media.addEventListener('change', onChange)
-    return () => media.removeEventListener('change', onChange)
-  }, [])
-
-  return compact
-}
-
 function SelectionMark({ selected }: { selected: boolean }) {
   return (
     <span
@@ -115,7 +78,17 @@ function SelectionMark({ selected }: { selected: boolean }) {
 }
 
 function LibraryCard(
-  { item, slug, topicLabel, organisation, selecting, selected, onToggleSelect, view = 'grid' }: {
+  {
+    item,
+    slug,
+    topicLabel,
+    organisation,
+    selecting,
+    selected,
+    onToggleSelect,
+    view = 'grid',
+    compact = false,
+  }: {
     item: CatalogItem
     slug: string
     topicLabel: (id: string) => string | undefined
@@ -124,7 +97,9 @@ function LibraryCard(
     selected?: boolean
     onToggleSelect?: (id: string) => void
     /** A list row is a horizontal card with a small A4 thumbnail. */
-    view?: 'grid' | 'list'
+    view?: ViewMode
+    /** Narrow viewport - a list row's short lines earn a longer summary. */
+    compact?: boolean
   },
 ) {
   const meta = item as CatalogItemMeta
@@ -176,8 +151,26 @@ function LibraryCard(
         <h3 className='rp-clamp-2 text-sm font-semibold leading-snug text-ink'>
           {item.title}
         </h3>
+        {
+          /* Two lines is the right budget almost everywhere, but a phone's list
+          * row is the exception: the text column is barely 230px, so two lines
+          * is about eight words and every summary breaks mid-sentence. Four
+          * lines there costs nothing - the row is only as tall as the text it
+          * actually has - and is what makes the row worth reading. A desktop
+          * list row is the opposite case: its column runs the best part of a
+          * thousand pixels, so two lines already carry a couple of hundred
+          * characters and a four-line clamp would mostly buy whitespace. */
+        }
         {item.summary && item.summary !== item.title
-          ? <p className='rp-clamp-2 text-xs leading-relaxed text-ink-3'>{item.summary}</p>
+          ? (
+            <p
+              className={`text-xs leading-relaxed text-ink-3 ${
+                list && compact ? 'rp-clamp-4' : 'rp-clamp-2'
+              }`}
+            >
+              {item.summary}
+            </p>
+          )
           : null}
         {topicLabels.length > 0 || meta.kind || (statusInfo && list)
           ? (
@@ -460,6 +453,7 @@ export function LibraryBrowser(
     density: densityProp,
     onDensityChange,
     view: viewProp,
+    onViewChange,
   }: {
     bare?: boolean
     /** Controlled sort and density, when the host renders the controls itself. */
@@ -468,19 +462,22 @@ export function LibraryBrowser(
     density?: number
     onDensityChange?: (value: number) => void
     /**
-     * Controlled layout, when the host renders a view toggle. An explicit
-     * choice always wins; leave it unset to take the viewport-derived default.
+     * Controlled layout, when the host renders the view toggle itself. An
+     * explicit choice always wins; leave it unset to let the browser hold the
+     * state and render its own toggle.
      */
-    view?: 'grid' | 'list'
+    view?: ViewMode
+    onViewChange?: (value: ViewMode) => void
   } = {},
 ) {
   const { config } = useOutletContext<TenantOutletContext>()
 
-  // A phone defaults to the list layout - see `useCompactViewport`. A host that
-  // controls `view` (the search page's layout toggle) still wins at every
-  // width, so a deliberate pick is never overridden on rotate or resize.
-  const compact = useCompactViewport()
-  const view: 'grid' | 'list' = viewProp ?? (compact ? 'list' : 'grid')
+  // Uncontrolled, the layout starts from the viewport - a phone opens in list -
+  // and switches to whatever the toggle is set to from the first click on. A
+  // host that controls `view` (the search page) wins at every width either way.
+  const { view: viewState, setView: setViewState, compact } = useViewMode()
+  const view = viewProp ?? viewState
+  const setView = onViewChange ?? setViewState
 
   const [queryDraft, setQueryDraft] = useState('')
   const [debouncedQuery, setDebouncedQuery] = useState('')
@@ -627,20 +624,12 @@ export function LibraryBrowser(
       }
       {bare && !onSortChange && (
         <div className='mb-4 flex flex-wrap items-center justify-end gap-2'>
-          <label htmlFor='library-density' className='text-xs font-medium text-ink-3'>
-            Grid
-          </label>
-          <input
-            id='library-density'
-            type='range'
-            min={2}
-            max={7}
-            step={1}
-            value={density}
-            onChange={(event) => setDensity(Number(event.target.value))}
-            aria-label='Cards across the grid'
-            className='rp-focus mr-3 w-28 accent-[var(--rp-primary)]'
+          <ViewToggle
+            value={view}
+            onChange={setView}
+            className='mr-1 h-[calc(2.25rem*var(--rp-density-ctl,1))]'
           />
+          <GridDensity value={density} onChange={setDensity} view={view} className='mr-3' />
           <label htmlFor='library-sort-bare' className='text-xs font-medium text-ink-3'>
             Sort
           </label>
@@ -687,6 +676,17 @@ export function LibraryBrowser(
               className='min-w-0 flex-1 border-0 bg-transparent text-sm text-ink placeholder:text-[var(--rp-ink-3)] focus:outline-none'
             />
           </div>
+
+          {
+            /* Layout, then grid size, then sort - the same trio in the same
+            * order as the search page's listing controls. */
+          }
+          <ViewToggle
+            value={view}
+            onChange={setView}
+            className='h-[calc(2.25rem*var(--rp-density-ctl,1))]'
+          />
+          <GridDensity value={density} onChange={setDensity} view={view} />
 
           <label htmlFor='library-sort' className='sr-only'>
             Sort by
@@ -842,6 +842,7 @@ export function LibraryBrowser(
                   {accumulated.map((item) => (
                     <LibraryCard
                       view={view}
+                      compact={compact}
                       key={item.id}
                       item={item}
                       slug={config.slug}
