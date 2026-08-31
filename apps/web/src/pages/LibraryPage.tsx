@@ -96,10 +96,13 @@ function LibraryCard(
   const body = (
     <>
       <div
-        className='relative aspect-[210/297] w-full overflow-hidden bg-surface-2'
+        className='relative aspect-[4/3] w-full overflow-hidden bg-surface-2'
         aria-hidden='true'
       >
-        <ResourceThumb slug={slug} id={item.id} type='document' />
+        {/* The page peeks up from behind the grey ground, as on Explore. */}
+        <div className='rp-shadow-sm absolute inset-x-6 bottom-0 top-6 overflow-hidden bg-surface'>
+          <ResourceThumb slug={slug} id={item.id} type='document' imgClassName='object-top' />
+        </div>
         {statusInfo
           ? (
             <span className={`absolute left-2 top-2 ${statusInfo.className}`}>
@@ -388,6 +391,8 @@ export function LibraryBrowser({ bare = false }: { bare?: boolean } = {}) {
   const [queryDraft, setQueryDraft] = useState('')
   const [debouncedQuery, setDebouncedQuery] = useState('')
   const [sort, setSort] = useState<SortValue>('newest')
+  // Grid density: how many cards sit across the widest breakpoint.
+  const [density, setDensity] = useState(4)
   const [searchParams] = useSearchParams()
   const [selectedTopics, setSelectedTopics] = useState<string[]>(() => {
     const fromUrl = searchParams.get('topic')
@@ -492,6 +497,14 @@ export function LibraryBrowser({ bare = false }: { bare?: boolean } = {}) {
     )
   }
 
+  // A minimum track width keeps the grid responsive: the density sets how many
+  // columns to aim for, and narrow viewports still fall back to fewer.
+  const gridStyle = {
+    gridTemplateColumns: `repeat(auto-fill, minmax(min(100%, ${
+      Math.round(1180 / density)
+    }px), 1fr))`,
+  }
+
   const hasMore = accumulated.length < total
   const isInitialLoading = isLoading && page === 0
 
@@ -516,6 +529,20 @@ export function LibraryBrowser({ bare = false }: { bare?: boolean } = {}) {
       }
       {bare && (
         <div className='mb-4 flex flex-wrap items-center justify-end gap-2'>
+          <label htmlFor='library-density' className='text-xs font-medium text-ink-3'>
+            Grid
+          </label>
+          <input
+            id='library-density'
+            type='range'
+            min={2}
+            max={7}
+            step={1}
+            value={density}
+            onChange={(event) => setDensity(Number(event.target.value))}
+            aria-label='Cards across the grid'
+            className='rp-focus mr-3 w-28 accent-[var(--rp-primary)]'
+          />
           <label htmlFor='library-sort-bare' className='text-xs font-medium text-ink-3'>
             Sort
           </label>
@@ -692,7 +719,7 @@ export function LibraryBrowser({ bare = false }: { bare?: boolean } = {}) {
 
           {isInitialLoading
             ? (
-              <div className='grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5'>
+              <div className='grid gap-3' style={gridStyle}>
                 {Array.from({ length: 10 }).map((_, index) => <LibraryCardSkeleton key={index} />)}
               </div>
             )
@@ -711,9 +738,8 @@ export function LibraryBrowser({ bare = false }: { bare?: boolean } = {}) {
             ? (
               <>
                 <div
-                  className={`grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 ${
-                    selecting ? 'pb-24' : ''
-                  }`}
+                  style={gridStyle}
+                  className={`grid gap-3 ${selecting ? 'pb-24' : ''}`}
                 >
                   {accumulated.map((item) => (
                     <LibraryCard

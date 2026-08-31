@@ -5,6 +5,7 @@ import type { TenantConfig } from '@research-portal/core'
 import { ApiError, getKnowledgeBoxStatus, getTenantConfig } from '../api/client.ts'
 import { CommandPalette } from '../components/CommandPalette.tsx'
 import { PortalFooter } from '../components/PortalFooter.tsx'
+import { SignInDialog } from '../components/SignInDialog.tsx'
 import { GENERATE_KINDS, GENERATE_WORKSPACES, GenerateMenu } from '../components/GenerateMenu.tsx'
 
 export type TenantOutletContext = {
@@ -32,7 +33,6 @@ const NAV_ITEMS: { path: string; label: string; end: boolean }[] = [
   // Generate is rendered as a menu, not a plain link - it carries the artefact
   // kinds plus the Investigations and Self assessment workspaces.
   { path: '/graph', label: 'Graph', end: false },
-  { path: '/manage', label: 'Manage', end: false },
 ]
 
 export function TenantLayout() {
@@ -43,6 +43,7 @@ export function TenantLayout() {
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [logoFailed, setLogoFailed] = useState(false)
   const [headerQuery, setHeaderQuery] = useState('')
+  const [signInOpen, setSignInOpen] = useState(false)
   const headerRef = useRef<HTMLElement | null>(null)
 
   // Cmd/Ctrl+K opens the search-or-ask palette from anywhere in the portal.
@@ -296,10 +297,12 @@ export function TenantLayout() {
                   <path d='M12 17.4h.01' />
                 </svg>
               </Link>
-              <Link
-                to={`/t/${config.slug}/manage`}
+              <button
+                type='button'
+                onClick={() => setSignInOpen(true)}
                 aria-label='My account'
                 title='My account'
+                aria-haspopup='dialog'
                 className='rp-focus flex h-11 w-11 shrink-0 items-center justify-center rounded-full border transition-colors duration-150'
                 style={{
                   borderColor: 'color-mix(in srgb, var(--rp-primary) 25%, transparent)',
@@ -319,7 +322,7 @@ export function TenantLayout() {
                   <circle cx='12' cy='8.5' r='3.75' />
                   <path d='M4.5 20a7.5 7.5 0 0115 0' />
                 </svg>
-              </Link>
+              </button>
               {
                 /* Wrapped, because .rp-btn sets its own display and would beat a
                 * `md:hidden` utility on the button itself - which is why this
@@ -468,6 +471,8 @@ export function TenantLayout() {
       </div>
 
       <PortalFooter />
+
+      {signInOpen ? <SignInDialog onClose={() => setSignInOpen(false)} /> : null}
 
       {paletteOpen
         ? (

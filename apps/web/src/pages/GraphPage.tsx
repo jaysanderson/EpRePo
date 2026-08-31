@@ -458,13 +458,16 @@ function GraphCanvas({
     reheat()
   }
 
+  // Bucketed so a smooth zoom does not recompute the label layout on every
+  // frame; a drag holds the previous result entirely.
+  const zoomBucket = Math.round(Math.max(transform.k, 0.35) * 4) / 4
   const labelledIds = useMemo(() => {
     // Labels are placed greedily, most-connected first, and any label whose box
     // would collide with one already placed is dropped. Boxes are measured in
     // simulation units divided by the zoom, so a label occupies less of the
     // model the further you zoom in - which is what makes zooming reveal more
     // labels rather than piling them on top of each other.
-    const k = Math.max(transform.k, 0.35)
+    const k = zoomBucket
     const byWeight = [...visibleNodes].sort((a, b) => b.weight - a.weight)
     const placed: { x1: number; y1: number; x2: number; y2: number }[] = []
     const kept = new Set<string>()
@@ -491,7 +494,7 @@ function GraphCanvas({
       kept.add(node.id)
     }
     return kept
-  }, [visibleNodes, transform.k])
+  }, [visibleNodes, zoomBucket])
 
   const zoomBy = (factor: number) =>
     setTransform((t) => {
@@ -629,7 +632,7 @@ function GraphCanvas({
                     cy={sim.y}
                     r={r}
                     fill={groupColours.get(node.group) ?? 'var(--rp-cat-1)'}
-                    fillOpacity={0.9}
+                    fillOpacity={1}
                     stroke={isSelected || isPathStart ? 'var(--rp-ink)' : 'var(--rp-surface)'}
                     strokeWidth={isSelected || isPathStart ? 3 : 1.5}
                   />
