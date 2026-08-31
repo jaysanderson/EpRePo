@@ -2,7 +2,7 @@ import { Component, type ReactNode, StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
-import { TenantPicker } from './pages/TenantPicker.tsx'
+import { RootRedirect } from './components/RootRedirect.tsx'
 import { TenantLayout } from './pages/TenantLayout.tsx'
 import { ExplorePage } from './pages/ExplorePage.tsx'
 import { SearchPage } from './pages/SearchPage.tsx'
@@ -70,7 +70,7 @@ createRoot(container).render(
       <QueryClientProvider client={queryClient}>
         <BrowserRouter>
           <Routes>
-            <Route path='/' element={<TenantPicker />} />
+            <Route path='/' element={<RootRedirect />} />
             <Route path='/admin' element={<AdminPage />} />
             <Route path='/t/:slug' element={<TenantLayout />}>
               <Route index element={<ExplorePage />} />
