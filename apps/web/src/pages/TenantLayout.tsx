@@ -102,6 +102,9 @@ export function TenantLayout() {
     enabled: Boolean(slug),
   })
 
+  // Routes whose page owns the full viewport height.
+  const isViewportHeightRoute = /\/(assistant|graph)(\/|$)/.test(location.pathname)
+
   const { data: kbStatus } = useQuery({
     queryKey: ['kb-status', slug],
     queryFn: () => getKnowledgeBoxStatus(slug ?? ''),
@@ -509,7 +512,14 @@ export function TenantLayout() {
         <Outlet context={{ config } satisfies TenantOutletContext} />
       </div>
 
-      <PortalFooter />
+      {
+        /* Assistant and Graph size themselves to the viewport and scroll
+        * internally, so there is no room beneath them for a footer. On iOS the
+        * dynamic viewport grows as the URL bar collapses, the panel grows with
+        * it, and it overruns anything stacked below - which is exactly the
+        * overlap this avoids. */
+      }
+      {isViewportHeightRoute ? null : <PortalFooter />}
 
       {signInOpen ? <SignInDialog onClose={() => setSignInOpen(false)} /> : null}
 
