@@ -17,6 +17,19 @@
   --rp-hero-from: #3f3f46;
   --rp-hero-to: #18181b;
 
+  /* Typography hooks - TenantLayout overrides these from branding.typography.
+   * The house faces (matching frdc.com.au: Manrope body, Inter headings) are
+   * the defaults, so portals without a typography choice look unchanged. */
+  --rp-font-body:
+    'Manrope', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --rp-font-display:
+    'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --rp-font-body-weight: 400;
+  --rp-font-display-weight: 600;
+  --rp-font-display-bold-weight: 700;
+  --rp-font-display-tracking: -0.022em;
+  --rp-font-display-leading: 1.05;
+
   /* Warm neutral ramp. Slightly yellow-shifted so it sits on the paper base
    * without the blue cast of a stock grey scale. */
   --rp-paper: #ffffff;
@@ -47,11 +60,10 @@
 }
 
 @theme {
-  /* Matches frdc.com.au: Manrope for body and navigation, Inter for headings. */
-  --font-sans:
-    'Manrope', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-  --font-display:
-    'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  /* Resolved per element, so a tenant wrapper overriding the --rp-font-* hooks
+   * re-fonts everything inside it. */
+  --font-sans: var(--rp-font-body);
+  --font-display: var(--rp-font-display);
 }
 
 html {
@@ -72,18 +84,32 @@ body {
  * Typography
  * ------------------------------------------------------------------------- */
 
-/* Display face, reserved for headlines. Tighter tracking than the UI face and
- * balanced wrapping so two-line headlines break evenly. */
+/* Tenant subtree root. Two inheritance gotchas force the re-declarations:
+ * font-family inherits as a computed value, so the body rule alone cannot
+ * re-font a subtree; and a custom property substitutes nested var()s where it
+ * is DEFINED, so the @theme aliases resolve at :root against the house faces -
+ * they must be re-declared here to recompute against this wrapper's inline
+ * --rp-font-* overrides before the font-sans/font-display utilities read them. */
+.rp-tenant {
+  --font-sans: var(--rp-font-body);
+  --font-display: var(--rp-font-display);
+  font-family: var(--rp-font-body);
+  font-weight: var(--rp-font-body-weight);
+}
+
+/* Display face, reserved for headlines. Weight, tracking and leading are
+ * per-pairing dials (a condensed caps face and a chunky serif want very
+ * different metrics); balanced wrapping so two-line headlines break evenly. */
 .rp-display {
-  font-family: var(--font-display);
-  font-weight: 600;
-  letter-spacing: -0.022em;
-  line-height: 1.05;
+  font-family: var(--rp-font-display);
+  font-weight: var(--rp-font-display-weight);
+  letter-spacing: var(--rp-font-display-tracking);
+  line-height: var(--rp-font-display-leading);
   text-wrap: balance;
 }
 
 .rp-display-bold {
-  font-weight: 700;
+  font-weight: var(--rp-font-display-bold-weight);
 }
 
 /* Comfortable reading measure/leading for body prose. */
@@ -430,11 +456,17 @@ body {
 /* ---------------------------------------------------------------------------
  * Semantic theme layer. Components use ONLY these semantic classes (plus the
  * tenant hooks). The portal is light-only: there is no dark variant to flip.
- * Shape language: square. --rp-radius is the single dial.
+ * Shape language: four dials, set by TenantLayout from branding.shape -
+ * --rp-radius for surfaces (cards, panels, tiles), then buttons, chips/tags
+ * and inputs each get their own so 'soft' can pill buttons and tags without
+ * ballooning a textarea. Square (all 0) is the default.
  * ------------------------------------------------------------------------- */
 
 :root {
   --rp-radius: 0px;
+  --rp-radius-btn: 0px;
+  --rp-radius-chip: 0px;
+  --rp-radius-input: 0px;
   --rp-app: var(--rp-n-0);
   --rp-surface: var(--rp-n-0);
   --rp-surface-2: var(--rp-n-100);
@@ -551,6 +583,7 @@ label.rp-btn:has(input:focus-visible) {
   align-items: center;
   gap: 1.1rem;
   padding: 1.6rem 1.75rem;
+  border-radius: var(--rp-radius);
   background-color: color-mix(in srgb, var(--rp-accent) 14%, #ffffff);
   color: var(--rp-primary);
   transition: background-color 150ms var(--rp-ease);
@@ -642,7 +675,7 @@ label.rp-btn:has(input:focus-visible) {
   gap: 0.5rem;
   height: 2.25rem;
   padding: 0 0.875rem;
-  border-radius: var(--rp-radius);
+  border-radius: var(--rp-radius-btn);
   font-size: 0.875rem;
   font-weight: 500;
   transition: background-color 150ms var(--rp-ease), color 150ms var(--rp-ease),
@@ -693,7 +726,7 @@ label.rp-btn:has(input:focus-visible) {
   gap: 0.375rem;
   height: 1.75rem;
   padding: 0 0.625rem;
-  border-radius: var(--rp-radius);
+  border-radius: var(--rp-radius-chip);
   border: 1px solid var(--rp-line);
   background: var(--rp-surface);
   color: var(--rp-ink-2);
@@ -719,7 +752,7 @@ label.rp-btn:has(input:focus-visible) {
 .rp-input {
   width: 100%;
   border: 1px solid var(--rp-line);
-  border-radius: var(--rp-radius);
+  border-radius: var(--rp-radius-input);
   background: var(--rp-surface);
   color: var(--rp-ink);
   padding-block: 0.5625rem;
@@ -731,6 +764,13 @@ label.rp-btn:has(input:focus-visible) {
  * the magnifier on top of the placeholder text. */
 .rp-input-icon {
   padding-inline-start: 2.25rem;
+}
+/* Input sitting flush against an attached trailing control (header search):
+ * square where the two meet, whatever the shape dial says; the control takes
+ * over the trailing corners. Same specificity story as .rp-input-icon. */
+.rp-input-flush-end {
+  border-start-end-radius: 0;
+  border-end-end-radius: 0;
 }
 .rp-input::placeholder {
   color: var(--rp-ink-3);
@@ -745,7 +785,7 @@ label.rp-btn:has(input:focus-visible) {
   white-space: nowrap;
   gap: 0.25rem;
   padding: 0.125rem 0.5rem;
-  border-radius: var(--rp-radius);
+  border-radius: var(--rp-radius-chip);
   border: 1px solid;
   font-size: 0.6875rem;
   font-weight: 600;

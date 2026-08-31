@@ -382,6 +382,105 @@ describe('GET /api/health', () => {
   })
 })
 
+describe('appearance (typography, shape, branding fonts)', () => {
+  const passcode = 'test-passcode'
+  const appearanceApp = () =>
+    buildApp({
+      provider: new StubProvider(),
+      tenants: freshTenants(),
+      adminPasscode: passcode,
+      brandingPath: `${Deno.makeTempDirSync()}/branding`,
+    })
+  const patch = (app: ReturnType<typeof buildApp>, body: unknown) =>
+    app.request('/api/admin/tenants/frdc', {
+      method: 'PATCH',
+      headers: { 'x-admin-passcode': passcode, 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+
+  it('saves a typography pairing, shape and text scale, and serves them in the tenant config', async () => {
+    const app = appearanceApp()
+    const response = await patch(app, {
+      typography: 'fraunces-poppins',
+      shape: 'soft',
+      textScale: 'larger',
+    })
+    expect(response.status).toBe(200)
+
+    const config = TenantConfigSchema.parse(await (await app.request('/api/t/frdc/config')).json())
+    expect(config.branding.typography).toBe('fraunces-poppins')
+    expect(config.branding.shape).toBe('soft')
+    expect(config.branding.textScale).toBe('larger')
+  })
+
+  it('accepts the custom and default typography choices', async () => {
+    const app = appearanceApp()
+    expect((await patch(app, { typography: 'custom' })).status).toBe(200)
+    expect((await patch(app, { typography: 'default', shape: 'square' })).status).toBe(200)
+    const config = TenantConfigSchema.parse(await (await app.request('/api/t/frdc/config')).json())
+    expect(config.branding.typography).toBe('default')
+    expect(config.branding.shape).toBe('square')
+  })
+
+  it('persists the choice across a store reload', () => {
+    const path = `${Deno.makeTempDirSync()}/tenants.json`
+    const store = new TenantStore({ TENANTS_PATH: path })
+    store.patchBranding('frdc', { typography: 'lexend-zilla', shape: 'rounded' })
+    const reloaded = new TenantStore({ TENANTS_PATH: path })
+    expect(reloaded.get('frdc')?.branding.typography).toBe('lexend-zilla')
+    expect(reloaded.get('frdc')?.branding.shape).toBe('rounded')
+  })
+
+  it('rejects an unknown pairing, shape or text scale', async () => {
+    const app = appearanceApp()
+    expect((await patch(app, { typography: 'comic-sans' })).status).toBe(400)
+    expect((await patch(app, { shape: 'blobby' })).status).toBe(400)
+    expect((await patch(app, { textScale: 'enormous' })).status).toBe(400)
+  })
+
+  it('stores an uploaded heading font, exposes its URL and serves it back', async () => {
+    const app = appearanceApp()
+    const bytes = new Uint8Array([0x77, 0x4f, 0x46, 0x32])
+    const upload = await app.request('/api/admin/t/frdc/branding/font-heading', {
+      method: 'POST',
+      headers: { 'x-admin-passcode': passcode, 'content-type': 'font/woff2' },
+      body: bytes,
+    })
+    expect(upload.status).toBe(200)
+    const { url } = (await upload.json()) as { url: string }
+    expect(url).toBe('/api/t/frdc/branding/font-heading')
+
+    const config = TenantConfigSchema.parse(await (await app.request('/api/t/frdc/config')).json())
+    expect(config.branding.headingFontUrl).toContain('/api/t/frdc/branding/font-heading?v=')
+    expect(config.branding.bodyFontUrl).toBeUndefined()
+
+    const served = await app.request('/api/t/frdc/branding/font-heading')
+    expect(served.status).toBe(200)
+    expect(served.headers.get('content-type')).toBe('font/woff2')
+    expect(new Uint8Array(await served.arrayBuffer())).toEqual(bytes)
+  })
+
+  it('rejects a font upload with a non-font content type', async () => {
+    const app = appearanceApp()
+    const response = await app.request('/api/admin/t/frdc/branding/font-body', {
+      method: 'POST',
+      headers: { 'x-admin-passcode': passcode, 'content-type': 'image/png' },
+      body: new Uint8Array([1, 2, 3]),
+    })
+    expect(response.status).toBe(415)
+  })
+
+  it('rejects an unknown branding kind', async () => {
+    const app = appearanceApp()
+    const response = await app.request('/api/admin/t/frdc/branding/favicon', {
+      method: 'POST',
+      headers: { 'x-admin-passcode': passcode, 'content-type': 'image/png' },
+      body: new Uint8Array([1, 2, 3]),
+    })
+    expect(response.status).toBe(400)
+  })
+})
+
 describe('GET /api/admin-prefill', () => {
   it('no longer exists - the passcode-prefill endpoint has been removed', async () => {
     const app = makeApp()

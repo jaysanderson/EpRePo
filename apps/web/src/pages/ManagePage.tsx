@@ -315,9 +315,7 @@ export function ManagePage() {
               )}
 
               {tab === 'appearance' && (
-                <div className='rp-card p-5'>
-                  <AppearancePanel slug={slug} passcode={passcode} />
-                </div>
+                <AppearancePanel slug={slug} passcode={passcode} branding={config.branding} />
               )}
 
               {tab === 'behaviour' && <BehaviourPanel slug={slug} passcode={passcode} />}

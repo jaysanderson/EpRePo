@@ -1,8 +1,9 @@
-import { type CSSProperties, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link, NavLink, Outlet, useLocation, useNavigate, useParams } from 'react-router-dom'
 import type { TenantConfig } from '@research-portal/core'
 import { ApiError, getKnowledgeBoxStatus, getTenantConfig } from '../api/client.ts'
+import { tenantThemeVars, useTenantFonts, useTextScale } from '../lib/theme.ts'
 import { CommandPalette } from '../components/CommandPalette.tsx'
 import { PortalFooter } from '../components/PortalFooter.tsx'
 import { SignInDialog } from '../components/SignInDialog.tsx'
@@ -140,6 +141,11 @@ export function TenantLayout() {
     }
   }, [config])
 
+  // Load the faces for the tenant's typography choice and apply its text
+  // scale (both no-ops until the config loads).
+  useTenantFonts(config?.branding)
+  useTextScale(config?.branding)
+
   if (isLoading) {
     return <FullPageSpinner />
   }
@@ -166,8 +172,6 @@ export function TenantLayout() {
     )
   }
 
-  const { colours } = config.branding
-
   // Links sit on the solid brand band, so the active state is white type over
   // an accent underline (see .rp-navlink in styles.css) rather than the accent
   // wash the old light-background header used.
@@ -176,13 +180,8 @@ export function TenantLayout() {
 
   return (
     <div
-      className='min-h-screen bg-app'
-      style={{
-        '--rp-primary': colours.primary,
-        '--rp-accent': colours.accent,
-        '--rp-hero-from': colours.heroFrom,
-        '--rp-hero-to': colours.heroTo,
-      } as CSSProperties}
+      className='rp-tenant min-h-screen bg-app'
+      style={tenantThemeVars(config.branding)}
     >
       {
         /* Two-tier header, after frdc.com.au: a white strip carrying the logo,
@@ -232,12 +231,12 @@ export function TenantLayout() {
                   value={headerQuery}
                   onChange={(event) => setHeaderQuery(event.target.value)}
                   placeholder='Search'
-                  className='rp-input h-10 w-56 xl:w-72'
+                  className='rp-input rp-input-flush-end h-10 w-56 xl:w-72'
                 />
                 <button
                   type='submit'
                   aria-label='Search'
-                  className='rp-focus flex h-10 w-11 shrink-0 items-center justify-center border border-l-0 transition-colors duration-150'
+                  className='rp-focus flex h-10 w-11 shrink-0 items-center justify-center rounded-e-[var(--rp-radius-input)] border border-l-0 transition-colors duration-150'
                   style={{
                     borderColor: 'var(--rp-line)',
                     color: 'var(--rp-primary)',

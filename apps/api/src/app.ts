@@ -8,6 +8,9 @@ import {
   type EnrichmentAgentStatus,
   enrichmentJsonSchema,
   GenerateKindSchema,
+  ShapeIdSchema,
+  TextScaleIdSchema,
+  TypographyChoiceSchema,
 } from '@research-portal/core'
 import type { MigrationEvent, TenantConfig } from '@research-portal/core'
 import {
@@ -31,7 +34,7 @@ import {
   replaceGraphStrategy,
   validateGraphStrategy,
 } from './kg.ts'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import process from 'node:process'
 import {
   CRAWLER_USER_AGENT,
@@ -256,6 +259,9 @@ const renameTenantSchema = z.object({
     heroFrom: hexColour,
     heroTo: hexColour,
   }).optional(),
+  typography: TypographyChoiceSchema.optional(),
+  shape: ShapeIdSchema.optional(),
+  textScale: TextScaleIdSchema.optional(),
   searchPlaceholder: z.string().min(3).max(120).optional(),
 })
 const kgImplementSchema = z.object({
@@ -316,6 +322,8 @@ export interface BuildAppOptions {
   adminPasscode?: string
   /** Where the built SPA lives; overridable in tests. Defaults to ./apps/web/dist. */
   webDistPath?: string
+  /** Where uploaded branding assets live; overridable in tests. Defaults to BRANDING_PATH or ./data/branding. */
+  brandingPath?: string
   /** Called after a tenant is rebound so the provider can drop its caches. */
   invalidate?: (slug: string) => void
   /** Requests/min/IP for the paid-LLM routes (ask, generate, summarize, subqueries, verdicts,
@@ -446,26 +454,43 @@ export function buildApp(opts: BuildAppOptions): Hono {
 
   app.get('/api/tenants', (c) => c.json(tenants.list()))
 
-  const brandingDir = process.env.BRANDING_PATH ?? './data/branding'
-  const brandingFile = (slug: string, kind: 'logo' | 'hero'): string | null => {
-    for (const ext of ['png', 'jpg', 'jpeg', 'webp', 'svg']) {
+  const brandingDir = opts.brandingPath ?? process.env.BRANDING_PATH ?? './data/branding'
+  const BRANDING_IMAGE_EXTS = ['png', 'jpg', 'jpeg', 'webp', 'svg'] as const
+  const BRANDING_FONT_EXTS = ['woff2', 'woff', 'ttf', 'otf'] as const
+  type BrandingKind = 'logo' | 'hero' | 'font-heading' | 'font-body'
+  const isBrandingKind = (kind: string): kind is BrandingKind =>
+    kind === 'logo' || kind === 'hero' || kind === 'font-heading' || kind === 'font-body'
+  const brandingExts = (kind: BrandingKind): readonly string[] =>
+    kind === 'logo' || kind === 'hero' ? BRANDING_IMAGE_EXTS : BRANDING_FONT_EXTS
+  const brandingFile = (slug: string, kind: BrandingKind): string | null => {
+    for (const ext of brandingExts(kind)) {
       const path = `${brandingDir}/${slug}-${kind}.${ext}`
       if (existsSync(path)) return path
     }
     return null
   }
-  const withBrandingUrls = (config: TenantConfig): TenantConfig => ({
-    ...config,
-    branding: {
-      ...config.branding,
-      ...(brandingFile(config.slug, 'logo')
-        ? { logoUrl: `/api/t/${config.slug}/branding/logo` }
-        : {}),
-      ...(brandingFile(config.slug, 'hero')
-        ? { heroImageUrl: `/api/t/${config.slug}/branding/hero` }
-        : {}),
-    },
-  })
+  // mtime-versioned so replacing a file behind the stable path busts caches.
+  const brandingUrl = (slug: string, kind: BrandingKind): string | null => {
+    const path = brandingFile(slug, kind)
+    if (!path) return null
+    return `/api/t/${slug}/branding/${kind}?v=${Math.round(statSync(path).mtimeMs)}`
+  }
+  const withBrandingUrls = (config: TenantConfig): TenantConfig => {
+    const logo = brandingUrl(config.slug, 'logo')
+    const hero = brandingUrl(config.slug, 'hero')
+    const headingFont = brandingUrl(config.slug, 'font-heading')
+    const bodyFont = brandingUrl(config.slug, 'font-body')
+    return {
+      ...config,
+      branding: {
+        ...config.branding,
+        ...(logo ? { logoUrl: logo } : {}),
+        ...(hero ? { heroImageUrl: hero } : {}),
+        ...(headingFont ? { headingFontUrl: headingFont } : {}),
+        ...(bodyFont ? { bodyFontUrl: bodyFont } : {}),
+      },
+    }
+  }
 
   app.get('/api/t/:slug/config', (c) => {
     const config = tenant(c.req.param('slug'))
@@ -476,7 +501,7 @@ export function buildApp(opts: BuildAppOptions): Hono {
   app.get('/api/t/:slug/branding/:kind', (c) => {
     const config = tenant(c.req.param('slug'))
     const kind = c.req.param('kind')
-    if (!config || (kind !== 'logo' && kind !== 'hero')) {
+    if (!config || !isBrandingKind(kind)) {
       return c.json({ error: 'not_found' }, 404)
     }
     const path = brandingFile(config.slug, kind)
@@ -486,6 +511,8 @@ export function buildApp(opts: BuildAppOptions): Hono {
       ? 'image/svg+xml'
       : ext === 'webp'
       ? 'image/webp'
+      : ext === 'woff2' || ext === 'woff' || ext === 'ttf' || ext === 'otf'
+      ? `font/${ext}`
       : `image/${ext === 'jpg' ? 'jpeg' : ext}`
     return new Response(readFileSync(path), {
       headers: { 'content-type': type, 'cache-control': 'public, max-age=300' },
@@ -1484,6 +1511,9 @@ export function buildApp(opts: BuildAppOptions): Hono {
       productName: parsed.data.name,
       organisation: parsed.data.organisation,
       tagline: parsed.data.tagline,
+      typography: parsed.data.typography,
+      shape: parsed.data.shape,
+      textScale: parsed.data.textScale,
     })
     return c.json({ ok: true })
   })
@@ -1728,28 +1758,40 @@ export function buildApp(opts: BuildAppOptions): Hono {
   app.post('/api/admin/t/:slug/branding/:kind', async (c) => {
     const config = tenant(c.req.param('slug'))
     const kind = c.req.param('kind')
-    if (!config || (kind !== 'logo' && kind !== 'hero')) {
+    if (!config || !isBrandingKind(kind)) {
       return c.json({ error: 'invalid_request' }, 400)
     }
+    const isFont = kind === 'font-heading' || kind === 'font-body'
     const contentType = c.req.header('content-type') ?? ''
-    const ext = contentType === 'image/png'
-      ? 'png'
-      : contentType === 'image/jpeg'
-      ? 'jpg'
-      : contentType === 'image/webp'
-      ? 'webp'
-      : contentType === 'image/svg+xml'
-      ? 'svg'
-      : null
+    const ext = isFont
+      ? (contentType === 'font/woff2'
+        ? 'woff2'
+        : contentType === 'font/woff'
+        ? 'woff'
+        : contentType === 'font/ttf'
+        ? 'ttf'
+        : contentType === 'font/otf'
+        ? 'otf'
+        : null)
+      : (contentType === 'image/png'
+        ? 'png'
+        : contentType === 'image/jpeg'
+        ? 'jpg'
+        : contentType === 'image/webp'
+        ? 'webp'
+        : contentType === 'image/svg+xml'
+        ? 'svg'
+        : null)
     if (!ext) {
-      return c.json({ error: 'unsupported_type', message: 'Use PNG, JPEG, WebP or SVG.' }, 415)
+      const message = isFont ? 'Use WOFF2, WOFF, TTF or OTF.' : 'Use PNG, JPEG, WebP or SVG.'
+      return c.json({ error: 'unsupported_type', message }, 415)
     }
     const bytes = new Uint8Array(await c.req.arrayBuffer())
     if (bytes.length === 0) return c.json({ error: 'empty_file' }, 400)
     if (bytes.length > 5 * 1024 * 1024) return c.json({ error: 'file_too_large' }, 413)
     mkdirSync(brandingDir, { recursive: true })
     // Drop any previous file for this slot so only one extension exists.
-    for (const old of ['png', 'jpg', 'jpeg', 'webp', 'svg']) {
+    for (const old of brandingExts(kind)) {
       const p = `${brandingDir}/${config.slug}-${kind}.${old}`
       if (existsSync(p)) {
         try {

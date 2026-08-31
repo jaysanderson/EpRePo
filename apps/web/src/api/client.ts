@@ -22,8 +22,11 @@ import type {
   ResourceSummary,
   RetrievalMode,
   SearchResults,
+  ShapeId,
   TenantConfig,
   TenantSummary,
+  TextScaleId,
+  TypographyChoice,
 } from '@research-portal/core'
 
 /**
@@ -627,6 +630,19 @@ export function renamePortal(
   })
 }
 
+/** Save the portal's typography, text-scale and/or shape choice (same PATCH as rename). */
+export function updatePortalAppearance(
+  slug: string,
+  passcode: string,
+  input: { typography?: TypographyChoice; shape?: ShapeId; textScale?: TextScaleId },
+): Promise<{ ok: boolean }> {
+  return adminRequest(`/api/admin/tenants/${encodeURIComponent(slug)}`, passcode, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+}
+
 export function proposeKg(slug: string, passcode: string): Promise<KgProposal> {
   return adminRequest<KgProposal>(
     `/api/admin/t/${encodeURIComponent(slug)}/kg/propose`,
@@ -700,15 +716,29 @@ export function thumbnailUrl(slug: string, id: string): string {
   return `/api/t/${encodeURIComponent(slug)}/resources/${encodeURIComponent(id)}/thumbnail`
 }
 
+export type BrandingUploadKind = 'logo' | 'hero' | 'font-heading' | 'font-body'
+
+const FONT_MIME_BY_EXT: Record<string, string> = {
+  woff2: 'font/woff2',
+  woff: 'font/woff',
+  ttf: 'font/ttf',
+  otf: 'font/otf',
+}
+
 export async function uploadBranding(
   slug: string,
   passcode: string,
-  kind: 'logo' | 'hero',
+  kind: BrandingUploadKind,
   file: File,
 ): Promise<{ ok: boolean; url: string }> {
+  // Browsers rarely set File.type for font files, so derive it from the name.
+  const ext = file.name.split('.').pop()?.toLowerCase() ?? ''
+  const contentType = kind === 'font-heading' || kind === 'font-body'
+    ? FONT_MIME_BY_EXT[ext] ?? 'application/octet-stream'
+    : file.type || 'application/octet-stream'
   return adminRequest(`/api/admin/t/${encodeURIComponent(slug)}/branding/${kind}`, passcode, {
     method: 'POST',
-    headers: { 'content-type': file.type || 'application/octet-stream' },
+    headers: { 'content-type': contentType },
     body: file,
   })
 }

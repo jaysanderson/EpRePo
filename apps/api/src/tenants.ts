@@ -170,7 +170,7 @@ export class TenantStore {
     this.persist()
   }
 
-  /** Rename or re-theme a portal (product name, organisation, tagline, palette). */
+  /** Rename or re-theme a portal (product name, organisation, tagline, palette, type, shape). */
   patchBranding(
     slug: string,
     branding: {
@@ -178,6 +178,9 @@ export class TenantStore {
       organisation?: string
       tagline?: string
       colours?: TenantConfig['branding']['colours']
+      typography?: TenantConfig['branding']['typography']
+      shape?: TenantConfig['branding']['shape']
+      textScale?: TenantConfig['branding']['textScale']
     },
   ): void {
     const base = this.get(slug)
@@ -188,6 +191,9 @@ export class TenantStore {
       ...(branding.organisation ? { organisation: branding.organisation } : {}),
       ...(branding.tagline ? { tagline: branding.tagline } : {}),
       ...(branding.colours ? { colours: branding.colours } : {}),
+      ...(branding.typography ? { typography: branding.typography } : {}),
+      ...(branding.shape ? { shape: branding.shape } : {}),
+      ...(branding.textScale ? { textScale: branding.textScale } : {}),
     }
     if (this.custom[slug]) {
       this.custom[slug] = { ...this.custom[slug], branding: merged }
