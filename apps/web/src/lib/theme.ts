@@ -104,7 +104,15 @@ export function densityVars(density: Branding['density']): Record<string, string
 
 export function typographyVars(branding: Branding): Record<string, string> {
   const choice = branding.typography
-  if (!choice || choice === 'default') return {}
+  if (!choice || choice === 'default') {
+    // 'default' means this portal's own default: its seeded brand faces when
+    // it has them (e.g. GRDC's Montserrat), else the house faces from :root.
+    if (!branding.fonts) return {}
+    return {
+      '--rp-font-body': branding.fonts.sans,
+      '--rp-font-display': branding.fonts.display,
+    }
+  }
   if (choice === 'custom') {
     return {
       ...(branding.headingFontUrl ? { '--rp-font-display': fontStack(CUSTOM_HEADING_FAMILY) } : {}),

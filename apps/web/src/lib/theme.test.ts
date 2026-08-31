@@ -54,6 +54,16 @@ describe('typographyVars', () => {
     expect(typographyVars(branding({ typography: 'default' }))).toEqual({})
   })
 
+  it('uses the seeded brand faces as the portal default, and a pairing overrides them', () => {
+    const fonts = { sans: "'Montserrat', sans-serif", display: "'Montserrat', sans-serif" }
+    const seeded = typographyVars(branding({ fonts }))
+    expect(seeded['--rp-font-body']).toBe(fonts.sans)
+    expect(seeded['--rp-font-display']).toBe(fonts.display)
+    expect(typographyVars(branding({ fonts, typography: 'default' }))).toEqual(seeded)
+    const paired = typographyVars(branding({ fonts, typography: 'lexend-zilla' }))
+    expect(paired['--rp-font-display']).toContain("'Lexend'")
+  })
+
   it('sets both faces and their metrics for a pairing', () => {
     const vars = typographyVars(branding({ typography: 'bebas-heebo' }))
     expect(vars['--rp-font-display']).toContain("'Bebas Neue'")

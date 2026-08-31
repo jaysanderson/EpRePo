@@ -68,7 +68,8 @@
 
 @theme {
   /* Resolved per element, so a tenant wrapper overriding the --rp-font-* hooks
-   * re-fonts everything inside it. */
+   * re-fonts everything inside it (a tenant's seeded `branding.fonts` and any
+   * Manage typography choice both flow through these hooks - see lib/theme.ts). */
   --font-sans: var(--rp-font-body);
   --font-display: var(--rp-font-display);
 }

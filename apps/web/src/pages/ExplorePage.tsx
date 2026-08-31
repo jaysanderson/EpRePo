@@ -239,8 +239,8 @@ function RegionBand({ slug }: { slug: string }) {
             Research from every corner of the country
           </h2>
           <p className='mt-4 max-w-md text-base leading-relaxed text-white/75'>
-            Fisheries and aquaculture research is deeply regional. Pick a state or territory to see
-            what the corpus holds for those waters.
+            Research and its impact are deeply regional. Pick a state or territory to see what the
+            corpus holds there.
           </p>
           <ul className='mt-6 flex flex-wrap gap-2'>
             {REGIONS.map((region) => (

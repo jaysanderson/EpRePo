@@ -189,6 +189,11 @@ const DEFAULT_BODY_STACK = fontStack('Manrope')
 
 const BODY_SAMPLE = 'Fast, credible answers with cited sources.'
 
+/** Leading family name out of a CSS font stack, for preview labels. */
+function firstFamily(stack: string): string {
+  return stack.match(/^\s*'([^']+)'/)?.[1] ?? (stack.split(',')[0] ?? stack).trim()
+}
+
 function TypographySection({
   slug,
   passcode,
@@ -241,18 +246,24 @@ function TypographySection({
     bodyText: string
     bodyStyle: { fontFamily: string; fontWeight: number }
   }[] = [
-    {
-      id: 'default',
-      label: 'Inter & Manrope',
-      headingText: 'Inter',
-      headingStyle: {
-        fontFamily: DEFAULT_HEADING_STACK,
-        fontWeight: 600,
-        letterSpacing: '-0.022em',
-      },
-      bodyText: `Manrope - ${BODY_SAMPLE}`,
-      bodyStyle: { fontFamily: DEFAULT_BODY_STACK, fontWeight: 400 },
-    },
+    // 'default' is this portal's own default: its seeded brand faces (e.g.
+    // GRDC's Montserrat) when it has them, else the house Inter & Manrope.
+    (() => {
+      const headingFamily = branding.fonts ? firstFamily(branding.fonts.display) : 'Inter'
+      const bodyFamily = branding.fonts ? firstFamily(branding.fonts.sans) : 'Manrope'
+      return {
+        id: 'default' as TypographyChoice,
+        label: headingFamily === bodyFamily ? headingFamily : `${headingFamily} & ${bodyFamily}`,
+        headingText: headingFamily,
+        headingStyle: {
+          fontFamily: branding.fonts?.display ?? DEFAULT_HEADING_STACK,
+          fontWeight: 600,
+          letterSpacing: '-0.022em',
+        },
+        bodyText: `${bodyFamily} - ${BODY_SAMPLE}`,
+        bodyStyle: { fontFamily: branding.fonts?.sans ?? DEFAULT_BODY_STACK, fontWeight: 400 },
+      }
+    })(),
     ...PAIRING_IDS.map((id) => {
       const pairing = FONT_PAIRINGS[id]
       return {
@@ -294,7 +305,7 @@ function TypographySection({
               {option.bodyText}
             </span>
             <span className='mt-2 block text-[0.6875rem] font-medium uppercase tracking-[0.08em] text-ink-3'>
-              {option.id === 'default' ? 'House default' : 'Heading & body'}
+              {option.id === 'default' ? 'Portal default' : 'Heading & body'}
             </span>
           </ChoiceTile>
         ))}

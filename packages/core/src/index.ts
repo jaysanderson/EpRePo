@@ -75,6 +75,18 @@ export const BrandingSchema = z.object({
   /** Served when custom heading/body font files are uploaded (typography 'custom'). */
   headingFontUrl: z.string().optional(),
   bodyFontUrl: z.string().optional(),
+  /**
+   * The portal's seeded brand typefaces, as CSS font stacks (each family must
+   * also be loaded in apps/web/index.html). These are what 'default' means for
+   * this portal: used when `typography` is absent or 'default', and overridden
+   * by any explicit pairing or custom-upload choice made in Manage.
+   */
+  fonts: z.object({
+    /** Body and UI. */
+    sans: z.string(),
+    /** Headings (.rp-display). */
+    display: z.string(),
+  }).optional(),
 })
 
 /** One face of a font pairing, with the display metrics the theme layer applies. */
