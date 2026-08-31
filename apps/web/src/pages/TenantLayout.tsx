@@ -228,7 +228,7 @@ export function TenantLayout() {
                   navigate(`/t/${config.slug}/search?q=${encodeURIComponent(trimmed)}`)
                   setHeaderQuery('')
                 }}
-                className='hidden items-center lg:flex'
+                className='hidden items-center lg:mr-3 lg:flex'
               >
                 <label htmlFor='header-search' className='sr-only'>
                   Search {config.branding.productName}

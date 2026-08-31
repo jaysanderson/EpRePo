@@ -102,14 +102,14 @@ export function PortalFooter(
               'linear-gradient(90deg, color-mix(in srgb, var(--rp-primary) 92%, transparent), color-mix(in srgb, var(--rp-primary) 55%, transparent))',
           }}
         />
-        <div className='rp-shell relative py-8'>
+        <div className='rp-shell relative py-16 sm:py-20'>
           <h2 className='rp-display text-2xl text-white sm:text-3xl'>Stay up to date</h2>
-          <p className='mt-1.5 text-sm text-white/80'>Subscribe to our newsletter and updates</p>
+          <p className='mt-3 text-base text-white/80'>Subscribe to our newsletter and updates</p>
           <a
             href={`${FRDC}/stay-up-to-date`}
             target='_blank'
             rel='noreferrer noopener'
-            className='rp-focus-inverse mt-4 inline-flex items-center bg-white px-6 py-2.5 text-sm font-semibold transition-colors duration-150 hover:bg-white/90'
+            className='rp-focus-inverse mt-7 inline-flex items-center bg-white px-7 py-3 text-sm font-semibold transition-colors duration-150 hover:bg-white/90'
             style={{ color: 'var(--rp-primary)' }}
           >
             Subscribe

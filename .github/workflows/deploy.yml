@@ -15,7 +15,19 @@ jobs:
   gate:
     name: Typecheck, lint, format, tests, build
     runs-on: ubuntu-latest
+    outputs:
+      deployable: ${{ steps.creds.outputs.deployable }}
     steps:
+      - name: Are Fly credentials configured?
+        id: creds
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          if [ -n "$FLY_API_TOKEN" ]; then
+            echo "deployable=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "deployable=false" >> "$GITHUB_OUTPUT"
+          fi
       - uses: actions/checkout@v4
       - uses: denoland/setup-deno@v2
         with:
@@ -73,9 +85,10 @@ jobs:
   deploy:
     name: Deploy to fly.io
     needs: gate
-    # Skipped cleanly in any fork or mirror that has no Fly credentials, so the
-    # gate can still go green there. CI (ci.yml) is the check that must pass.
-    if: ${{ secrets.FLY_API_TOKEN != '' }}
+    # Skipped cleanly in any fork or mirror without Fly credentials, so the gate
+    # can still go green there. The `secrets` context is not available in a
+    # job-level `if`, so the gate job publishes the answer as an output.
+    if: needs.gate.outputs.deployable == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

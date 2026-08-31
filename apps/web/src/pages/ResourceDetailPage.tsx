@@ -844,6 +844,9 @@ function DocumentChat({ slug, resource }: { slug: string; resource: ResourceSumm
     const trimmed = draft.trim()
     if (trimmed.length === 0) return
     setQuery(trimmed)
+    // The question moves into the answer above; leaving it in the field reads
+    // as if it had not been sent.
+    setDraft('')
   }
 
   function askStarter(text: string) {
@@ -916,7 +919,7 @@ function DocumentChat({ slug, resource }: { slug: string; resource: ResourceSumm
                 key={text}
                 type='button'
                 onClick={() => askStarter(text)}
-                className='rp-focus rounded-full border border-line bg-surface-2 px-3 py-1.5 text-xs font-medium text-ink-2 transition-colors duration-150 hover:text-ink'
+                className='rp-focus border border-line bg-surface-2 px-3 py-1.5 text-xs font-medium text-ink-2 transition-colors duration-150 hover:text-ink'
               >
                 {text}
               </button>
