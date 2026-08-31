@@ -265,7 +265,7 @@ export function ContextJourney({ slug, sources, query = '', onOpen }: ContextJou
           strokeLinejoin='round'
           aria-hidden='true'
           className='h-3.5 w-3.5 shrink-0 transition-transform duration-300 group-hover:rotate-45'
-          style={{ color: 'var(--rp-accent)' }}
+          style={{ color: 'var(--rp-accent-fg)' }}
         >
           <circle cx='12' cy='12' r='9' />
           <path d='M15.2 8.8l-1.6 4.4-4.4 1.6 1.6-4.4z' />
@@ -469,7 +469,7 @@ export function AnswerStream({ slug, request, onSources, onRetry }: AnswerStream
                       className='rp-focus inline-flex items-center gap-1.5 rounded-none border border-line bg-[var(--rp-surface-2)] px-2 py-1 text-xs font-medium text-[var(--rp-ink-2)] transition-colors duration-150 hover:bg-[var(--rp-surface-3)] hover:text-[var(--rp-ink)]'
                     >
                       <span
-                        className='flex h-4 w-4 shrink-0 items-center justify-center rounded-none text-[10px] font-semibold tabular-nums text-white'
+                        className='flex h-4 w-4 shrink-0 items-center justify-center rounded-none text-[10px] font-semibold tabular-nums text-[var(--rp-on-primary)]'
                         style={{ backgroundColor: 'var(--rp-primary)' }}
                       >
                         {citation.index}

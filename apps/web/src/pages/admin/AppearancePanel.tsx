@@ -1,8 +1,12 @@
 import { type ChangeEvent, type ReactNode, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import {
+  DEFAULT_PALETTES,
   type DensityId,
   FONT_PAIRINGS,
+  type Palette,
+  type PaletteChoice,
+  PaletteIdSchema,
   type ShapeId,
   type TenantConfig,
   type TextScaleId,
@@ -164,7 +168,7 @@ function ChoiceTile({
       {selected && (
         <span
           aria-hidden='true'
-          className='absolute right-3 top-3 flex h-5 w-5 items-center justify-center rounded-full text-white'
+          className='absolute right-3 top-3 flex h-5 w-5 items-center justify-center rounded-full text-[var(--rp-on-accent)]'
           style={{ backgroundColor: 'var(--rp-accent)' }}
         >
           <svg
@@ -180,6 +184,162 @@ function ChoiceTile({
       )}
       {children}
     </button>
+  )
+}
+
+/** Miniature of a palette: brand band, hero, then a button/chip/accent strip. */
+function PaletteMini({ palette }: { palette: MiniPalette }) {
+  return (
+    <span
+      aria-hidden='true'
+      className='block overflow-hidden border'
+      style={{ borderColor: 'var(--rp-line)', borderRadius: 'var(--rp-radius)' }}
+    >
+      <span
+        className='block h-2.5'
+        style={{
+          background: palette.band,
+          boxShadow: `inset 26px -2px 0 -1px ${palette.underline}`,
+        }}
+      />
+      <span
+        className='flex h-10 items-center justify-center'
+        style={{ background: `linear-gradient(135deg, ${palette.heroFrom}, ${palette.heroTo})` }}
+      >
+        <span style={{ color: palette.onHero, fontSize: '9px', fontWeight: 700 }}>Aa</span>
+      </span>
+      <span className='flex items-center gap-1.5 p-1.5' style={{ background: palette.paper }}>
+        <span
+          className='block h-3.5 w-9'
+          style={{ background: palette.band, borderRadius: 'var(--rp-radius-btn)' }}
+        />
+        <span
+          className='block h-3.5 w-7 border'
+          style={{
+            background: palette.wash,
+            borderColor: palette.chipBorder,
+            borderRadius: 'var(--rp-radius-chip)',
+          }}
+        />
+        <span
+          className='ml-auto block h-3 w-3 rounded-full'
+          style={{ background: palette.accent }}
+        />
+      </span>
+    </span>
+  )
+}
+
+type MiniPalette = {
+  band: string
+  underline: string
+  heroFrom: string
+  heroTo: string
+  onHero: string
+  paper: string
+  wash: string
+  chipBorder: string
+  accent: string
+}
+
+function miniFromLibrary(palette: Palette): MiniPalette {
+  return {
+    band: palette.brandSurface,
+    underline: palette.accent,
+    heroFrom: palette.heroFrom,
+    heroTo: palette.heroTo,
+    onHero: palette.onHero,
+    paper: palette.paper,
+    wash: palette.accentWash,
+    chipBorder: palette.accentForeground,
+    accent: palette.accent,
+  }
+}
+
+function ColoursSection({
+  slug,
+  passcode,
+  branding,
+}: {
+  slug: string
+  passcode: string
+  branding: Branding
+}) {
+  const queryClient = useQueryClient()
+  const [busy, setBusy] = useState(false)
+  const [message, setMessage] = useState<Message | null>(null)
+
+  const selected: PaletteChoice = branding.paletteId ?? 'default'
+
+  const choose = async (paletteId: PaletteChoice, label: string) => {
+    if (paletteId === selected) return
+    setBusy(true)
+    setMessage(null)
+    try {
+      await updatePortalAppearance(slug, passcode, { paletteId })
+      await queryClient.invalidateQueries({ queryKey: ['tenant-config', slug] })
+      setMessage({ tone: 'ok', text: `Saved - this portal now uses ${label}.` })
+    } catch (err) {
+      setMessage({ tone: 'error', text: errorMessage(err, 'Could not save that choice.') })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const defaultMini: MiniPalette = {
+    band: branding.colours.primary,
+    underline: branding.colours.accent,
+    heroFrom: branding.colours.heroFrom,
+    heroTo: branding.colours.heroTo,
+    onHero: '#ffffff',
+    paper: '#ffffff',
+    wash: `color-mix(in srgb, ${branding.colours.accent} 12%, #ffffff)`,
+    chipBorder: branding.colours.accent,
+    accent: branding.colours.accent,
+  }
+
+  return (
+    <div className='rp-card p-5'>
+      <h3 className='text-sm font-semibold text-ink'>Colours</h3>
+      <p className='mt-1 text-xs text-ink-3'>
+        The portal's colour identity - its own brand colours, or a palette from the library. Each
+        library palette carries its matching greys; Observatory is a dark interface. Applies as soon
+        as you choose.
+      </p>
+
+      <div className='mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3'>
+        <ChoiceTile
+          selected={selected === 'default'}
+          disabled={busy}
+          onSelect={() => void choose('default', 'its own brand colours')}
+          label='Portal default colours'
+        >
+          <PaletteMini palette={defaultMini} />
+          <span className='mt-3 block text-sm font-semibold text-ink'>Portal default</span>
+          <span className='mt-0.5 block text-xs text-ink-3'>
+            This portal's own seeded brand colours.
+          </span>
+        </ChoiceTile>
+        {PaletteIdSchema.options.map((id) => {
+          const entry = DEFAULT_PALETTES[id]
+          return (
+            <ChoiceTile
+              key={id}
+              selected={selected === id}
+              disabled={busy}
+              onSelect={() => void choose(id, entry.label)}
+              label={`${entry.label} palette`}
+            >
+              <PaletteMini palette={miniFromLibrary(entry.palette)} />
+              <span className='mt-3 block text-sm font-semibold text-ink'>{entry.label}</span>
+              <span className='mt-0.5 block text-xs text-ink-3'>{entry.description}</span>
+            </ChoiceTile>
+          )
+        })}
+      </div>
+
+      {message && <MessagePanel message={message} className='mt-4' />}
+    </div>
   )
 }
 
@@ -701,6 +861,7 @@ export function AppearancePanel({
         </div>
       </div>
 
+      <ColoursSection slug={slug} passcode={passcode} branding={branding} />
       <TypographySection slug={slug} passcode={passcode} branding={branding} />
       <ShapeSection slug={slug} passcode={passcode} branding={branding} />
       <DensitySection slug={slug} passcode={passcode} branding={branding} />

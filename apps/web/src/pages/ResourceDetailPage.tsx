@@ -111,7 +111,7 @@ function renderInline(text: string, keyPrefix: string): ReactNode[] {
             target='_blank'
             rel='noopener noreferrer'
             className='rp-focus rounded-none underline decoration-dotted underline-offset-2'
-            style={{ color: 'var(--rp-accent)' }}
+            style={{ color: 'var(--rp-accent-fg)' }}
           >
             {link[1]}
           </a>,
@@ -750,7 +750,7 @@ function ResourceHeader(
                 target='_blank'
                 rel='noopener noreferrer'
                 className='rp-focus flex items-center gap-1.5 rounded-none text-sm font-medium underline decoration-dotted underline-offset-2'
-                style={{ color: 'var(--rp-accent)' }}
+                style={{ color: 'var(--rp-accent-fg)' }}
               >
                 View original source <span aria-hidden='true'>&rarr;</span>
               </a>

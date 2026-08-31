@@ -214,13 +214,15 @@ export function PortalFooter({ slug }: { slug: string }) {
           }}
         />
         <div className='rp-shell relative py-16 sm:py-20'>
-          <h2 className='rp-display text-2xl text-white sm:text-3xl'>Stay up to date</h2>
-          <p className='mt-3 text-base text-white/80'>{content.subscribe.blurb}</p>
+          <h2 className='rp-display text-2xl text-[var(--rp-on-primary)] sm:text-3xl'>
+            Stay up to date
+          </h2>
+          <p className='mt-3 text-base text-[var(--rp-on-primary)]/80'>{content.subscribe.blurb}</p>
           <a
             href={content.subscribe.href}
             target='_blank'
             rel='noreferrer noopener'
-            className='rp-focus-inverse mt-7 inline-flex items-center bg-white px-7 py-3 text-sm font-semibold transition-colors duration-150 hover:bg-white/90'
+            className='rp-focus-inverse mt-7 inline-flex items-center bg-[var(--rp-on-primary)] px-7 py-3 text-sm font-semibold transition-colors duration-150 hover:bg-[var(--rp-on-primary)]/90'
             style={{ color: 'var(--rp-primary)' }}
           >
             {content.subscribe.label}
@@ -233,7 +235,7 @@ export function PortalFooter({ slug }: { slug: string }) {
         <div className='grid grid-cols-2 gap-x-6 gap-y-8 sm:grid-cols-3 lg:grid-cols-5'>
           {content.columns.map((column) => (
             <div key={column.heading} className='min-w-0'>
-              <h3 className='border-b border-white/25 pb-3 text-sm font-semibold text-white'>
+              <h3 className='border-b border-[var(--rp-on-primary)]/25 pb-3 text-sm font-semibold text-[var(--rp-on-primary)]'>
                 {column.heading}
               </h3>
               <ul className='mt-3.5 space-y-2.5'>
@@ -243,7 +245,7 @@ export function PortalFooter({ slug }: { slug: string }) {
                       href={link.href}
                       target='_blank'
                       rel='noreferrer noopener'
-                      className='rp-focus-inverse text-sm leading-snug text-white/75 transition-colors duration-150 hover:text-white'
+                      className='rp-focus-inverse text-sm leading-snug text-[var(--rp-on-primary)]/75 transition-colors duration-150 hover:text-[var(--rp-on-primary)]'
                     >
                       {link.label}
                     </a>
@@ -255,7 +257,7 @@ export function PortalFooter({ slug }: { slug: string }) {
         </div>
 
         {/* Social */}
-        <div className='mt-10 flex justify-center gap-6 border-t border-white/20 pt-8'>
+        <div className='mt-10 flex justify-center gap-6 border-t border-[var(--rp-on-primary)]/20 pt-8'>
           {content.socials.map((social) => (
             <a
               key={social.label}
@@ -263,7 +265,7 @@ export function PortalFooter({ slug }: { slug: string }) {
               target='_blank'
               rel='noreferrer noopener'
               aria-label={social.label}
-              className='rp-focus-inverse text-white/85 transition-colors duration-150 hover:text-white'
+              className='rp-focus-inverse text-[var(--rp-on-primary)]/85 transition-colors duration-150 hover:text-[var(--rp-on-primary)]'
             >
               <svg viewBox='0 0 24 24' fill='currentColor' className='h-6 w-6' aria-hidden='true'>
                 <path d={social.path} />
@@ -273,14 +275,14 @@ export function PortalFooter({ slug }: { slug: string }) {
         </div>
 
         {/* Acknowledgement of Country */}
-        <div className='mx-auto mt-8 max-w-3xl border border-white/35 px-6 py-5'>
-          <p className='text-center text-xs leading-relaxed text-white/85'>
+        <div className='mx-auto mt-8 max-w-3xl border border-[var(--rp-on-primary)]/35 px-6 py-5'>
+          <p className='text-center text-xs leading-relaxed text-[var(--rp-on-primary)]/85'>
             {content.acknowledgement}
           </p>
         </div>
 
         {/* Copyright and legal */}
-        <div className='mt-8 flex flex-col items-center justify-between gap-3 text-xs text-white/70 sm:flex-row'>
+        <div className='mt-8 flex flex-col items-center justify-between gap-3 text-xs text-[var(--rp-on-primary)]/70 sm:flex-row'>
           <p>{content.copyright}</p>
           <ul className='flex flex-wrap justify-center gap-x-4 gap-y-1.5'>
             {content.legal.map((item) => (
@@ -289,7 +291,7 @@ export function PortalFooter({ slug }: { slug: string }) {
                   href={item.href}
                   target='_blank'
                   rel='noreferrer noopener'
-                  className='rp-focus-inverse transition-colors duration-150 hover:text-white'
+                  className='rp-focus-inverse transition-colors duration-150 hover:text-[var(--rp-on-primary)]'
                 >
                   {item.label}
                 </a>

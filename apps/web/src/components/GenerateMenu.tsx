@@ -70,7 +70,7 @@ export function GenerateMenu({ slug, active }: { slug: string; active: boolean }
       <Link
         to={`/t/${slug}/${to}`}
         onClick={() => setOpen(false)}
-        className='rp-focus-inverse group flex items-start gap-3 py-2 text-sm text-white/85 transition-colors duration-150 hover:text-white'
+        className='rp-focus-inverse group flex items-start gap-3 py-2 text-sm text-[var(--rp-on-primary)]/85 transition-colors duration-150 hover:text-[var(--rp-on-primary)]'
       >
         <span
           aria-hidden='true'
@@ -114,18 +114,20 @@ export function GenerateMenu({ slug, active }: { slug: string; active: boolean }
       {open
         ? (
           <div
-            className='rp-anim-fade absolute inset-x-0 top-full z-40 border-t border-white/15'
+            className='rp-anim-fade absolute inset-x-0 top-full z-40 border-t border-[var(--rp-on-primary)]/15'
             style={{ backgroundColor: 'var(--rp-primary)' }}
           >
             <div className='rp-shell flex flex-col gap-10 py-10 md:flex-row lg:gap-16'>
               <div className='w-full shrink-0 md:w-80'>
                 <FishMark />
-                <h2 className='rp-display mt-4 text-xl text-white'>Generate from the corpus</h2>
+                <h2 className='rp-display mt-4 text-xl text-[var(--rp-on-primary)]'>
+                  Generate from the corpus
+                </h2>
                 <Link
                   to={`/t/${slug}/generate`}
                   onClick={() => setOpen(false)}
                   aria-label='Open Generate'
-                  className='rp-focus-inverse mt-4 inline-flex text-2xl text-white/85 transition-colors duration-150 hover:text-white'
+                  className='rp-focus-inverse mt-4 inline-flex text-2xl text-[var(--rp-on-primary)]/85 transition-colors duration-150 hover:text-[var(--rp-on-primary)]'
                 >
                   &rarr;
                 </Link>
@@ -133,7 +135,7 @@ export function GenerateMenu({ slug, active }: { slug: string; active: boolean }
 
               <div className='grid min-w-0 flex-1 gap-8 sm:grid-cols-2'>
                 <div>
-                  <h3 className='border-b border-white/25 pb-2.5 text-xs font-semibold uppercase tracking-[0.08em] text-white/60'>
+                  <h3 className='border-b border-[var(--rp-on-primary)]/25 pb-2.5 text-xs font-semibold uppercase tracking-[0.08em] text-[var(--rp-on-primary)]/60'>
                     Artefacts
                   </h3>
                   <ul className='mt-2'>
@@ -141,7 +143,7 @@ export function GenerateMenu({ slug, active }: { slug: string; active: boolean }
                   </ul>
                 </div>
                 <div>
-                  <h3 className='border-b border-white/25 pb-2.5 text-xs font-semibold uppercase tracking-[0.08em] text-white/60'>
+                  <h3 className='border-b border-[var(--rp-on-primary)]/25 pb-2.5 text-xs font-semibold uppercase tracking-[0.08em] text-[var(--rp-on-primary)]/60'>
                     Workspaces
                   </h3>
                   <ul className='mt-2'>

@@ -147,7 +147,7 @@ export function MakeCurrentToggle({
         aria-pressed={isCurrent}
         title={isCurrent ? 'This is your current investigation' : 'Make current'}
         className={`rp-btn rp-btn-ghost h-7 w-7 shrink-0 p-0 ${
-          isCurrent ? 'text-[var(--rp-accent)]' : 'text-ink-3'
+          isCurrent ? 'text-[var(--rp-accent-fg)]' : 'text-ink-3'
         } ${className ?? ''}`}
       >
         <PinIcon className='h-3.5 w-3.5' />

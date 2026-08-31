@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { PaletteChoiceSchema } from './palettes.ts'
 
 // ---------------------------------------------------------------------------
 // Tenant configuration - the single document that drives the whole portal UI.
@@ -63,6 +64,12 @@ export const BrandingSchema = z.object({
     heroTo: z.string(),
   }),
   typography: TypographyChoiceSchema.optional(),
+  /**
+   * Colour palette choice: a stock library palette, or 'default' for the
+   * portal's own seeded identity (its legacy `colours`). Absent means
+   * 'default', so existing portals render unchanged.
+   */
+  paletteId: PaletteChoiceSchema.optional(),
   shape: ShapeIdSchema.optional(),
   textScale: TextScaleIdSchema.optional(),
   density: DensityIdSchema.optional(),
@@ -860,3 +867,4 @@ export type AskEvent = z.infer<typeof AskEventSchema>
 // contract shared by the web front end and the retrieval provider.
 // ---------------------------------------------------------------------------
 export * from './docs.ts'
+export * from './palettes.ts'

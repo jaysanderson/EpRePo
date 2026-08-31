@@ -178,7 +178,7 @@ export function KbSwitcher({ config }: { config: TenantConfig }) {
                       fill='currentColor'
                       aria-hidden='true'
                       className='h-4 w-4 shrink-0'
-                      style={{ color: 'var(--rp-accent)' }}
+                      style={{ color: 'var(--rp-accent-fg)' }}
                     >
                       <path
                         fillRule='evenodd'

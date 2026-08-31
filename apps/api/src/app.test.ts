@@ -406,6 +406,7 @@ describe('appearance (typography, shape, branding fonts)', () => {
       shape: 'soft',
       textScale: 'larger',
       density: 'compact',
+      paletteId: 'fathom',
     })
     expect(response.status).toBe(200)
 
@@ -414,6 +415,7 @@ describe('appearance (typography, shape, branding fonts)', () => {
     expect(config.branding.shape).toBe('soft')
     expect(config.branding.textScale).toBe('larger')
     expect(config.branding.density).toBe('compact')
+    expect(config.branding.paletteId).toBe('fathom')
   })
 
   it('accepts the custom and default typography choices', async () => {
@@ -440,6 +442,7 @@ describe('appearance (typography, shape, branding fonts)', () => {
     expect((await patch(app, { shape: 'blobby' })).status).toBe(400)
     expect((await patch(app, { textScale: 'enormous' })).status).toBe(400)
     expect((await patch(app, { density: 'cramped' })).status).toBe(400)
+    expect((await patch(app, { paletteId: 'neon' })).status).toBe(400)
   })
 
   it('stores an uploaded heading font, exposes its URL and serves it back', async () => {

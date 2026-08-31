@@ -17,6 +17,7 @@ import type {
   KnowledgeBoxStatus,
   Labelset,
   MigrationEvent,
+  PaletteChoice,
   Question,
   RecentResource,
   ResourceContent,
@@ -640,6 +641,7 @@ export function updatePortalAppearance(
     shape?: ShapeId
     textScale?: TextScaleId
     density?: DensityId
+    paletteId?: PaletteChoice
   },
 ): Promise<{ ok: boolean }> {
   return adminRequest(`/api/admin/tenants/${encodeURIComponent(slug)}`, passcode, {

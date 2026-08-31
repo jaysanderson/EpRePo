@@ -78,7 +78,7 @@ function renderCitationMarkers(
           <Link
             to={citationHref(slug, citation.resourceId, matchedPassage)}
             className='font-semibold no-underline'
-            style={{ color: 'var(--rp-accent)' }}
+            style={{ color: 'var(--rp-accent-fg)' }}
             title={`Source ${citationIndex} - ${citation.title}`}
           >
             [{citationIndex}]

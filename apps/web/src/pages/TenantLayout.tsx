@@ -394,7 +394,7 @@ export function TenantLayout() {
           className='rp-anim-fade fixed inset-0 z-50 flex flex-col md:hidden'
           style={{ backgroundColor: 'var(--rp-primary)' }}
         >
-          <div className='flex shrink-0 items-center justify-between gap-4 border-b border-white/20 px-4 py-3'>
+          <div className='flex shrink-0 items-center justify-between gap-4 border-b border-[var(--rp-on-primary)]/20 px-4 py-3'>
             {config.branding.logoUrl && !logoFailed
               ? (
                 <img
@@ -404,7 +404,7 @@ export function TenantLayout() {
                 />
               )
               : (
-                <span className='rp-display text-base text-white'>
+                <span className='rp-display text-base text-[var(--rp-on-primary)]'>
                   {config.branding.productName}
                 </span>
               )}
@@ -412,7 +412,7 @@ export function TenantLayout() {
               type='button'
               onClick={() => setNavOpen(false)}
               aria-label='Close menu'
-              className='rp-focus-inverse flex h-11 w-11 shrink-0 items-center justify-center text-white'
+              className='rp-focus-inverse flex h-11 w-11 shrink-0 items-center justify-center text-[var(--rp-on-primary)]'
             >
               <svg viewBox='0 0 20 20' fill='currentColor' aria-hidden='true' className='h-5 w-5'>
                 <path d='M5.3 4.3l4.7 4.7 4.7-4.7 1 1L11 10l4.7 4.7-1 1L10 11l-4.7 4.7-1-1L9 10 4.3 5.3z' />
@@ -427,7 +427,7 @@ export function TenantLayout() {
                   <NavLink
                     to={`/t/${config.slug}${item.path}`}
                     end={item.end}
-                    className='rp-focus-inverse group flex items-center gap-3 border-b border-white/15 py-4 text-lg font-light text-white'
+                    className='rp-focus-inverse group flex items-center gap-3 border-b border-[var(--rp-on-primary)]/15 py-4 text-lg font-light text-[var(--rp-on-primary)]'
                   >
                     <span
                       aria-hidden='true'
@@ -450,23 +450,25 @@ export function TenantLayout() {
                 className='h-16 w-auto shrink-0'
               />
               <div className='min-w-0'>
-                <h2 className='rp-display text-lg text-white'>Generate from the corpus</h2>
+                <h2 className='rp-display text-lg text-[var(--rp-on-primary)]'>
+                  Generate from the corpus
+                </h2>
                 <NavLink
                   to={`/t/${config.slug}/generate`}
-                  className='rp-focus-inverse mt-1 inline-flex text-sm text-white/75'
+                  className='rp-focus-inverse mt-1 inline-flex text-sm text-[var(--rp-on-primary)]/75'
                 >
                   All artefacts &rarr;
                 </NavLink>
               </div>
             </div>
 
-            <p className='rp-eyebrow mt-6 text-white/55'>Artefacts</p>
+            <p className='rp-eyebrow mt-6 text-[var(--rp-on-primary)]/55'>Artefacts</p>
             <ul className='mt-1'>
               {GENERATE_KINDS.map((kind) => (
                 <li key={kind.id}>
                   <NavLink
                     to={`/t/${config.slug}/generate?kind=${kind.id}`}
-                    className='rp-focus-inverse group flex items-center gap-3 border-b border-white/15 py-3.5 text-base font-light text-white/85'
+                    className='rp-focus-inverse group flex items-center gap-3 border-b border-[var(--rp-on-primary)]/15 py-3.5 text-base font-light text-[var(--rp-on-primary)]/85'
                   >
                     <span
                       aria-hidden='true'
@@ -480,13 +482,13 @@ export function TenantLayout() {
               ))}
             </ul>
 
-            <p className='rp-eyebrow mt-6 text-white/55'>Workspaces</p>
+            <p className='rp-eyebrow mt-6 text-[var(--rp-on-primary)]/55'>Workspaces</p>
             <ul className='mt-1'>
               {GENERATE_WORKSPACES.map((workspace) => (
                 <li key={workspace.to}>
                   <NavLink
                     to={`/t/${config.slug}/${workspace.to}`}
-                    className='rp-focus-inverse group flex items-center gap-3 border-b border-white/15 py-3.5 text-base font-light text-white/85'
+                    className='rp-focus-inverse group flex items-center gap-3 border-b border-[var(--rp-on-primary)]/15 py-3.5 text-base font-light text-[var(--rp-on-primary)]/85'
                   >
                     <span
                       aria-hidden='true'
@@ -503,7 +505,7 @@ export function TenantLayout() {
             <div className='mt-8 flex flex-wrap gap-3'>
               <NavLink
                 to={`/t/${config.slug}/help`}
-                className='rp-focus-inverse border border-white/30 px-4 py-2.5 text-sm text-white'
+                className='rp-focus-inverse border border-[var(--rp-on-primary)]/30 px-4 py-2.5 text-sm text-[var(--rp-on-primary)]'
               >
                 Help
               </NavLink>
@@ -513,7 +515,7 @@ export function TenantLayout() {
                   setNavOpen(false)
                   setSignInOpen(true)
                 }}
-                className='rp-focus-inverse border border-white/30 px-4 py-2.5 text-sm text-white'
+                className='rp-focus-inverse border border-[var(--rp-on-primary)]/30 px-4 py-2.5 text-sm text-[var(--rp-on-primary)]'
               >
                 Sign in
               </button>

@@ -78,7 +78,7 @@ function PillRadioGroup<T extends string | number>({
             onClick={() => onChange(option.id)}
             className={`rp-focus rounded-[var(--rp-radius)] border px-4 py-2 text-sm font-medium transition-colors duration-150 ${
               active
-                ? 'text-white'
+                ? 'text-[var(--rp-on-primary)]'
                 : 'border-line bg-surface text-ink-2 hover:bg-[var(--rp-surface-2)] hover:text-ink'
             }`}
             style={active
@@ -122,7 +122,7 @@ function AreaCard({
         : null}
       <span
         className='mt-2 inline-flex items-center gap-1 text-sm font-medium transition-transform duration-150 group-hover:translate-x-0.5'
-        style={{ color: 'var(--rp-accent)' }}
+        style={{ color: 'var(--rp-accent-fg)' }}
       >
         Build an assessment
         <svg viewBox='0 0 16 16' fill='currentColor' className='h-3.5 w-3.5' aria-hidden='true'>

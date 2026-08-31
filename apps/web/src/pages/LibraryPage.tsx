@@ -61,7 +61,7 @@ function SelectionMark({ selected }: { selected: boolean }) {
           <svg
             viewBox='0 0 20 20'
             fill='none'
-            stroke='#fff'
+            stroke='var(--rp-on-accent)'
             strokeWidth='2.2'
             strokeLinecap='round'
             strokeLinejoin='round'

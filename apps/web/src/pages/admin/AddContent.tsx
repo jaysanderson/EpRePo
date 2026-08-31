@@ -366,7 +366,7 @@ export function AddContent({
                 }}
                 className={`shrink-0 rounded-[calc(var(--rp-radius)-2px)] px-3.5 py-1.5 text-sm font-medium transition-colors duration-150 ${
                   tab === t.id
-                    ? 'bg-[var(--rp-primary)] text-white'
+                    ? 'bg-[var(--rp-primary)] text-[var(--rp-on-primary)]'
                     : 'text-ink-2 hover:bg-[var(--rp-surface-2)]'
                 }`}
               >

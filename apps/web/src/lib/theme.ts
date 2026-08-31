@@ -1,10 +1,12 @@
 import { useEffect } from 'react'
 import type { CSSProperties } from 'react'
 import {
+  DEFAULT_PALETTES,
   type DensityId,
   FONT_PAIRINGS,
   type FontPairingId,
   FontPairingIdSchema,
+  type Palette,
   type ShapeId,
   type TenantConfig,
   type TextScaleId,
@@ -131,37 +133,134 @@ export function typographyVars(branding: Branding): Record<string, string> {
   }
 }
 
-/** Every theme var the tenant wrapper sets inline - colours, faces, radii, density. */
+/**
+ * Dark-polarity semantic status colours. The light values are the stylesheet
+ * defaults; a dark-suite palette overrides them so a status chip never glares
+ * a pastel ground into a near-black interface.
+ */
+const DARK_STATUS_VARS: Record<string, string> = {
+  '--rp-ok-bg': '#0e2f24',
+  '--rp-ok-ink': '#3fd598',
+  '--rp-ok-line': '#1d5c42',
+  '--rp-warn-bg': '#34270d',
+  '--rp-warn-ink': '#f5bd4f',
+  '--rp-warn-line': '#6b4e14',
+  '--rp-bad-bg': '#3b141d',
+  '--rp-bad-ink': '#fb7d90',
+  '--rp-bad-line': '#771f31',
+}
+
+/** The library palette a portal has chosen, or null for its seeded identity. */
+export function resolvePalette(branding: Branding): Palette | null {
+  const choice = branding.paletteId
+  if (!choice || choice === 'default') return null
+  return DEFAULT_PALETTES[choice].palette
+}
+
+/** 'dark' only when a dark-suite library palette is active. */
+export function paletteMode(branding: Branding): 'light' | 'dark' {
+  return resolvePalette(branding)?.mode ?? 'light'
+}
+
+/**
+ * The colour tokens, twelve roles plus the grey suite. With no library
+ * palette chosen this derives the role tokens from the portal's seeded
+ * four-colour identity exactly as the code used to hardcode them (white on
+ * primary and accent, accent doubling as link and focus, washes as mixes),
+ * so existing portals render unchanged; the grey suite then stays on the
+ * house defaults from the stylesheet.
+ */
+export function paletteVars(branding: Branding): Record<string, string> {
+  const palette = resolvePalette(branding)
+  if (!palette) {
+    const { primary, accent, heroFrom, heroTo } = branding.colours
+    return {
+      '--rp-primary': primary,
+      '--rp-accent': accent,
+      '--rp-hero-from': heroFrom,
+      '--rp-hero-to': heroTo,
+      '--rp-on-primary': '#ffffff',
+      '--rp-brand-fg': primary,
+      '--rp-on-accent': '#ffffff',
+      '--rp-accent-fg': accent,
+      '--rp-focus': accent,
+      '--rp-on-hero': '#ffffff',
+      '--rp-wash': `color-mix(in srgb, ${accent} 12%, var(--rp-surface))`,
+      '--rp-wash-strong': `color-mix(in srgb, ${accent} 22%, var(--rp-surface))`,
+    }
+  }
+  return {
+    '--rp-primary': palette.brandSurface,
+    '--rp-on-primary': palette.onBrandSurface,
+    '--rp-brand-fg': palette.brandForeground,
+    '--rp-accent': palette.accent,
+    '--rp-on-accent': palette.onAccent,
+    '--rp-accent-fg': palette.accentForeground,
+    '--rp-focus': palette.focusRing,
+    '--rp-wash': palette.accentWash,
+    '--rp-wash-strong': palette.accentWashStrong,
+    '--rp-hero-from': palette.heroFrom,
+    '--rp-hero-to': palette.heroTo,
+    '--rp-on-hero': palette.onHero,
+    '--rp-paper': palette.paper,
+    '--rp-app': palette.paper,
+    '--rp-surface': palette.surface,
+    '--rp-surface-2': palette.surface2,
+    '--rp-surface-3': palette.line,
+    '--rp-line': palette.line,
+    '--rp-line-2': palette.surface2,
+    '--rp-ink': palette.ink,
+    '--rp-ink-2': palette.ink2,
+    '--rp-ink-3': palette.ink3,
+    ...(palette.mode === 'dark'
+      ? {
+        ...DARK_STATUS_VARS,
+        '--rp-glass-bg': `color-mix(in srgb, ${palette.surface} 92%, transparent)`,
+      }
+      : {}),
+  }
+}
+
+/** Every theme var the tenant wrapper sets inline - palette, faces, radii, density. */
 export function tenantThemeVars(branding: Branding): CSSProperties {
   return {
-    '--rp-primary': branding.colours.primary,
-    '--rp-accent': branding.colours.accent,
-    '--rp-hero-from': branding.colours.heroFrom,
-    '--rp-hero-to': branding.colours.heroTo,
+    ...paletteVars(branding),
     ...typographyVars(branding),
     ...shapeVars(branding.shape),
     ...densityVars(branding.density),
+    colorScheme: paletteMode(branding),
   } as CSSProperties
 }
 
 /**
- * Mirror the tenant theme onto <body>. Overlays that portal to document.body
- * (command palette, sheets, the answer journey) render outside the tenant
- * wrapper and would otherwise fall back to the house theme - fonts, shape
- * and density alike. Applied while a tenant layout is mounted, removed when
- * it unmounts, so non-tenant routes keep the neutral defaults.
+ * Mirror the tenant theme onto <body> (and the paper ground plus
+ * color-scheme onto <html>, which sits above the wrapper and paints the
+ * overscroll). Overlays that portal to document.body render outside the
+ * tenant wrapper and would otherwise fall back to the house theme - fonts,
+ * shape, density and palette alike. Applied while a tenant layout is
+ * mounted, removed when it unmounts, so non-tenant routes keep the neutral
+ * defaults.
  */
 export function useBodyTheme(branding: Branding | undefined): void {
   useEffect(() => {
     if (!branding) return
-    const vars = tenantThemeVars(branding) as Record<string, string>
+    const { colorScheme, ...rest } = tenantThemeVars(branding) as Record<string, string>
+    const root = document.documentElement
+    const scheme = colorScheme ?? 'light'
     document.body.classList.add('rp-tenant')
-    for (const [name, value] of Object.entries(vars)) {
+    for (const [name, value] of Object.entries(rest)) {
       document.body.style.setProperty(name, value)
     }
+    document.body.style.colorScheme = scheme
+    root.style.colorScheme = scheme
+    const paper = rest['--rp-paper']
+    if (paper) root.style.setProperty('--rp-paper', paper)
     return () => {
       document.body.classList.remove('rp-tenant')
-      for (const name of Object.keys(vars)) document.body.style.removeProperty(name)
+      for (const name of Object.keys(rest)) document.body.style.removeProperty(name)
+      document.body.style.removeProperty('color-scheme')
+      root.style.removeProperty('color-scheme')
+      root.style.removeProperty('--rp-paper')
     }
   }, [branding])
 }

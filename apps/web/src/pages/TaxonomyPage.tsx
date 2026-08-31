@@ -130,7 +130,7 @@ function AddLabelsetCard({
               onClick={() => setMultiple(false)}
               className={`rounded-[calc(var(--rp-radius)-2px)] px-3.5 py-1.5 text-sm font-medium transition-colors duration-150 ${
                 !multiple
-                  ? 'bg-[var(--rp-primary)] text-white'
+                  ? 'bg-[var(--rp-primary)] text-[var(--rp-on-primary)]'
                   : 'text-ink-2 hover:bg-[var(--rp-surface-2)]'
               }`}
             >
@@ -142,7 +142,7 @@ function AddLabelsetCard({
               onClick={() => setMultiple(true)}
               className={`rounded-[calc(var(--rp-radius)-2px)] px-3.5 py-1.5 text-sm font-medium transition-colors duration-150 ${
                 multiple
-                  ? 'bg-[var(--rp-primary)] text-white'
+                  ? 'bg-[var(--rp-primary)] text-[var(--rp-on-primary)]'
                   : 'text-ink-2 hover:bg-[var(--rp-surface-2)]'
               }`}
             >
