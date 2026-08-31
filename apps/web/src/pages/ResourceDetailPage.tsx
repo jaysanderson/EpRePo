@@ -24,7 +24,15 @@ import { AnswerStream } from '../components/AnswerStream.tsx'
 import { PdfReader } from '../components/PdfReader.tsx'
 import { ResourceThumb } from '../components/ResourceThumb.tsx'
 import { SaveEvidenceButton } from '../components/SaveEvidence.tsx'
-import { EmptyState, ErrorCard, prettyLabel, Skeleton, TypeBadge } from '../components/ui.tsx'
+import {
+  EmptyState,
+  ErrorCard,
+  prettyLabel,
+  sameLabel,
+  Skeleton,
+  TypeBadge,
+  typeLabel,
+} from '../components/ui.tsx'
 import {
   blockPlainText,
   buildRelatedQuery,
@@ -665,11 +673,49 @@ function ResourceViewer(
 }
 
 /**
- * Top-of-page identity: type/kind badges, the document title, its topic tags,
- * and the primary Save-to-investigation action - shown above the viewer so the
- * reader knows what they are looking at, and can act on it, before scrolling.
- * The title spans the full content width; the actions sit beside it on wide
- * screens and stack beneath it on narrow ones.
+ * The way back out of a document. Rendered in every state of this page - the
+ * skeleton and the error cards included - so a reader is never stranded on a
+ * document that failed to load. Sized as a control rather than a bare line of
+ * text so it is a comfortable thumb target, and pulled left by its own padding
+ * so its label still aligns optically with the title beneath it.
+ *
+ * The label shortens to "Library" on a phone, where this link shares its row
+ * with the Save action and that action grows once a current investigation is
+ * pinned to it. The arrow carries the "back" sense either way, and the
+ * accessible name stays "Back to library" at every width.
+ */
+function BackToLibrary({ slug }: { slug: string }) {
+  return (
+    <Link
+      to={`/t/${slug}/library`}
+      aria-label='Back to library'
+      className='rp-focus -ml-2 inline-flex h-9 min-w-9 items-center gap-1.5 rounded-[var(--rp-radius-btn)] px-2 text-sm font-medium text-ink-3 transition-colors duration-150 hover:text-ink'
+    >
+      {
+        /* The arrow never shrinks, so on a very narrow phone - where the Save
+        * control beside it is at its widest - the label gives up its width
+        * first and the affordance survives as the arrow alone. */
+      }
+      <span aria-hidden='true' className='shrink-0'>&larr;</span>
+      <span className='truncate sm:hidden'>Library</span>
+      <span className='hidden truncate sm:inline'>Back to library</span>
+    </Link>
+  )
+}
+
+/**
+ * Top-of-page identity, in three bands: a utility row that pairs the way out
+ * with the primary Save action, the title, and one wrapping meta line carrying
+ * everything that qualifies the title - type, kind, topics, publication facts
+ * and provenance.
+ *
+ * The shape is driven by the phone. Navigation and an action are page chrome,
+ * so they share a single short row rather than each claiming a full-width band;
+ * the title then lands second, high on the screen, and reads as the anchor it
+ * is. Everything descriptive collapses underneath it into one flow that wraps
+ * only when it must, instead of a stack of one-item rows. The same structure
+ * suits a wide screen: the title gets the entire content width rather than
+ * being squeezed beside a column of actions.
  */
 function ResourceHeader(
   { slug, resource, originUrl, topicLabel, organisation }: {
@@ -680,66 +726,31 @@ function ResourceHeader(
     organisation: string
   },
 ) {
+  const kind = resource.kind ? prettyLabel(resource.kind, organisation) : null
+  // The kind chip is dropped when it only restates the type badge - a
+  // `document` (labelled "Report") filed under kind "report" printed the word
+  // twice, on all but a handful of the corpus. Compared after prettyLabel and
+  // case-insensitively, because the two values arrive from different fields in
+  // different casings; a kind that genuinely adds something ("Submission",
+  // "Plan", "Framework") still shows.
+  const kindBadge = kind && !sameLabel(kind, typeLabel(resource.type)) ? kind : null
+
+  const topics = resource.topicIds
+    .map((id) => ({ id, label: topicLabel(id) }))
+    .filter((topic): topic is { id: string; label: string } => Boolean(topic.label))
+
   const year = resource.published ? formatYear(resource.published) : null
   const projectNumber = frdcProjectNumber(resource.sourceName ?? resource.title)
+  const facts: Array<{ label: string; value: string }> = []
+  if (year) facts.push({ label: 'Published', value: year })
+  if (projectNumber) facts.push({ label: 'Project', value: projectNumber })
+  if (resource.sourceName) facts.push({ label: 'Source file', value: resource.sourceName })
 
   return (
-    <header className='mt-4'>
-      <div className='flex flex-wrap items-center gap-2'>
-        <TypeBadge type={resource.type} />
-        {resource.kind
-          ? (
-            <span className='rp-badge rp-badge-quiet'>
-              {prettyLabel(resource.kind, organisation)}
-            </span>
-          )
-          : null}
-        {year
-          ? <span className='text-xs font-medium tabular-nums text-ink-3'>Published {year}</span>
-          : null}
-        {projectNumber
-          ? (
-            <span className='text-xs font-medium tabular-nums text-ink-3'>
-              Project {projectNumber}
-            </span>
-          )
-          : null}
-      </div>
-
-      <div className='mt-3 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between lg:gap-8'>
-        <div className='min-w-0'>
-          <h1 className='rp-display text-2xl leading-tight text-ink sm:text-[1.75rem]'>
-            {resource.title}
-          </h1>
-          {resource.sourceName
-            ? (
-              <p className='mt-1 text-xs tabular-nums text-ink-3'>
-                Source file <span className='font-medium'>{resource.sourceName}</span>
-              </p>
-            )
-            : null}
-          {resource.topicIds.length > 0
-            ? (
-              <div className='mt-3 flex flex-wrap gap-1.5'>
-                {resource.topicIds.map((topicId) => {
-                  const label = topicLabel(topicId)
-                  if (!label) return null
-                  return (
-                    <Link
-                      key={topicId}
-                      to={`/t/${slug}/library?topics=${encodeURIComponent(topicId)}`}
-                      className='rp-focus rp-badge rp-badge-quiet transition-colors duration-150 hover:text-ink'
-                    >
-                      {label}
-                    </Link>
-                  )
-                })}
-              </div>
-            )
-            : null}
-        </div>
-
-        <div className='flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2 lg:justify-end'>
+    <header>
+      <div className='flex items-center justify-between gap-3'>
+        <BackToLibrary slug={slug} />
+        <div className='shrink-0'>
           <SaveEvidenceButton
             slug={slug}
             label='Save to investigation'
@@ -749,20 +760,53 @@ function ResourceHeader(
               resourceTitle: resource.title,
             }}
           />
-          {originUrl
-            ? (
-              <a
-                href={originUrl}
-                target='_blank'
-                rel='noopener noreferrer'
-                className='rp-focus flex items-center gap-1.5 rounded-[var(--rp-radius-btn)] text-sm font-medium underline decoration-dotted underline-offset-2'
-                style={{ color: 'var(--rp-accent-fg)' }}
-              >
-                View original source <span aria-hidden='true'>&rarr;</span>
-              </a>
-            )
-            : null}
         </div>
+      </div>
+
+      {/* `break-words`: a title that is one long unspaced token still wraps. */}
+      <h1 className='rp-display mt-2 break-words text-2xl leading-tight text-ink sm:text-[1.75rem]'>
+        {resource.title}
+      </h1>
+
+      <div className='mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1.5'>
+        <TypeBadge type={resource.type} />
+        {kindBadge ? <span className='rp-badge rp-badge-quiet'>{kindBadge}</span> : null}
+        {topics.map((topic) => (
+          <Link
+            key={topic.id}
+            to={`/t/${slug}/library?topics=${encodeURIComponent(topic.id)}`}
+            className='rp-focus rp-badge rp-badge-quiet transition-colors duration-150 hover:text-ink'
+          >
+            {topic.label}
+          </Link>
+        ))}
+        {facts.length > 0
+          ? (
+            <div className='flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-3'>
+              {facts.map((fact) => (
+                <span key={fact.label} className='min-w-0'>
+                  {fact.label}{' '}
+                  <span className='break-words font-medium tabular-nums text-ink-2'>
+                    {fact.value}
+                  </span>
+                </span>
+              ))}
+            </div>
+          )
+          : null}
+        {originUrl
+          ? (
+            <a
+              href={originUrl}
+              target='_blank'
+              rel='noopener noreferrer'
+              className='rp-focus rounded-[var(--rp-radius-btn)] text-xs font-medium underline decoration-dotted underline-offset-2'
+              style={{ color: 'var(--rp-accent-fg)' }}
+            >
+              View original source <span aria-hidden='true'>&rarr;</span>
+            </a>
+          )
+          : null}
       </div>
     </header>
   )
@@ -897,18 +941,20 @@ function DocumentChat(
           strokeLinecap='round'
           strokeLinejoin='round'
           aria-hidden='true'
-          className='h-4 w-4 text-ink-3'
+          className='h-[1.125rem] w-[1.125rem] shrink-0 text-ink-3'
         >
           <path d='M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z' />
         </svg>
-        <h2 id='chat-heading' className='text-sm font-semibold text-ink'>
+        <h2 id='chat-heading' className='text-base font-semibold leading-6 text-ink'>
           Chat with this document
         </h2>
       </div>
-      <p className='mt-1 text-sm text-ink-3'>
-        Answers are grounded in this document only, with citations.
-      </p>
 
+      {
+        /* No placeholder: the heading above already says what the field is for,
+        * and the starter questions below show the shape of a good one. The
+        * screen-reader label carries the accessible name instead. */
+      }
       <form onSubmit={submit} className='mt-4'>
         <label htmlFor='ask-document' className='sr-only'>
           Ask a question about {resource.title}
@@ -920,8 +966,7 @@ function DocumentChat(
             type='text'
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
-            placeholder='Ask a question about this document'
-            className='min-w-0 flex-1 border-0 bg-transparent py-1.5 text-sm text-ink placeholder:text-[var(--rp-ink-3)] focus:outline-none'
+            className='min-w-0 flex-1 border-0 bg-transparent py-1.5 text-sm text-ink focus:outline-none'
           />
           <button type='submit' className='rp-btn rp-btn-primary shrink-0 font-semibold'>
             Ask
@@ -1228,14 +1273,15 @@ export function ResourceDetailPage() {
 
   return (
     <main className='rp-shell py-8'>
-      <Link
-        to={`/t/${config.slug}/library`}
-        className='text-sm font-medium text-[var(--rp-ink-3)] transition-colors duration-150 hover:text-[var(--rp-ink)]'
-      >
-        &larr; Back to library
-      </Link>
+      {
+        /* Loaded, the way back rides in the header's utility row alongside the
+        * Save action, so it costs no row of its own. While the document is
+        * still loading, or has failed to load, there is no header to carry it
+        * and it stands on its own above the state. */
+      }
+      {isLoading || isError ? <BackToLibrary slug={config.slug} /> : null}
 
-      <div className='mt-4'>
+      <div className={isLoading || isError ? 'mt-3' : ''}>
         {isLoading ? <ViewerSkeleton /> : null}
 
         {isError && notFound
