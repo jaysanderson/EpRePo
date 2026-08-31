@@ -1285,6 +1285,72 @@ export function AssistantPage() {
   const askHandledRef = useRef(false)
   // Debounced per-session background sync to the server, keyed by session id.
   const syncTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
+  const composerRef = useRef<HTMLFormElement | null>(null)
+
+  /**
+   * Below `lg` the composer is a pinned bar and the layout is a single column;
+   * from `lg` up the sessions rail is beside the thread and the composer is an
+   * ordinary block. A media query rather than a resize listener, because the
+   * three things it drives (the pinned bar, the dropped placeholder, the hidden
+   * keyboard hint) all switch at exactly the breakpoint the CSS uses.
+   */
+  const [isCompact, setIsCompact] = useState(() =>
+    globalThis.matchMedia?.('(max-width: 1023.98px)').matches ?? false
+  )
+  /**
+   * Measured height of the pinned composer. The thread scrolls underneath it,
+   * so the auto-scroll has to stop this far short of the bottom or the newest
+   * answer lands behind the bar. Measured, never guessed: the bar grows a row
+   * when the textarea wraps and shrinks when Stop replaces Send.
+   */
+  const [composerHeight, setComposerHeight] = useState(0)
+  /**
+   * How much of the bottom of the layout viewport something is covering -
+   * in practice the software keyboard. iOS does not shrink the layout viewport
+   * (nor `100dvh`) when the keyboard opens, so a bar anchored to the bottom of
+   * the page sits behind it; `visualViewport` is the only thing that reports
+   * the genuinely visible area.
+   */
+  const [keyboardInset, setKeyboardInset] = useState(0)
+
+  useEffect(() => {
+    const query = globalThis.matchMedia('(max-width: 1023.98px)')
+    const apply = () => setIsCompact(query.matches)
+    apply()
+    query.addEventListener('change', apply)
+    return () => query.removeEventListener('change', apply)
+  }, [])
+
+  useEffect(() => {
+    const element = composerRef.current
+    if (!element) return
+    const apply = () => setComposerHeight(Math.round(element.getBoundingClientRect().height))
+    apply()
+    const observer = new ResizeObserver(apply)
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [])
+
+  useEffect(() => {
+    const viewport = globalThis.visualViewport
+    if (!viewport) return
+    const apply = () => {
+      // documentElement.clientHeight, not innerHeight: on iOS innerHeight
+      // tracks the layout viewport too, so the difference against the visual
+      // viewport is exactly what the keyboard has taken.
+      const covered = document.documentElement.clientHeight - viewport.height - viewport.offsetTop
+      // Anything under a keyboard's worth is browser chrome animating (the iOS
+      // URL bar collapsing), and reacting to that would make the bar twitch.
+      setKeyboardInset(covered > 80 ? Math.round(covered) : 0)
+    }
+    apply()
+    viewport.addEventListener('resize', apply)
+    viewport.addEventListener('scroll', apply)
+    return () => {
+      viewport.removeEventListener('resize', apply)
+      viewport.removeEventListener('scroll', apply)
+    }
+  }, [])
 
   const { data: suggestions } = useQuery({
     queryKey: ['suggested-questions', config.slug],
@@ -1816,18 +1882,8 @@ export function AssistantPage() {
   return (
     <main
       aria-label='Research assistant'
-      className='mx-auto flex h-[calc(100dvh-var(--rp-header-h,126px))] max-w-[100rem] flex-col gap-3 px-4 py-4 sm:px-6 sm:py-6 lg:flex-row lg:gap-6 2xl:gap-8'
+      className='mx-auto flex h-[calc(100dvh-var(--rp-header-h,126px))] max-w-[100rem] flex-col gap-3 px-4 pt-4 pb-0 sm:px-6 sm:pt-6 lg:flex-row lg:gap-6 lg:pb-6 2xl:gap-8'
     >
-      <div className='flex shrink-0 items-center justify-between lg:hidden'>
-        <button
-          type='button'
-          onClick={() => setShowSidebar(true)}
-          className='rp-chip h-9 sm:h-7'
-        >
-          Sessions
-        </button>
-      </div>
-
       <aside
         aria-label='Chat sessions'
         className='hidden w-64 shrink-0 rounded-[calc(var(--rp-radius)+4px)] border border-line bg-surface-2 p-3 lg:flex 2xl:w-72'
@@ -1874,7 +1930,15 @@ export function AssistantPage() {
         )
         : null}
 
-      <div className='flex w-full min-w-0 flex-1 flex-col'>
+      {
+        /* min-h-0 is load-bearing on a phone. Stacked as a column, this item's
+        * automatic minimum size is its content height, so a long answer grew
+        * the column past the viewport-height `main`, took the whole document
+        * scrollbar with it and carried the composer off the bottom of the
+        * screen. From `lg` up the row axis constrained it and the bug never
+        * showed. */
+      }
+      <div className='flex w-full min-w-0 min-h-0 flex-1 flex-col'>
         {!isEmpty
           ? (
             <div className='mb-6 flex shrink-0 items-center justify-between gap-4'>
@@ -1906,136 +1970,249 @@ export function AssistantPage() {
 
         <LiveStatus message={liveMessage} />
 
-        <section
-          aria-label='Conversation'
-          className='flex-1 space-y-4 overflow-y-auto pb-4'
-        >
-          {isEmpty
-            ? (
-              <div className='space-y-4'>
-                {suggestions && suggestions.length > 0
-                  ? (
-                    <div className='pt-10'>
-                      <p className='rp-eyebrow text-center text-ink-3'>Try a question</p>
-                      {
-                        /* Chips on a phone, where a grid of cards would stack into
-                        * a wall; proper cards from sm up. */
-                      }
-                      <div className='mt-4 grid gap-2.5 sm:grid-cols-2'>
-                        {suggestions.slice(0, 6).map((question) => (
-                          <button
-                            key={question.id}
-                            type='button'
-                            onClick={() => void send(question.text)}
-                            className='rp-suggest-card'
-                          >
-                            <span className='rp-suggest-text'>{question.text}</span>
-                            <span aria-hidden='true' className='rp-suggest-arrow'>&rarr;</span>
-                          </button>
-                        ))}
+        {
+          /* Below `lg` this wrapper is the scroll container and the composer
+          * sticks to its bottom edge, so the thread runs underneath the bar
+          * instead of stopping above it. From `lg` up the wrapper is inert and
+          * the thread keeps its own scrollbar exactly as before. */
+        }
+        <div className='flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain lg:overflow-visible'>
+          <section
+            aria-label='Conversation'
+            className='flex-1 space-y-4 pb-4 lg:overflow-y-auto'
+          >
+            {isEmpty
+              ? (
+                <div className='space-y-4'>
+                  {suggestions && suggestions.length > 0
+                    ? (
+                      <div className='pt-10'>
+                        <p className='rp-eyebrow text-center text-ink-3'>Try a question</p>
+                        {
+                          /* Chips on a phone, where a grid of cards would stack into
+                          * a wall; proper cards from sm up. */
+                        }
+                        <div className='mt-4 grid gap-2.5 sm:grid-cols-2'>
+                          {suggestions.slice(0, 6).map((question) => (
+                            <button
+                              key={question.id}
+                              type='button'
+                              onClick={() => void send(question.text)}
+                              className='rp-suggest-card'
+                            >
+                              <span className='rp-suggest-text'>{question.text}</span>
+                              <span aria-hidden='true' className='rp-suggest-arrow'>&rarr;</span>
+                            </button>
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                  )
-                  : null}
-              </div>
-            )
-            : (
-              messages.map((message, index) =>
-                message.author === 'USER'
-                  ? (
-                    <UserBubble
-                      key={message.id}
-                      message={message}
-                      onAskSubquery={(subquery) => void send(subquery)}
-                    />
-                  )
-                  : (
-                    <AssistantCard
-                      key={message.id}
-                      message={message}
-                      slug={config.slug}
-                      question={messages[index - 1]?.author === 'USER'
-                        ? messages[index - 1]?.text ?? ''
-                        : ''}
-                      subqueries={messages[index - 1]?.author === 'USER'
-                        ? messages[index - 1]?.subqueries ?? []
-                        : []}
-                      stageStatuses={index === messages.length - 1 ? stageStatuses : undefined}
-                      onRetry={() => retry(message.id)}
-                      onFeedback={(good, text) => sendFeedback(message.id, good, text)}
-                      onReanswerDeeply={() =>
-                        reanswerDeeply(
-                          messages[index - 1]?.author === 'USER'
-                            ? messages[index - 1]?.text ?? ''
-                            : '',
-                          message.id,
-                        )}
-                      onAskSubquery={(subquery) => void send(subquery)}
-                      onVerdicts={(verdicts) => saveVerdicts(message.id, verdicts)}
-                    />
-                  )
-              )
-            )}
-          <div ref={threadEndRef} />
-        </section>
-
-        <form onSubmit={handleSubmit} className='mt-2 shrink-0'>
-          <div className='mb-1.5 flex flex-wrap items-center gap-2 px-1'>
-            <button
-              type='button'
-              onClick={() => setDeepResearch((prev) => !prev)}
-              disabled={isStreaming}
-              aria-pressed={deepResearch}
-              className={`rp-chip h-9 sm:h-7 ${deepResearch ? 'rp-chip-active' : ''}`}
-            >
-              Deep research
-            </button>
-            {deepResearch
-              ? (
-                <span className='text-xs text-ink-3'>
-                  Maps sub-questions before answering - slower, more thorough.
-                </span>
-              )
-              : null}
-          </div>
-          <div className='flex items-end gap-2 rounded-[calc(var(--rp-radius)+4px)] border border-line bg-surface p-2 shadow-sm'>
-            <label htmlFor='assistant-composer' className='sr-only'>
-              Ask a question
-            </label>
-            <textarea
-              id='assistant-composer'
-              value={draft}
-              onChange={(event) => setDraft(event.target.value)}
-              onKeyDown={handleKeyDown}
-              disabled={isStreaming}
-              rows={1}
-              placeholder={config.searchPlaceholder}
-              className='max-h-40 min-w-0 flex-1 resize-none rounded-[var(--rp-radius)] border-0 bg-transparent px-3 py-2 text-sm text-ink placeholder:text-[var(--rp-ink-3)] focus:outline-none disabled:opacity-60'
-            />
-            {isStreaming
-              ? (
-                <button
-                  type='button'
-                  onClick={stop}
-                  className='rp-btn rp-btn-outline shrink-0'
-                >
-                  Stop
-                </button>
+                    )
+                    : null}
+                </div>
               )
               : (
-                <button
-                  type='submit'
-                  disabled={draft.trim().length === 0}
-                  className='rp-btn rp-btn-primary shrink-0'
-                >
-                  Send
-                </button>
+                messages.map((message, index) =>
+                  message.author === 'USER'
+                    ? (
+                      <UserBubble
+                        key={message.id}
+                        message={message}
+                        onAskSubquery={(subquery) => void send(subquery)}
+                      />
+                    )
+                    : (
+                      <AssistantCard
+                        key={message.id}
+                        message={message}
+                        slug={config.slug}
+                        question={messages[index - 1]?.author === 'USER'
+                          ? messages[index - 1]?.text ?? ''
+                          : ''}
+                        subqueries={messages[index - 1]?.author === 'USER'
+                          ? messages[index - 1]?.subqueries ?? []
+                          : []}
+                        stageStatuses={index === messages.length - 1 ? stageStatuses : undefined}
+                        onRetry={() => retry(message.id)}
+                        onFeedback={(good, text) => sendFeedback(message.id, good, text)}
+                        onReanswerDeeply={() =>
+                          reanswerDeeply(
+                            messages[index - 1]?.author === 'USER'
+                              ? messages[index - 1]?.text ?? ''
+                              : '',
+                            message.id,
+                          )}
+                        onAskSubquery={(subquery) => void send(subquery)}
+                        onVerdicts={(verdicts) => saveVerdicts(message.id, verdicts)}
+                      />
+                    )
+                )
               )}
-          </div>
-          <p className='mt-1.5 px-1 text-xs text-ink-3'>
-            Enter to send &middot; Shift+Enter for a new line
-          </p>
-        </form>
+            {
+              /* Auto-scroll anchor. On a phone it has to stop short of the bar
+              * the thread runs under, so it carries the measured composer
+              * height (plus anything the keyboard is covering) as a scroll
+              * margin rather than a hardcoded guess. */
+            }
+            <div
+              ref={threadEndRef}
+              style={isCompact ? { scrollMarginBottom: composerHeight + keyboardInset } : undefined}
+            />
+          </section>
+
+          {
+            /* Sticky, not fixed. It stays in flow, so the bar can never be
+            * stranded over the thread the way a fixed element was when iOS grew
+            * `100dvh` under it; `bottom` only ever lifts it clear of the
+            * software keyboard, which the layout viewport does not report. */
+          }
+          <form
+            ref={composerRef}
+            onSubmit={handleSubmit}
+            className='sticky bottom-0 z-10 mt-2 shrink-0 border-t border-line bg-[var(--rp-app)] pt-2 pb-2 lg:static lg:border-t-0 lg:bg-transparent lg:pt-0 lg:pb-0'
+            style={isCompact
+              ? {
+                bottom: keyboardInset,
+                paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))',
+              }
+              : undefined}
+          >
+            <div className='mb-1.5 flex flex-wrap items-center gap-2 px-1'>
+              {
+                /* Sessions rides with Deep research on a phone: two related
+                * controls on one row above the input, rather than a lone button
+                * stranded at the top of the page. The sessions rail is always
+                * visible from `lg` up, so the button is not needed there.
+                *
+                * Rendered conditionally rather than hidden with `lg:hidden`:
+                * `.rp-chip` sets its own `display` later in the stylesheet than
+                * Tailwind's utilities, so the class would not have hidden it. */
+              }
+              {isCompact
+                ? (
+                  <button
+                    type='button'
+                    onClick={() => setShowSidebar(true)}
+                    className='rp-chip h-9 sm:h-7'
+                  >
+                    <svg
+                      viewBox='0 0 24 24'
+                      fill='none'
+                      stroke='currentColor'
+                      strokeWidth={1.8}
+                      strokeLinecap='round'
+                      strokeLinejoin='round'
+                      className='h-4 w-4'
+                      aria-hidden='true'
+                    >
+                      <path d='M3 12a9 9 0 1 0 2.6-6.4L3 8' />
+                      <path d='M3 3v5h5' />
+                      <path d='M12 7.5V12l3.2 1.9' />
+                    </svg>
+                    Sessions
+                  </button>
+                )
+                : null}
+              <button
+                type='button'
+                onClick={() => setDeepResearch((prev) => !prev)}
+                disabled={isStreaming}
+                aria-pressed={deepResearch}
+                className={`rp-chip h-9 sm:h-7 ${deepResearch ? 'rp-chip-active' : ''}`}
+              >
+                <svg
+                  viewBox='0 0 24 24'
+                  fill='none'
+                  stroke='currentColor'
+                  strokeWidth={1.8}
+                  strokeLinecap='round'
+                  strokeLinejoin='round'
+                  className='h-4 w-4'
+                  aria-hidden='true'
+                >
+                  <circle cx='10.5' cy='11' r='5.8' />
+                  <path d='M14.8 15.2L20 20.4' />
+                  <path d='M18.6 2.6v3.6M16.8 4.4h3.6' />
+                </svg>
+                Deep research
+              </button>
+              {
+                /* One-off explanation, and it wraps onto a line of its own at
+                * 390px - a row the pinned bar would then charge to the thread
+                * every time deep research is on. The chip's active state says
+                * the same thing on a phone. */
+              }
+              {deepResearch
+                ? (
+                  <span className='hidden text-xs text-ink-3 lg:inline'>
+                    Maps sub-questions before answering - slower, more thorough.
+                  </span>
+                )
+                : null}
+            </div>
+            <div className='flex items-end gap-2 rounded-[calc(var(--rp-radius)+4px)] border border-line bg-surface p-2 shadow-sm'>
+              <label htmlFor='assistant-composer' className='sr-only'>
+                Ask a question
+              </label>
+              {
+                /* The placeholder is dropped on a phone (it clipped mid-word
+                * across two lines), so the field carries a pencil instead to
+                * keep it reading as somewhere to type. The sr-only label above
+                * is still what screen readers announce. */
+              }
+              <span aria-hidden='true' className='shrink-0 pb-2 pl-1 text-ink-3 lg:hidden'>
+                <svg
+                  viewBox='0 0 24 24'
+                  fill='none'
+                  stroke='currentColor'
+                  strokeWidth={1.8}
+                  strokeLinecap='round'
+                  strokeLinejoin='round'
+                  className='h-[18px] w-[18px]'
+                >
+                  <path d='M12 20h8' />
+                  <path d='M16.5 3.5a2.1 2.1 0 0 1 3 3L7.5 18.5l-4 1 1-4z' />
+                </svg>
+              </span>
+              <textarea
+                id='assistant-composer'
+                value={draft}
+                onChange={(event) => setDraft(event.target.value)}
+                onKeyDown={handleKeyDown}
+                disabled={isStreaming}
+                rows={1}
+                placeholder={isCompact ? undefined : config.searchPlaceholder}
+                className='max-h-40 min-w-0 flex-1 resize-none rounded-[var(--rp-radius)] border-0 bg-transparent px-2 py-2 text-sm text-ink placeholder:text-[var(--rp-ink-3)] focus:outline-none disabled:opacity-60 lg:px-3'
+              />
+              {isStreaming
+                ? (
+                  <button
+                    type='button'
+                    onClick={stop}
+                    className='rp-btn rp-btn-outline shrink-0'
+                  >
+                    Stop
+                  </button>
+                )
+                : (
+                  <button
+                    type='submit'
+                    disabled={draft.trim().length === 0}
+                    className='rp-btn rp-btn-primary shrink-0'
+                  >
+                    Send
+                  </button>
+                )}
+            </div>
+            {
+              /* Physical-keyboard guidance. On a phone there is no Shift+Enter
+              * to give, and the row would cost the thread its own height in a
+              * bar that is already pinned over it. */
+            }
+            <p className='mt-1.5 hidden px-1 text-xs text-ink-3 lg:block'>
+              Enter to send &middot; Shift+Enter for a new line
+            </p>
+          </form>
+        </div>
       </div>
     </main>
   )
