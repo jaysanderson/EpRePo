@@ -30,6 +30,13 @@
   --rp-font-display-tracking: -0.022em;
   --rp-font-display-leading: 1.05;
 
+  /* Density hooks - TenantLayout overrides these from branding.density.
+   * The rhythm dial rescales the whole Tailwind spacing scale (see
+   * .rp-tenant); the control dial is deliberately damped so buttons and
+   * inputs move less than the space around them. */
+  --rp-density: 1;
+  --rp-density-ctl: 1;
+
   /* Warm neutral ramp. Slightly yellow-shifted so it sits on the paper base
    * without the blue cast of a stock grey scale. */
   --rp-paper: #ffffff;
@@ -95,6 +102,19 @@ body {
   --font-display: var(--rp-font-display);
   font-family: var(--rp-font-body);
   font-weight: var(--rp-font-body-weight);
+  /* Density: Tailwind emits every spacing utility as calc(var(--spacing) * n)
+   * resolved at use-time, so deriving --spacing from the rhythm dial rescales
+   * paddings, gaps and stacks across the subtree with no call-site changes.
+   * Text sizes never ride this - density is spacing relative to text. */
+  --spacing: calc(0.25rem * var(--rp-density, 1));
+}
+
+/* Pin a subtree to canonical spacing - canvas-coordinate UIs and other
+ * pixel-tuned artwork that must not follow the tenant's density. */
+.rp-density-fixed {
+  --spacing: 0.25rem;
+  --rp-density: 1;
+  --rp-density-ctl: 1;
 }
 
 /* Display face, reserved for headlines. Weight, tracking and leading are
@@ -581,8 +601,8 @@ label.rp-btn:has(input:focus-visible) {
 .rp-tile {
   display: flex;
   align-items: center;
-  gap: 1.1rem;
-  padding: 1.6rem 1.75rem;
+  gap: calc(1.1rem * var(--rp-density, 1));
+  padding: calc(1.6rem * var(--rp-density, 1)) calc(1.75rem * var(--rp-density, 1));
   border-radius: var(--rp-radius);
   background-color: color-mix(in srgb, var(--rp-accent) 14%, #ffffff);
   color: var(--rp-primary);
@@ -624,7 +644,9 @@ label.rp-btn:has(input:focus-visible) {
   position: relative;
   display: inline-flex;
   align-items: center;
-  padding: 0.7rem 0.85rem;
+  /* Rides the rhythm dial so the brand band tightens and breathes with the
+   * rest of the chrome (the label size itself never scales with density). */
+  padding: calc(0.7rem * var(--rp-density, 1)) calc(0.85rem * var(--rp-density, 1));
   font-size: 1rem;
   font-weight: 300;
   line-height: 1.35;
@@ -673,7 +695,7 @@ label.rp-btn:has(input:focus-visible) {
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
-  height: 2.25rem;
+  height: calc(2.25rem * var(--rp-density-ctl, 1));
   padding: 0 0.875rem;
   border-radius: var(--rp-radius-btn);
   font-size: 0.875rem;
@@ -724,7 +746,7 @@ label.rp-btn:has(input:focus-visible) {
   display: inline-flex;
   align-items: center;
   gap: 0.375rem;
-  height: 1.75rem;
+  height: calc(1.75rem * var(--rp-density-ctl, 1));
   padding: 0 0.625rem;
   border-radius: var(--rp-radius-chip);
   border: 1px solid var(--rp-line);
@@ -755,7 +777,7 @@ label.rp-btn:has(input:focus-visible) {
   border-radius: var(--rp-radius-input);
   background: var(--rp-surface);
   color: var(--rp-ink);
-  padding-block: 0.5625rem;
+  padding-block: calc(0.5625rem * var(--rp-density-ctl, 1));
   padding-inline: 0.875rem;
   font-size: 0.875rem;
 }
@@ -763,7 +785,9 @@ label.rp-btn:has(input:focus-visible) {
  * element (same specificity, later in the cascade), which is what used to sit
  * the magnifier on top of the placeholder text. */
 .rp-input-icon {
-  padding-inline-start: 2.25rem;
+  /* 9 spacing units, not a fixed rem, so the text stays clear of a `left-3`
+   * icon at every density. */
+  padding-inline-start: calc(var(--spacing, 0.25rem) * 9);
 }
 /* Input sitting flush against an attached trailing control (header search):
  * square where the two meet, whatever the shape dial says; the control takes

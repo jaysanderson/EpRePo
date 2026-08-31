@@ -3,6 +3,8 @@ import { expect } from '@std/expect'
 import type { TenantConfig } from '@research-portal/core'
 import {
   customFontCss,
+  DENSITY_DIALS,
+  densityVars,
   fontStack,
   googleFontsUrl,
   PAIRING_IDS,
@@ -121,6 +123,25 @@ describe('customFontCss', () => {
     expect(both).toContain("font-family:'RP Custom Body'")
     expect(both).toContain("src:url('/h.woff2')")
     expect(customFontCss('/h.woff2', undefined)).not.toContain('RP Custom Body')
+  })
+})
+
+describe('densityVars', () => {
+  it('is the identity at default, so untouched portals keep todays rhythm', () => {
+    expect(densityVars(undefined)).toEqual({ '--rp-density': '1', '--rp-density-ctl': '1' })
+    expect(densityVars('default')).toEqual({ '--rp-density': '1', '--rp-density-ctl': '1' })
+  })
+
+  it('damps the control dial relative to the rhythm dial at every level', () => {
+    for (const dials of Object.values(DENSITY_DIALS)) {
+      expect(Math.abs(dials.ctl - 1)).toBeLessThanOrEqual(Math.abs(dials.rhythm - 1))
+    }
+  })
+
+  it('orders the levels compact < default < comfortable < spacious', () => {
+    expect(DENSITY_DIALS.compact.rhythm).toBeLessThan(DENSITY_DIALS.default.rhythm)
+    expect(DENSITY_DIALS.default.rhythm).toBeLessThan(DENSITY_DIALS.comfortable.rhythm)
+    expect(DENSITY_DIALS.comfortable.rhythm).toBeLessThan(DENSITY_DIALS.spacious.rhythm)
   })
 })
 

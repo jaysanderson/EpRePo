@@ -181,6 +181,7 @@ export class TenantStore {
       typography?: TenantConfig['branding']['typography']
       shape?: TenantConfig['branding']['shape']
       textScale?: TenantConfig['branding']['textScale']
+      density?: TenantConfig['branding']['density']
     },
   ): void {
     const base = this.get(slug)
@@ -194,6 +195,7 @@ export class TenantStore {
       ...(branding.typography ? { typography: branding.typography } : {}),
       ...(branding.shape ? { shape: branding.shape } : {}),
       ...(branding.textScale ? { textScale: branding.textScale } : {}),
+      ...(branding.density ? { density: branding.density } : {}),
     }
     if (this.custom[slug]) {
       this.custom[slug] = { ...this.custom[slug], branding: merged }

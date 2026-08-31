@@ -1,6 +1,7 @@
 import { type ChangeEvent, type ReactNode, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import {
+  type DensityId,
   FONT_PAIRINGS,
   type ShapeId,
   type TenantConfig,
@@ -11,6 +12,7 @@ import { updatePortalAppearance, uploadBranding } from '../../api/client.ts'
 import {
   CUSTOM_BODY_FAMILY,
   CUSTOM_HEADING_FAMILY,
+  DENSITY_DIALS,
   fontStack,
   PAIRING_IDS,
   SHAPE_RADII,
@@ -554,10 +556,95 @@ function ShapeSection({
   )
 }
 
+const DENSITY_OPTIONS: { id: DensityId; label: string; description: string }[] = [
+  { id: 'compact', label: 'Compact', description: 'More on screen - an analyst’s read.' },
+  { id: 'default', label: 'Default', description: 'The standard rhythm.' },
+  { id: 'comfortable', label: 'Comfortable', description: 'A touch more air around everything.' },
+  { id: 'spacious', label: 'Spacious', description: 'Airy and reading-first.' },
+]
+
+function DensitySection({
+  slug,
+  passcode,
+  branding,
+}: {
+  slug: string
+  passcode: string
+  branding: Branding
+}) {
+  const queryClient = useQueryClient()
+  const [busy, setBusy] = useState(false)
+  const [message, setMessage] = useState<Message | null>(null)
+
+  const selected: DensityId = branding.density ?? 'default'
+
+  const choose = async (density: DensityId, label: string) => {
+    if (density === selected) return
+    setBusy(true)
+    setMessage(null)
+    try {
+      await updatePortalAppearance(slug, passcode, { density })
+      await queryClient.invalidateQueries({ queryKey: ['tenant-config', slug] })
+      setMessage({ tone: 'ok', text: `Saved - density is now ${label.toLowerCase()}.` })
+    } catch (err) {
+      setMessage({ tone: 'error', text: errorMessage(err, 'Could not save that choice.') })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className='rp-card p-5'>
+      <h3 className='text-sm font-semibold text-ink'>Density</h3>
+      <p className='mt-1 text-xs text-ink-3'>
+        How much air the interface keeps around content. Spacing changes; text size does not.
+        Applies as soon as you choose.
+      </p>
+
+      <div className='mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4'>
+        {DENSITY_OPTIONS.map((option) => {
+          const rhythm = DENSITY_DIALS[option.id].rhythm
+          return (
+            <ChoiceTile
+              key={option.id}
+              selected={selected === option.id}
+              disabled={busy}
+              onSelect={() => void choose(option.id, option.label)}
+              label={`${option.label} density`}
+            >
+              {/* Miniature card whose padding and line rhythm follow the dial. */}
+              <span
+                aria-hidden='true'
+                className='block border border-line bg-surface'
+                style={{
+                  borderRadius: 'var(--rp-radius)',
+                  padding: `${Math.round(10 * rhythm)}px`,
+                }}
+              >
+                {['60%', '40%', '50%'].map((width, index) => (
+                  <span
+                    key={width}
+                    className='block h-1.5 rounded-[1px] bg-surface-3'
+                    style={{ width, marginTop: index === 0 ? 0 : `${Math.round(7 * rhythm)}px` }}
+                  />
+                ))}
+              </span>
+              <span className='mt-3 block text-sm font-semibold text-ink'>{option.label}</span>
+              <span className='mt-0.5 block text-xs text-ink-3'>{option.description}</span>
+            </ChoiceTile>
+          )
+        })}
+      </div>
+
+      {message && <MessagePanel message={message} className='mt-4' />}
+    </div>
+  )
+}
+
 /**
- * Appearance: the portal's images (logo, hero), typeface pairing and shape
- * language. Every choice saves immediately and re-themes the live portal -
- * including this page, which is the fastest possible preview.
+ * Appearance: the portal's images (logo, hero), typeface pairing, shape
+ * language and density. Every choice saves immediately and re-themes the
+ * live portal - including this page, which is the fastest possible preview.
  */
 export function AppearancePanel({
   slug,
@@ -605,6 +692,7 @@ export function AppearancePanel({
 
       <TypographySection slug={slug} passcode={passcode} branding={branding} />
       <ShapeSection slug={slug} passcode={passcode} branding={branding} />
+      <DensitySection slug={slug} passcode={passcode} branding={branding} />
     </div>
   )
 }

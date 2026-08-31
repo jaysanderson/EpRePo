@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import type { CSSProperties } from 'react'
 import {
+  type DensityId,
   FONT_PAIRINGS,
   type FontPairingId,
   FontPairingIdSchema,
@@ -80,6 +81,27 @@ export function shapeVars(shape: Branding['shape']): Record<string, string> {
   }
 }
 
+/**
+ * The two density dials per level. `rhythm` rescales the Tailwind spacing
+ * scale (paddings, gaps, stacks - see .rp-tenant in styles.css); `ctl` is
+ * deliberately damped so buttons, chips and inputs move less than the space
+ * around them. Text sizes never ride either dial.
+ */
+export const DENSITY_DIALS: Record<DensityId, { rhythm: number; ctl: number }> = {
+  compact: { rhythm: 0.85, ctl: 0.93 },
+  default: { rhythm: 1, ctl: 1 },
+  comfortable: { rhythm: 1.2, ctl: 1.06 },
+  spacious: { rhythm: 1.4, ctl: 1.12 },
+}
+
+export function densityVars(density: Branding['density']): Record<string, string> {
+  const dials = DENSITY_DIALS[density ?? 'default']
+  return {
+    '--rp-density': String(dials.rhythm),
+    '--rp-density-ctl': String(dials.ctl),
+  }
+}
+
 export function typographyVars(branding: Branding): Record<string, string> {
   const choice = branding.typography
   if (!choice || choice === 'default') return {}
@@ -101,7 +123,7 @@ export function typographyVars(branding: Branding): Record<string, string> {
   }
 }
 
-/** Every theme var the tenant wrapper sets inline - colours, faces, radii. */
+/** Every theme var the tenant wrapper sets inline - colours, faces, radii, density. */
 export function tenantThemeVars(branding: Branding): CSSProperties {
   return {
     '--rp-primary': branding.colours.primary,
@@ -110,7 +132,30 @@ export function tenantThemeVars(branding: Branding): CSSProperties {
     '--rp-hero-to': branding.colours.heroTo,
     ...typographyVars(branding),
     ...shapeVars(branding.shape),
+    ...densityVars(branding.density),
   } as CSSProperties
+}
+
+/**
+ * Mirror the tenant theme onto <body>. Overlays that portal to document.body
+ * (command palette, sheets, the answer journey) render outside the tenant
+ * wrapper and would otherwise fall back to the house theme - fonts, shape
+ * and density alike. Applied while a tenant layout is mounted, removed when
+ * it unmounts, so non-tenant routes keep the neutral defaults.
+ */
+export function useBodyTheme(branding: Branding | undefined): void {
+  useEffect(() => {
+    if (!branding) return
+    const vars = tenantThemeVars(branding) as Record<string, string>
+    document.body.classList.add('rp-tenant')
+    for (const [name, value] of Object.entries(vars)) {
+      document.body.style.setProperty(name, value)
+    }
+    return () => {
+      document.body.classList.remove('rp-tenant')
+      for (const name of Object.keys(vars)) document.body.style.removeProperty(name)
+    }
+  }, [branding])
 }
 
 export function googleFontsUrl(id: FontPairingId): string {

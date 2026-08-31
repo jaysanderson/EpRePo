@@ -3,6 +3,7 @@ import type {
   AnalyseEvent,
   AskEvent,
   CatalogPage,
+  DensityId,
   EnrichmentAgentStatus,
   EnrichmentRunEvent,
   FacetCounts,
@@ -630,11 +631,16 @@ export function renamePortal(
   })
 }
 
-/** Save the portal's typography, text-scale and/or shape choice (same PATCH as rename). */
+/** Save the portal's typography, text-scale, shape and/or density choice (same PATCH as rename). */
 export function updatePortalAppearance(
   slug: string,
   passcode: string,
-  input: { typography?: TypographyChoice; shape?: ShapeId; textScale?: TextScaleId },
+  input: {
+    typography?: TypographyChoice
+    shape?: ShapeId
+    textScale?: TextScaleId
+    density?: DensityId
+  },
 ): Promise<{ ok: boolean }> {
   return adminRequest(`/api/admin/tenants/${encodeURIComponent(slug)}`, passcode, {
     method: 'PATCH',

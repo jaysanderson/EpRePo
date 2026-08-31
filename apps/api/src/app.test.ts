@@ -404,6 +404,7 @@ describe('appearance (typography, shape, branding fonts)', () => {
       typography: 'fraunces-poppins',
       shape: 'soft',
       textScale: 'larger',
+      density: 'compact',
     })
     expect(response.status).toBe(200)
 
@@ -411,6 +412,7 @@ describe('appearance (typography, shape, branding fonts)', () => {
     expect(config.branding.typography).toBe('fraunces-poppins')
     expect(config.branding.shape).toBe('soft')
     expect(config.branding.textScale).toBe('larger')
+    expect(config.branding.density).toBe('compact')
   })
 
   it('accepts the custom and default typography choices', async () => {
@@ -431,11 +433,12 @@ describe('appearance (typography, shape, branding fonts)', () => {
     expect(reloaded.get('frdc')?.branding.shape).toBe('rounded')
   })
 
-  it('rejects an unknown pairing, shape or text scale', async () => {
+  it('rejects an unknown pairing, shape, text scale or density', async () => {
     const app = appearanceApp()
     expect((await patch(app, { typography: 'comic-sans' })).status).toBe(400)
     expect((await patch(app, { shape: 'blobby' })).status).toBe(400)
     expect((await patch(app, { textScale: 'enormous' })).status).toBe(400)
+    expect((await patch(app, { density: 'cramped' })).status).toBe(400)
   })
 
   it('stores an uploaded heading font, exposes its URL and serves it back', async () => {

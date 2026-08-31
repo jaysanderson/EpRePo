@@ -4,6 +4,7 @@ import { streamSSE } from 'hono/streaming'
 import { z } from 'zod'
 import {
   DEFAULT_RESEARCH_ENRICHMENT,
+  DensityIdSchema,
   ENRICHMENT_AGENTS,
   type EnrichmentAgentStatus,
   enrichmentJsonSchema,
@@ -262,6 +263,7 @@ const renameTenantSchema = z.object({
   typography: TypographyChoiceSchema.optional(),
   shape: ShapeIdSchema.optional(),
   textScale: TextScaleIdSchema.optional(),
+  density: DensityIdSchema.optional(),
   searchPlaceholder: z.string().min(3).max(120).optional(),
 })
 const kgImplementSchema = z.object({
@@ -1514,6 +1516,7 @@ export function buildApp(opts: BuildAppOptions): Hono {
       typography: parsed.data.typography,
       shape: parsed.data.shape,
       textScale: parsed.data.textScale,
+      density: parsed.data.density,
     })
     return c.json({ ok: true })
   })

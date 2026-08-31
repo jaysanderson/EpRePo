@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Link, NavLink, Outlet, useLocation, useNavigate, useParams } from 'react-router-dom'
 import type { TenantConfig } from '@research-portal/core'
 import { ApiError, getKnowledgeBoxStatus, getTenantConfig } from '../api/client.ts'
-import { tenantThemeVars, useTenantFonts, useTextScale } from '../lib/theme.ts'
+import { tenantThemeVars, useBodyTheme, useTenantFonts, useTextScale } from '../lib/theme.ts'
 import { CommandPalette } from '../components/CommandPalette.tsx'
 import { PortalFooter } from '../components/PortalFooter.tsx'
 import { SignInDialog } from '../components/SignInDialog.tsx'
@@ -141,10 +141,12 @@ export function TenantLayout() {
     }
   }, [config])
 
-  // Load the faces for the tenant's typography choice and apply its text
-  // scale (both no-ops until the config loads).
+  // Load the faces for the tenant's typography choice, apply its text scale,
+  // and mirror the theme onto <body> so portaled overlays follow it too (all
+  // no-ops until the config loads).
   useTenantFonts(config?.branding)
   useTextScale(config?.branding)
+  useBodyTheme(config?.branding)
 
   if (isLoading) {
     return <FullPageSpinner />

@@ -41,6 +41,15 @@ export type ShapeId = z.infer<typeof ShapeIdSchema>
 export const TextScaleIdSchema = z.enum(['default', 'smaller', 'larger'])
 export type TextScaleId = z.infer<typeof TextScaleIdSchema>
 
+/**
+ * Interface density: rescales the spacing rhythm (paddings, gaps, stacks)
+ * without touching text sizes. 'compact' fits more on screen, 'comfortable'
+ * adds a touch of air, 'spacious' is the airy reading-first setting. Absent
+ * means 'default'.
+ */
+export const DensityIdSchema = z.enum(['compact', 'default', 'comfortable', 'spacious'])
+export type DensityId = z.infer<typeof DensityIdSchema>
+
 export const BrandingSchema = z.object({
   /** Own-system product name, e.g. "GrainsIQ Research Portal" - never vendor branding. */
   productName: z.string().min(1),
@@ -56,6 +65,7 @@ export const BrandingSchema = z.object({
   typography: TypographyChoiceSchema.optional(),
   shape: ShapeIdSchema.optional(),
   textScale: TextScaleIdSchema.optional(),
+  density: DensityIdSchema.optional(),
   /** Served when an administrator uploaded a logo for this portal. */
   logoUrl: z.string().optional(),
   /** Served when an administrator uploaded a hero image for this portal. */
