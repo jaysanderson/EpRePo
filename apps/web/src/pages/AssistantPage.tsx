@@ -794,7 +794,7 @@ function AssistantCard({
   if (message.error && !message.text.trim()) {
     return (
       <div
-        className='rounded-[calc(var(--rp-radius)+4px)] border p-5'
+        className='rounded-[calc(var(--rp-radius)+4px)] border p-3 sm:p-5'
         style={{ borderColor: 'var(--rp-bad-line)', background: 'var(--rp-bad-bg)' }}
       >
         <p className='text-sm font-medium text-[var(--rp-bad-ink)]'>Something went wrong</p>
@@ -845,7 +845,7 @@ function AssistantCard({
   // AI opinion), and next actions rather than a dead end.
   if (!message.pending && message.refused) {
     return (
-      <div className='rounded-[calc(var(--rp-radius)+4px)] border border-line bg-surface p-5 shadow-sm'>
+      <div className='rounded-[calc(var(--rp-radius)+4px)] border border-line bg-surface p-3 sm:p-5 shadow-sm'>
         <div className='mb-2'>
           <span className='rp-badge rp-badge-quiet'>No direct evidence found</span>
         </div>
@@ -896,7 +896,7 @@ function AssistantCard({
     <div
       className={message.pending
         ? 'rounded-[var(--rp-radius)] p-5'
-        : 'rounded-[calc(var(--rp-radius)+4px)] border border-line bg-surface p-5 shadow-sm'}
+        : 'rounded-[calc(var(--rp-radius)+4px)] border border-line bg-surface p-3 sm:p-5 shadow-sm'}
     >
       {message.deepBadge || message.interpretedQuery
         ? (
@@ -1030,10 +1030,12 @@ function AssistantCard({
                 {message.citations.length > 0
                   ? (
                     <div>
-                      <p className='text-xs font-semibold uppercase tracking-wide text-ink-3'>
-                        Sources: {message.citations.length}
-                      </p>
-                      <div className='mt-2 flex flex-wrap gap-1.5'>
+                      {
+                        /* No "Sources: n" heading - the disclosure summary
+                        * immediately above already reports "n cited", and on a
+                        * phone every restated line costs a row of screen. */
+                      }
+                      <div className='flex flex-wrap gap-1.5'>
                         {message.citations.map((citation) => {
                           const matchedPassage = message.sources.find((source) =>
                             source.id === citation.resourceId
@@ -1051,7 +1053,9 @@ function AssistantCard({
                               >
                                 {citation.index}
                               </span>
-                              <span className='max-w-[14rem] truncate'>{citation.title}</span>
+                              <span className='min-w-0 truncate sm:max-w-[14rem]'>
+                                {citation.title}
+                              </span>
                             </Link>
                           )
                         })}

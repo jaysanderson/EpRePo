@@ -214,8 +214,8 @@ export const DOC_PAGES: DocPage[] = [
       {
         heading: 'Reading the answer',
         body: 'Under each answer you get the full picture of what it stands on:\n\n' +
-          '- The **sources** it used, and a note of the years they span (for example "Sources: ' +
-          '2016 to 2019"), so you can see how current the material is.\n' +
+          '- The **sources** it used, and a note of the years they span (for example "Cited ' +
+          'sources: 2016-2019"), so you can see how current the material is.\n' +
           '- An **evidence** list - each source with its matched passage and a relevance score.\n' +
           '- **Also retrieved** - relevant passages the answer did not lean on, kept visible so ' +
           'nothing is hidden.\n\n' +

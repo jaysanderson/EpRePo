@@ -91,7 +91,7 @@ describe('assessCurrency', () => {
       expect(result.span).toEqual({ earliest: 1971, latest: 1998 })
       expect(result.mostRecentYear).toBe(1998)
       expect(result.datedCount).toBe(3)
-      expect(result.recencyLabel).toBe('Sources: 1971-1998')
+      expect(result.recencyLabel).toBe('Cited sources: 1971-1998')
     })
 
     it('ignores sources without a year but keeps the span from the dated ones', () => {
@@ -101,21 +101,21 @@ describe('assessCurrency', () => {
       )
       expect(result.span).toEqual({ earliest: 2001, latest: 2019 })
       expect(result.datedCount).toBe(2)
-      expect(result.recencyLabel).toBe('Sources: 2001-2019')
+      expect(result.recencyLabel).toBe('Cited sources: 2001-2019')
     })
   })
 
   describe('single source / single year', () => {
-    it('uses the "Most recent source" phrasing when only one year is present', () => {
+    it('uses the "Most recent cited source" phrasing when only one year is present', () => {
       const result = assessCurrency([{ published: '2019-03-01' }], NOW)
       expect(result.span).toEqual({ earliest: 2019, latest: 2019 })
-      expect(result.recencyLabel).toBe('Most recent source: 2019')
+      expect(result.recencyLabel).toBe('Most recent cited source: 2019')
       expect(result.showCaveat).toBe(false)
     })
 
     it('uses the single-year phrasing when many sources share one year', () => {
       const result = assessCurrency([{ published: '2005' }, { published: '2005-08' }], NOW)
-      expect(result.recencyLabel).toBe('Most recent source: 2005')
+      expect(result.recencyLabel).toBe('Most recent cited source: 2005')
     })
   })
 
@@ -179,7 +179,7 @@ describe('assessCurrency', () => {
         NOW,
       )
       expect(result.span).toEqual({ earliest: 1975, latest: 2003 })
-      expect(result.recencyLabel).toBe('Sources: 1975-2003')
+      expect(result.recencyLabel).toBe('Cited sources: 1975-2003')
       expect(result.showCaveat).toBe(true)
       expect(result.caveatText).toContain('up to 2003')
     })
@@ -198,7 +198,7 @@ describe('assessCurrency', () => {
   describe('recent answers stay quiet', () => {
     it('a current-year source shows the recency line but no caveat', () => {
       const result = assessCurrency([{ published: String(NOW) }], NOW)
-      expect(result.recencyLabel).toBe(`Most recent source: ${NOW}`)
+      expect(result.recencyLabel).toBe(`Most recent cited source: ${NOW}`)
       expect(result.showCaveat).toBe(false)
     })
   })

@@ -774,7 +774,11 @@ label.rp-btn:has(input:focus-visible) {
   display: inline-flex;
   align-items: center;
   gap: 0.375rem;
-  height: calc(1.75rem * var(--rp-density-ctl, 1));
+  /* min-height, not height: a chip whose label wraps (a long source title, or
+   * a phone with the system font scaled up) grew taller than its own border and
+   * the text spilled outside the box. */
+  min-height: calc(1.75rem * var(--rp-density-ctl, 1));
+  max-width: 100%;
   padding: 0 0.625rem;
   border-radius: var(--rp-radius-chip);
   border: 1px solid var(--rp-line);

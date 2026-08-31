@@ -256,22 +256,6 @@ function EvidenceRow({
             >
               {passage}
             </p>
-            {isClamped
-              ? (
-                <button
-                  type='button'
-                  onClick={() => setExpanded((prev) => !prev)}
-                  aria-expanded={expanded}
-                  aria-controls={passageId}
-                  aria-label={expanded
-                    ? `Show less of the passage from ${source.title}`
-                    : `Show more of the passage from ${source.title}`}
-                  className='rp-focus mt-1 rounded-[var(--rp-radius)] text-xs font-medium text-[var(--rp-accent-fg)] hover:underline'
-                >
-                  {expanded ? 'Show less' : 'Show more'}
-                </button>
-              )
-              : null}
           </div>
         )
         : null}
@@ -287,7 +271,28 @@ function EvidenceRow({
         ? <p className='mt-1.5 text-xs italic text-ink-3'>{verdict.relevance}</p>
         : null}
 
-      <div className='mt-2 flex justify-end'>
+      {
+        /* Show more and Save share a row. On a phone each row of chrome costs a
+        * whole line of the screen, and a twelve-source list was spending one
+        * per card on a control that sits happily beside the Save button. */
+      }
+      <div className='mt-2 flex items-center justify-between gap-2'>
+        {isClamped
+          ? (
+            <button
+              type='button'
+              onClick={() => setExpanded((prev) => !prev)}
+              aria-expanded={expanded}
+              aria-controls={passageId}
+              aria-label={expanded
+                ? `Show less of the passage from ${source.title}`
+                : `Show more of the passage from ${source.title}`}
+              className='rp-focus rounded-[var(--rp-radius)] text-xs font-medium text-[var(--rp-accent-fg)] hover:underline'
+            >
+              {expanded ? 'Show less' : 'Show more'}
+            </button>
+          )
+          : <span />}
         <SaveEvidenceButton
           slug={slug}
           compact

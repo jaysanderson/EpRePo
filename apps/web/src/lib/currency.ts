@@ -73,8 +73,11 @@ export interface CurrencySignal {
   /** How many cited sources contributed a usable year. */
   datedCount: number
   /**
-   * The quiet, always-shown recency line, e.g. "Sources: 1971-1998" or, when a
-   * single year is present, "Most recent source: 1998". Absent when no cited
+   * The quiet, always-shown recency line, e.g. "Cited sources: 1971-1998" or,
+   * when a single year is present, "Most recent cited source: 1998". Says
+   * "cited" because the evidence disclosure above it reports a year span over
+   * every RETRIEVED source - two unlabelled ranges that disagree read as a
+   * contradiction. Absent when no cited
    * source carries a year.
    */
   recencyLabel?: string
@@ -111,8 +114,8 @@ export function sourceYear(source: CurrencySource): number | undefined {
 /** The recency line copy for a computed span (single year vs a range). */
 function recencyLabelFor(span: CurrencySpan): string {
   return span.earliest === span.latest
-    ? `Most recent source: ${span.latest}`
-    : `Sources: ${span.earliest}-${span.latest}`
+    ? `Most recent cited source: ${span.latest}`
+    : `Cited sources: ${span.earliest}-${span.latest}`
 }
 
 /**
