@@ -135,11 +135,10 @@ export function ManagePage() {
 
   return (
     <main className='min-h-[calc(100dvh-var(--rp-header-h,126px))] bg-app'>
-      <div className='mx-auto max-w-6xl px-6 py-10'>
+      <div className='rp-shell py-10'>
         <div className='flex flex-wrap items-center justify-between gap-3'>
           <div>
-            <p className='rp-eyebrow text-ink-3'>{config.branding.productName}</p>
-            <h1 className='mt-1 text-2xl font-semibold tracking-tight text-ink'>Manage</h1>
+            <h1 className='text-2xl font-semibold tracking-tight text-ink'>Manage</h1>
           </div>
           <div className='flex items-center gap-4'>
             <Link

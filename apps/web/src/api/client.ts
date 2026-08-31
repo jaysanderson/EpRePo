@@ -607,6 +607,13 @@ export function getResourceContent(slug: string, id: string): Promise<ResourceCo
   )
 }
 
+/** Openers written from this one document; [] when none could be grounded. */
+export function getResourceQuestions(slug: string, id: string): Promise<string[]> {
+  return request<{ questions: string[] }>(
+    `/api/t/${encodeURIComponent(slug)}/resources/${encodeURIComponent(id)}/questions`,
+  ).then((r) => r.questions ?? [])
+}
+
 /** URL for streaming a stored file field (PDF/video/audio) inline. */
 export function resourceFileUrl(slug: string, id: string, fieldId: string): string {
   return `/api/t/${encodeURIComponent(slug)}/resources/${encodeURIComponent(id)}/file/${

@@ -16,6 +16,7 @@ import {
   ApiError,
   getResource,
   getResourceContent,
+  getResourceQuestions,
   resourceFileUrl,
   searchTenantFull,
 } from '../api/client.ts'
@@ -868,11 +869,22 @@ function DocumentChat(
     setQuery(text)
   }
 
-  const starters = [
+  // Openers written from this document. Generation takes a few seconds the first
+  // time a document is opened (cached thereafter), so the generic three show
+  // until they land rather than leaving the reader looking at an empty row.
+  const { data: generated } = useQuery({
+    queryKey: ['resource-questions', slug, resource.id],
+    queryFn: () => getResourceQuestions(slug, resource.id),
+    staleTime: Infinity,
+    retry: false,
+  })
+
+  const GENERIC_STARTERS = [
     'Summarise the key findings',
     'What are the main recommendations?',
     'What methods were used?',
   ]
+  const starters = generated && generated.length > 0 ? generated : GENERIC_STARTERS
 
   return (
     <section className='rp-card p-5 sm:p-6' aria-labelledby='chat-heading'>
@@ -941,6 +953,68 @@ function DocumentChat(
             ))}
           </div>
         )}
+    </section>
+  )
+}
+
+/**
+ * What the document says, before the reader has asked anything: the generated
+ * plain-language summary and the key takeaways from its enrichment.
+ *
+ * Renders nothing when the resource has no enrichment yet - an empty card that
+ * says "no summary" is worse than no card, and roughly half the corpus is
+ * un-enriched while the run is paused.
+ */
+function DocumentBrief({ resource }: { resource: ResourceSummary }) {
+  const takeaways = resource.keyTakeaways ?? []
+  // The provider falls back to the title when there is no real summary; showing
+  // the title again under a "Summary" heading is noise.
+  const summary = resource.summary && resource.summary !== resource.title ? resource.summary : ''
+  if (!summary && takeaways.length === 0) return null
+
+  return (
+    <section className='rp-card p-5 sm:p-6' aria-labelledby='brief-heading'>
+      <div className='flex items-center gap-2'>
+        <svg
+          viewBox='0 0 24 24'
+          fill='none'
+          stroke='currentColor'
+          strokeWidth={1.8}
+          strokeLinecap='round'
+          strokeLinejoin='round'
+          aria-hidden='true'
+          className='h-[18px] w-[18px] shrink-0 text-ink-3'
+        >
+          <path d='M4 5h16M4 10h16M4 15h10' />
+        </svg>
+        <h2 id='brief-heading' className='text-base font-semibold text-ink'>
+          Summary
+        </h2>
+      </div>
+
+      {summary ? <p className='mt-3 text-sm leading-relaxed text-ink-2'>{summary}</p> : null}
+
+      {takeaways.length > 0
+        ? (
+          <>
+            <h3 className='mt-5 text-xs font-semibold uppercase tracking-wider text-ink-3'>
+              Key takeaways
+            </h3>
+            <ul className='mt-2.5 space-y-2'>
+              {takeaways.map((point) => (
+                <li key={point} className='flex gap-2.5 text-sm leading-relaxed text-ink-2'>
+                  <span
+                    aria-hidden='true'
+                    className='mt-[7px] h-1.5 w-1.5 shrink-0'
+                    style={{ background: 'var(--rp-accent)' }}
+                  />
+                  <span>{point}</span>
+                </li>
+              ))}
+            </ul>
+          </>
+        )
+        : null}
     </section>
   )
 }
@@ -1321,6 +1395,7 @@ export function ResourceDetailPage() {
                     onJump={jumpToBlock}
                   />
                   <DocumentChat slug={config.slug} resource={resource} onFocus={revealRail} />
+                  <DocumentBrief resource={resource} />
                   <RecommendationsRail slug={config.slug} resource={resource} />
                 </aside>
               </div>

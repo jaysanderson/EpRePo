@@ -66,6 +66,7 @@ import {
   merchandiseSummary,
   runEnrichmentOverCorpus,
 } from './enrichments.ts'
+import { generateSuggestedQuestions, SUGGESTED_QUESTIONS_SCHEMA_ID } from './suggested-questions.ts'
 
 const searchQuerySchema = z.object({ q: z.string().min(1) })
 const askBodySchema = z.object({
@@ -623,6 +624,39 @@ export function buildApp(opts: BuildAppOptions): Hono {
     const resource = await provider.resource(config, c.req.param('id'))
     if (!resource) return c.json({ error: 'unknown_resource' }, 404)
     return c.json(merchandiseSummary(enrichments, config.slug, resource))
+  })
+
+  // Openers written from this document, cached under their own schema id in the
+  // same store as enrichments. Falls back to [] (the page shows its generic
+  // three) rather than failing the page - suggestions are a nicety.
+  app.get('/api/t/:slug/resources/:id/questions', async (c) => {
+    const config = tenant(c.req.param('slug'))
+    if (!config) return c.json({ error: 'unknown_tenant' }, 404)
+    const id = c.req.param('id')
+
+    const cached = enrichments.get(config.slug, id, SUGGESTED_QUESTIONS_SCHEMA_ID)
+    const cachedQuestions = cached?.data?.questions
+    if (Array.isArray(cachedQuestions)) return c.json({ questions: cachedQuestions })
+
+    if (!opts.management) return c.json({ questions: [] })
+    const resource = await provider.resource(config, id).catch(() => null)
+    if (!resource) return c.json({ error: 'unknown_resource' }, 404)
+    const merchandised = merchandiseSummary(enrichments, config.slug, resource)
+    const questions = await generateSuggestedQuestions(
+      opts.management,
+      config,
+      id,
+      merchandised.title,
+      merchandised.summary,
+    )
+    // Cache the empty result too: a document that yields nothing (a scan with no
+    // extractable text) would otherwise pay for generation on every view.
+    enrichments.put(config.slug, id, {
+      schemaId: SUGGESTED_QUESTIONS_SCHEMA_ID,
+      generatedAt: new Date().toISOString(),
+      data: { questions },
+    })
+    return c.json({ questions })
   })
 
   app.get('/api/t/:slug/resources/:id/content', async (c) => {

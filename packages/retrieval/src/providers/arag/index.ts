@@ -1270,7 +1270,7 @@ export class AragProvider implements RetrievalProvider {
     tenant: TenantConfig,
     schema: { name: string; description: string; parameters: unknown },
     query: string,
-    opts: { requireGrounding?: boolean; resourceId?: string } = {},
+    opts: { requireGrounding?: boolean; resourceId?: string; model?: string } = {},
   ): Promise<{ object: unknown; sources: ScoredResource[]; insufficientGrounding: boolean }> {
     const client = this.client(tenant)
     const catalogue = await this.listResources(tenant).catch(() => [] as ResourceSummary[])
@@ -1284,6 +1284,9 @@ export class AragProvider implements RetrievalProvider {
       // resource_filters the per-document chat uses. Verified live: it grounds
       // the answer on exactly that resource.
       ...(opts.resourceId ? { resource_filters: [opts.resourceId] } : {}),
+      // Run a cheap, high-volume job (per-document openers) on the fast tier
+      // instead of the box's default model. Omitted -> the box default.
+      ...(opts.model ? { generative_model: opts.model } : {}),
       // The default cap triggers 412 "Error generating json: max_tokens" on
       // large payloads like comparison matrices.
       max_tokens: 4096,
