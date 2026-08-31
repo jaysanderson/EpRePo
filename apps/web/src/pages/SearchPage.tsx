@@ -876,6 +876,14 @@ export function SearchPage() {
           : null}
       </div>
 
+      {hasQuery && answerMode
+        ? (
+          <div className='mt-6'>
+            <SearchAnswer slug={config.slug} query={q} onResult={setAnswer} />
+          </div>
+        )
+        : null}
+
       <div className='mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[230px_1fr]'>
         <aside className={`${filtersOpen ? 'block' : 'hidden'} lg:block`}>
           <div className='rp-card p-4 lg:sticky lg:top-20'>
@@ -1023,14 +1031,6 @@ export function SearchPage() {
               <p className='-mt-2 mb-4 text-xs text-ink-3'>
                 Watched searches are re-checked daily - a dot appears here when results change.
               </p>
-            )
-            : null}
-
-          {hasQuery && answerMode
-            ? (
-              <div className='mb-4 rp-measure'>
-                <SearchAnswer slug={config.slug} query={q} onResult={setAnswer} />
-              </div>
             )
             : null}
 

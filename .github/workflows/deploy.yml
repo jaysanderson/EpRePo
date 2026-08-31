@@ -73,6 +73,9 @@ jobs:
   deploy:
     name: Deploy to fly.io
     needs: gate
+    # Skipped cleanly in any fork or mirror that has no Fly credentials, so the
+    # gate can still go green there. CI (ci.yml) is the check that must pass.
+    if: ${{ secrets.FLY_API_TOKEN != '' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
