@@ -466,9 +466,18 @@ function computeFit(nodes: SimNode[], w: number, h: number, insets: Insets): Tra
   const pad = Math.min(96, Math.max(40, Math.min(boxW, boxH) * 0.1))
   const spanX = Math.max(1, maxX - minX)
   const spanY = Math.max(1, maxY - minY)
+  // How far a fit may magnify. Node labels are drawn in the simulation's own
+  // coordinates, so they grow with the zoom: a small graph in a tall, narrow
+  // canvas fits on height long before its labels fit on width, and the concept
+  // lens on a phone - eleven nodes carrying names like "International
+  // Connections" - runs its labels straight off both edges at the old ceiling.
+  // A canvas narrower than the simulation's own frame therefore stops framing
+  // at 1:1, where the labels are the size they were designed at. Nothing wide
+  // enough for the map's full layout is affected.
+  const maxK = w >= 768 ? 1.75 : Math.max(1, (w / SIM_W) * 1.75)
   const k = Math.max(
     0.35,
-    Math.min(1.75, Math.min((boxW - pad * 2) / spanX, (boxH - pad * 2) / spanY)),
+    Math.min(maxK, Math.min((boxW - pad * 2) / spanX, (boxH - pad * 2) / spanY)),
   )
   const cx = (minX + maxX) / 2
   const cy = (minY + maxY) / 2
@@ -629,6 +638,10 @@ export function KnowledgeMap({
   // follows repositioning does not also fire a selection.
   const draggedRef = useRef(false)
   const fitSigRef = useRef<string>('')
+  const lastSizeRef = useRef<{ w: number; h: number } | null>(null)
+  // Once a reader has panned or zoomed, the view is theirs and a resize must
+  // not throw it away.
+  const viewMovedRef = useRef(false)
 
   // One lookup table per paint instead of a linear scan per node and per edge:
   // at 120 nodes and 126 edges the scans were an O(n*e) pass on every frame of
@@ -656,20 +669,42 @@ export function KnowledgeMap({
   const fitView = useCallback(() => {
     const t = computeFit(nodesRef.current, size.w, size.h, insetsRef.current)
     if (t) setTransform(t)
+    viewMovedRef.current = false
   }, [nodesRef, size.w, size.h])
 
   // Frame the graph whenever the visible set or the layout changes shape (first
-  // load, mode switch, group toggle, expand). A pure resize, or opening a
-  // panel, keeps the user's current view - only the map's own shape re-fits.
+  // load, mode switch, group toggle, expand), and keep it framed when the
+  // canvas itself changes size. That last part matters on a phone, where the
+  // canvas is most of the screen: the strip's find field opening, an iOS URL
+  // bar sliding away and back, or a rotation all resize the box under a
+  // simulation whose coordinates do not move with it, and a map fitted to the
+  // old box leaves nodes outside the new one. A reader who has panned or
+  // zoomed keeps their own view - it is shifted by half the change instead, so
+  // whatever they had centred stays centred. Opening a panel still keeps the
+  // view either way: the insets are deliberately not a trigger here.
   useEffect(() => {
     if (!size.ready) return
+    const previous = lastSizeRef.current
+    lastSizeRef.current = { w: size.w, h: size.h }
     const sig = `${layout}|${aspectBucket}|${visibleNodes.map((n) => n.id).join('|')}`
-    if (sig === fitSigRef.current) return
-    const t = computeFit(nodesRef.current, size.w, size.h, insetsRef.current)
-    if (t) {
-      setTransform(t)
-      fitSigRef.current = sig
+    if (sig !== fitSigRef.current) {
+      const t = computeFit(nodesRef.current, size.w, size.h, insetsRef.current)
+      if (t) {
+        setTransform(t)
+        fitSigRef.current = sig
+        viewMovedRef.current = false
+      }
+      return
     }
+    if (!previous || (previous.w === size.w && previous.h === size.h)) return
+    if (!viewMovedRef.current) {
+      const t = computeFit(nodesRef.current, size.w, size.h, insetsRef.current)
+      if (t) setTransform(t)
+      return
+    }
+    const dx = (size.w - previous.w) / 2
+    const dy = (size.h - previous.h) / 2
+    setTransform((t) => ({ ...t, x: t.x + dx, y: t.y + dy }))
     // nodesRef is a stable ref; positions are settled by useLiveSimulation's
     // effect, which runs before this one.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -727,6 +762,7 @@ export function KnowledgeMap({
 
   const onWheel = (event: ReactWheelEvent<SVGSVGElement>) => {
     event.preventDefault()
+    viewMovedRef.current = true
     const factor = event.deltaY < 0 ? 1.12 : 1 / 1.12
     setTransform((t) => {
       const k = Math.min(4, Math.max(0.35, t.k * factor))
@@ -768,6 +804,7 @@ export function KnowledgeMap({
     if (pan) {
       const svg = svgRef.current
       if (!svg) return
+      viewMovedRef.current = true
       const rect = svg.getBoundingClientRect()
       const dx = ((event.clientX - pan.startX) / rect.width) * size.w
       const dy = ((event.clientY - pan.startY) / rect.height) * size.h
@@ -883,13 +920,15 @@ export function KnowledgeMap({
     return out
   }, [layout, visibleStyles, visibleNodes, positions, radiusOf, frame])
 
-  const zoomBy = (factor: number) =>
+  const zoomBy = (factor: number) => {
+    viewMovedRef.current = true
     setTransform((t) => {
       const k = Math.min(4, Math.max(0.35, t.k * factor))
       const cx = size.w / 2
       const cy = size.h / 2
       return { x: cx - ((cx - t.x) / t.k) * k, y: cy - ((cy - t.y) / t.k) * k, k }
     })
+  }
 
   const focusStyle = focus ? groupStyles.get(positions.get(focus)?.group ?? '') : undefined
 

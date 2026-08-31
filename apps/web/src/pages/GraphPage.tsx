@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link, useOutletContext } from 'react-router-dom'
 import {
@@ -37,6 +37,88 @@ import type { TenantOutletContext } from './TenantLayout.tsx'
 // ---------------------------------------------------------------------------
 
 type Mode = 'entity' | 'concept'
+
+// ---------------------------------------------------------------------------
+// Icons. There is no icon library here, so the map's glyphs are drawn inline
+// in the house idiom - stroked, never filled, rounded caps, on a 20-unit grid.
+// They stand in for the spelled-out control labels on a phone, where the words
+// cost more height than the map can spare; every one of them still carries the
+// label as an aria-label and a title.
+// ---------------------------------------------------------------------------
+
+function Glyph({ children }: { children: React.ReactNode }) {
+  return (
+    <svg
+      viewBox='0 0 20 20'
+      fill='none'
+      stroke='currentColor'
+      strokeWidth={1.8}
+      strokeLinecap='round'
+      strokeLinejoin='round'
+      className='h-[17px] w-[17px]'
+      aria-hidden='true'
+    >
+      {children}
+    </svg>
+  )
+}
+
+/** Entity lens: nodes joined by relations. */
+function EntityGlyph() {
+  return (
+    <Glyph>
+      <path d='M7.1 6.6 12.9 7.4' />
+      <path d='M6 8.4 8.5 13.1' />
+      <circle cx='5' cy='6.5' r='2.1' />
+      <circle cx='15' cy='7.5' r='2.1' />
+      <circle cx='9.5' cy='15' r='2.1' />
+    </Glyph>
+  )
+}
+
+/** Concept lens: two categories sharing resources - the overlap is the point. */
+function ConceptGlyph() {
+  return (
+    <Glyph>
+      <circle cx='7.6' cy='10' r='4.7' />
+      <circle cx='12.4' cy='10' r='4.7' />
+    </Glyph>
+  )
+}
+
+/** Grouped layout: each category gathered into its own territory. */
+function GroupedGlyph() {
+  return (
+    <Glyph>
+      <rect x='3.4' y='3.4' width='5.6' height='5.6' rx='1.4' />
+      <rect x='11' y='3.4' width='5.6' height='5.6' rx='1.4' />
+      <rect x='3.4' y='11' width='5.6' height='5.6' rx='1.4' />
+      <rect x='11' y='11' width='5.6' height='5.6' rx='1.4' />
+    </Glyph>
+  )
+}
+
+/** Free layout: one open field, nothing gathered. */
+function FreeGlyph() {
+  return (
+    <Glyph>
+      <circle cx='5.2' cy='6.4' r='1.45' />
+      <circle cx='11.2' cy='4.6' r='1.45' />
+      <circle cx='15.4' cy='9.6' r='1.45' />
+      <circle cx='6.8' cy='13.4' r='1.45' />
+      <circle cx='13.2' cy='15.2' r='1.45' />
+    </Glyph>
+  )
+}
+
+function SearchGlyph() {
+  return (
+    <Glyph>
+      <circle cx='9' cy='9' r='5.5' />
+      <path d='M13.5 13.5 17 17' />
+    </Glyph>
+  )
+}
 
 // ---------------------------------------------------------------------------
 // Path finding - breadth-first over the loaded edges (undirected), so "how
@@ -87,12 +169,23 @@ function NodeSearch({
   nodes,
   groupStyles,
   onPick,
+  autoFocus = false,
+  onDismiss,
+  className = 'h-11',
 }: {
   nodes: MapNode[]
   groupStyles: Map<string, GroupStyle>
   onPick: (id: string) => void
+  /** The phone strip opens the field on demand, so it takes the caret with it. */
+  autoFocus?: boolean
+  onDismiss?: () => void
+  className?: string
 }) {
   const [query, setQuery] = useState('')
+  const inputRef = useRef<HTMLInputElement | null>(null)
+  useEffect(() => {
+    if (autoFocus) inputRef.current?.focus()
+  }, [autoFocus])
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase()
     if (q.length < 2) return []
@@ -117,12 +210,19 @@ function NodeSearch({
         </svg>
       </span>
       <input
+        ref={inputRef}
         type='text'
         value={query}
         onChange={(event) => setQuery(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape' && onDismiss) {
+            event.stopPropagation()
+            onDismiss()
+          }
+        }}
         placeholder='Find in the map…'
         aria-label='Find an entity in the map'
-        className='rp-input rp-input-icon h-11 w-full text-sm'
+        className={`rp-input rp-input-icon w-full text-sm ${className}`}
       />
       {matches.length > 0
         ? (
@@ -778,11 +878,92 @@ function NavigatorRail({
 // Page
 // ---------------------------------------------------------------------------
 
-function ModeToggle({ mode, onChange }: { mode: Mode; onChange: (mode: Mode) => void }) {
-  const options: { value: Mode; label: string }[] = [
-    { value: 'entity', label: 'Entity graph' },
-    { value: 'concept', label: 'Concept map' },
+type SegmentOption<T extends string> = {
+  value: T
+  label: string
+  title: string
+  icon: React.ReactNode
+}
+
+/**
+ * The phone form of a segmented control: the spelled-out option names and the
+ * VIEW / LAYOUT caption are what make the desktop control 300px wide, so on a
+ * narrow screen each option becomes its glyph and the caption moves onto the
+ * group's aria-label. The chosen option is filled solid rather than washed -
+ * with no words to read, the selected state has to be unmistakable at a
+ * glance, and white-on-primary holds its contrast over the banner scrim.
+ */
+function IconSegmented<T extends string>({
+  groupLabel,
+  value,
+  options,
+  onChange,
+}: {
+  groupLabel: string
+  value: T
+  options: SegmentOption<T>[]
+  onChange: (value: T) => void
+}) {
+  return (
+    <div
+      role='group'
+      aria-label={groupLabel}
+      className='inline-flex h-9 shrink-0 items-center overflow-hidden rounded-[var(--rp-radius-btn)] border border-[var(--rp-on-primary)]/45'
+    >
+      {options.map((option, index) => {
+        const active = option.value === value
+        return (
+          <button
+            key={option.value}
+            type='button'
+            aria-pressed={active}
+            aria-label={option.label}
+            title={`${option.label} - ${option.title}`}
+            onClick={() => onChange(option.value)}
+            className={`rp-focus flex h-full w-9 items-center justify-center transition-colors duration-150 ${
+              index > 0 ? 'border-l border-[var(--rp-on-primary)]/35' : ''
+            } ${
+              active
+                ? 'bg-[var(--rp-on-primary)] text-[var(--rp-primary)]'
+                : 'text-[var(--rp-on-primary)]/80 hover:bg-[var(--rp-on-primary)]/15'
+            }`}
+          >
+            {option.icon}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+function ModeToggle({
+  mode,
+  onChange,
+  compact = false,
+}: {
+  mode: Mode
+  onChange: (mode: Mode) => void
+  compact?: boolean
+}) {
+  const options: SegmentOption<Mode>[] = [
+    {
+      value: 'entity',
+      label: 'Entity graph',
+      title: 'The entities and the relations between them',
+      icon: <EntityGlyph />,
+    },
+    {
+      value: 'concept',
+      label: 'Concept map',
+      title: 'The topics and kinds that share resources',
+      icon: <ConceptGlyph />,
+    },
   ]
+  if (compact) {
+    return (
+      <IconSegmented groupLabel='Graph mode' value={mode} options={options} onChange={onChange} />
+    )
+  }
   return (
     <div
       role='group'
@@ -818,18 +999,31 @@ function ModeToggle({ mode, onChange }: { mode: Mode; onChange: (mode: Mode) => 
 function LayoutToggle({
   layout,
   onChange,
+  compact = false,
 }: {
   layout: MapLayout
   onChange: (layout: MapLayout) => void
+  compact?: boolean
 }) {
-  const options: { value: MapLayout; label: string; title: string }[] = [
+  const options: SegmentOption<MapLayout>[] = [
     {
       value: 'grouped',
       label: 'Grouped',
       title: 'Gather each category into its own territory',
+      icon: <GroupedGlyph />,
     },
-    { value: 'free', label: 'Free', title: 'One open force layout, no category grouping' },
+    {
+      value: 'free',
+      label: 'Free',
+      title: 'One open force layout, no category grouping',
+      icon: <FreeGlyph />,
+    },
   ]
+  if (compact) {
+    return (
+      <IconSegmented groupLabel='Map layout' value={layout} options={options} onChange={onChange} />
+    )
+  }
   return (
     <div
       role='group'
@@ -859,6 +1053,36 @@ function LayoutToggle({
   )
 }
 
+/**
+ * The banner (or the flat primary) behind the page chrome, plus the scrim that
+ * guarantees the type a ground. Shared by the wide hero and the phone strip.
+ */
+function HeroGround({ bannerImageUrl }: { bannerImageUrl?: string }) {
+  return (
+    <>
+      {bannerImageUrl
+        ? (
+          <img
+            src={bannerImageUrl}
+            alt=''
+            aria-hidden='true'
+            className='absolute inset-0 h-full w-full object-cover'
+          />
+        )
+        : null}
+      {/* Scrim - the banner is bright, so the type needs a guaranteed ground. */}
+      <div
+        className='absolute inset-0'
+        style={{
+          background:
+            'linear-gradient(180deg, color-mix(in srgb, var(--rp-primary) 78%, transparent), color-mix(in srgb, var(--rp-primary) 92%, transparent))',
+        }}
+        aria-hidden='true'
+      />
+    </>
+  )
+}
+
 /** Empty, error and everything-filtered-out share one frame on the map's own ground. */
 function CanvasNotice({ children }: { children: React.ReactNode }) {
   return (
@@ -884,6 +1108,8 @@ export function GraphPage() {
   const [extraGraph, setExtraGraph] = useState<RelationsGraph | null>(null)
   const [expanding, setExpanding] = useState(false)
   const [includeBuiltin, setIncludeBuiltin] = useState(false)
+  // Phone only: the find field lives behind the strip's magnifier.
+  const [searchOpen, setSearchOpen] = useState(false)
   const [railOpen, setRailOpen] = useState<boolean>(() =>
     typeof globalThis.matchMedia === 'function'
       ? globalThis.matchMedia('(min-width: 768px)').matches
@@ -1076,40 +1302,101 @@ export function GraphPage() {
   const extracting =
     (relationsQuery.data as { extracting?: boolean } | undefined)?.extracting === true
 
+  const nodeCount = mode === 'entity'
+    ? `${nodes.length} ${nodes.length === 1 ? 'entity' : 'entities'}`
+    : `${nodes.length} ${nodes.length === 1 ? 'category' : 'categories'}`
+  const edgeCount = mode === 'entity'
+    ? `${edges.length} ${edges.length === 1 ? 'relation' : 'relations'}`
+    : `${edges.length} ${edges.length === 1 ? 'overlap' : 'overlaps'}`
+  const counts = `${nodeCount} · ${edgeCount}`
   const subtitle = mode === 'entity'
-    ? `${nodes.length} ${nodes.length === 1 ? 'entity' : 'entities'} · ${edges.length} ${
-      edges.length === 1 ? 'relation' : 'relations'
-    } · ${groupStyles.size} ${groupStyles.size === 1 ? 'category' : 'categories'}`
-    : `${nodes.length} ${nodes.length === 1 ? 'category' : 'categories'} · ${edges.length} ${
-      edges.length === 1 ? 'overlap' : 'overlaps'
-    }`
+    ? `${counts} · ${groupStyles.size} ${groupStyles.size === 1 ? 'category' : 'categories'}`
+    : counts
 
   return (
     <div className='flex h-[calc(100dvh-var(--rp-header-h,126px))] flex-col overflow-hidden bg-app'>
       {
+        /* Phone chrome - one strip. A stacked hero (title, stats, a full-width
+          find field and two spelled-out segmented controls) took 325px of an
+          844px screen and left the map the bottom half of its own page, so on
+          a narrow screen the controls collapse to their glyphs, the counts
+          demote to a caption under the title, and find moves behind a button
+          that drops the field over the canvas rather than above it. */
+      }
+      <div className='relative z-30 shrink-0 md:hidden'>
+        <div className='relative overflow-hidden border-b border-line'>
+          <HeroGround bannerImageUrl={config.branding.bannerImageUrl} />
+          <div className='relative flex items-center gap-1.5 px-3 py-2'>
+            <div className='min-w-0 flex-1'>
+              <h1
+                className='rp-display truncate text-[15px] leading-tight text-[var(--rp-on-primary)]'
+                // .rp-display carries text-wrap: balance, which outranks the
+                // nowrap inside `truncate` and would let the title take a
+                // second line - and the strip's height with it - under about
+                // 340px. Inline, so the strip stays one line at any width.
+                style={{ whiteSpace: 'nowrap' }}
+              >
+                Knowledge map
+              </h1>
+              {hasGraph
+                ? (
+                  <p className='truncate text-[11px] leading-tight text-[var(--rp-on-primary)]/75'>
+                    {
+                      /* Demoted, and demoted again on the narrowest phones: the
+                        category count the wide hero carries is dropped here
+                        (the navigator's legend names every category anyway),
+                        and the relation count follows it below 380px rather
+                        than being cut off mid-word. */
+                    }
+                    {nodeCount}
+                    <span className='hidden min-[380px]:inline'>{` · ${edgeCount}`}</span>
+                  </p>
+                )
+                : null}
+            </div>
+            <button
+              type='button'
+              aria-label='Find in the map'
+              aria-expanded={searchOpen}
+              title='Find in the map'
+              onClick={() => setSearchOpen((open) => !open)}
+              className={`rp-focus flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--rp-radius-btn)] border transition-colors duration-150 ${
+                searchOpen
+                  ? 'border-transparent bg-[var(--rp-on-primary)] text-[var(--rp-primary)]'
+                  : 'border-[var(--rp-on-primary)]/45 text-[var(--rp-on-primary)]/80'
+              }`}
+            >
+              <SearchGlyph />
+            </button>
+            <ModeToggle mode={mode} onChange={switchMode} compact />
+            {hasGraph ? <LayoutToggle layout={layout} onChange={setLayout} compact /> : null}
+          </div>
+        </div>
+        {searchOpen
+          ? (
+            <div className='rp-anim-fade absolute inset-x-0 top-full border-b border-line bg-surface px-3 py-2 rp-shadow-md'>
+              <NodeSearch
+                nodes={nodes}
+                groupStyles={groupStyles}
+                onPick={(id) => {
+                  focusAndSelect(id)
+                  setSearchOpen(false)
+                }}
+                autoFocus
+                onDismiss={() => setSearchOpen(false)}
+                className='h-10'
+              />
+            </div>
+          )
+          : null}
+      </div>
+
+      {
         /* Chrome - title, find and the lens toggle. Kept slim so the map owns
           the height below it. */
       }
-      <div className='relative shrink-0 overflow-hidden border-b border-line'>
-        {config.branding.bannerImageUrl
-          ? (
-            <img
-              src={config.branding.bannerImageUrl}
-              alt=''
-              aria-hidden='true'
-              className='absolute inset-0 h-full w-full object-cover'
-            />
-          )
-          : null}
-        {/* Scrim - the banner is bright, so the type needs a guaranteed ground. */}
-        <div
-          className='absolute inset-0'
-          style={{
-            background:
-              'linear-gradient(180deg, color-mix(in srgb, var(--rp-primary) 78%, transparent), color-mix(in srgb, var(--rp-primary) 92%, transparent))',
-          }}
-          aria-hidden='true'
-        />
+      <div className='relative hidden shrink-0 overflow-hidden border-b border-line md:block'>
+        <HeroGround bannerImageUrl={config.branding.bannerImageUrl} />
         <div className='relative px-4 py-10 sm:px-6 sm:py-14'>
           <div className='mx-auto max-w-3xl text-center'>
             <h1 className='rp-display text-3xl text-[var(--rp-on-primary)] sm:text-4xl'>
@@ -1202,7 +1489,10 @@ export function GraphPage() {
               {pathFrom && !path
                 ? (
                   <div
-                    className='rp-anim-fade absolute left-1/2 top-3 z-30 flex -translate-x-1/2 items-center gap-2 rounded-full border bg-surface px-3.5 py-1.5 text-xs rp-shadow-md'
+                    // Below the Browse button on a phone, beside it on a wide
+                    // screen: centred at 390px the chip lands straight on top
+                    // of it.
+                    className='rp-anim-fade absolute left-1/2 top-14 z-30 flex max-w-[calc(100%-1.5rem)] -translate-x-1/2 items-center gap-2 rounded-full border bg-surface px-3.5 py-1.5 text-xs rp-shadow-md md:top-3'
                     style={{ borderColor: 'var(--rp-accent)' }}
                     role='status'
                   >
