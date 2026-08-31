@@ -47,6 +47,45 @@ function formatYear(iso: string): string | null {
  */
 type CatalogItemMeta = CatalogItem & { kind?: string; published?: string }
 
+/**
+ * Tailwind's `sm` breakpoint (40rem). Matched rather than its complement so the
+ * boundary is exactly the one the `sm:` utilities use - `max-width` variants
+ * have to guess at a sub-pixel epsilon and drift off it.
+ */
+const SM_BREAKPOINT = '(min-width: 40rem)'
+
+/**
+ * True on viewports narrower than the `sm` breakpoint, i.e. phones.
+ *
+ * The library's default layout depends on it: a grid card leads with a 4:3
+ * thumbnail sized to the full column width, which on a 390px phone is roughly
+ * a screenful of artwork per resource. A list row shows the same resource with
+ * a small A4 thumbnail beside its text, so a phone starts in list view.
+ */
+function useCompactViewport(): boolean {
+  const query = () =>
+    typeof globalThis.matchMedia === 'function' ? globalThis.matchMedia(SM_BREAKPOINT) : null
+  const [compact, setCompact] = useState(() => {
+    const media = query()
+    // No matchMedia (a non-DOM render) is treated as wide: the grid is the
+    // long-standing default and only a known-narrow viewport should override it.
+    return media ? !media.matches : false
+  })
+
+  useEffect(() => {
+    const media = query()
+    if (!media) return
+    const onChange = (event: MediaQueryListEvent) => setCompact(!event.matches)
+    // Re-read on mount: the viewport may have changed between the first render
+    // and this effect (an orientation flip during hydration, say).
+    setCompact(!media.matches)
+    media.addEventListener('change', onChange)
+    return () => media.removeEventListener('change', onChange)
+  }, [])
+
+  return compact
+}
+
 function SelectionMark({ selected }: { selected: boolean }) {
   return (
     <span
@@ -115,7 +154,12 @@ function LibraryCard(
         >
           <ResourceThumb slug={slug} id={item.id} type='document' imgClassName='object-top' />
         </div>
-        {statusInfo
+        {
+          /* A list row's thumbnail is only 4.5rem wide, too narrow to carry the
+          * status badge without clipping it - there it rides with the other
+          * badges in the text column instead. */
+        }
+        {statusInfo && !list
           ? (
             <span className={`absolute left-2 top-2 ${statusInfo.className}`}>
               {statusInfo.label}
@@ -135,9 +179,12 @@ function LibraryCard(
         {item.summary && item.summary !== item.title
           ? <p className='rp-clamp-2 text-xs leading-relaxed text-ink-3'>{item.summary}</p>
           : null}
-        {topicLabels.length > 0 || meta.kind
+        {topicLabels.length > 0 || meta.kind || (statusInfo && list)
           ? (
             <div className='flex flex-wrap gap-1'>
+              {statusInfo && list
+                ? <span className={statusInfo.className}>{statusInfo.label}</span>
+                : null}
               {meta.kind
                 ? (
                   <span className='rp-badge rp-badge-quiet'>
@@ -412,7 +459,7 @@ export function LibraryBrowser(
     onSortChange,
     density: densityProp,
     onDensityChange,
-    view = 'grid',
+    view: viewProp,
   }: {
     bare?: boolean
     /** Controlled sort and density, when the host renders the controls itself. */
@@ -420,10 +467,20 @@ export function LibraryBrowser(
     onSortChange?: (value: SortValue) => void
     density?: number
     onDensityChange?: (value: number) => void
+    /**
+     * Controlled layout, when the host renders a view toggle. An explicit
+     * choice always wins; leave it unset to take the viewport-derived default.
+     */
     view?: 'grid' | 'list'
   } = {},
 ) {
   const { config } = useOutletContext<TenantOutletContext>()
+
+  // A phone defaults to the list layout - see `useCompactViewport`. A host that
+  // controls `view` (the search page's layout toggle) still wins at every
+  // width, so a deliberate pick is never overridden on rotate or resize.
+  const compact = useCompactViewport()
+  const view: 'grid' | 'list' = viewProp ?? (compact ? 'list' : 'grid')
 
   const [queryDraft, setQueryDraft] = useState('')
   const [debouncedQuery, setDebouncedQuery] = useState('')
