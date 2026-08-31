@@ -22,6 +22,17 @@ export const BrandingSchema = z.object({
   heroImageUrl: z.string().optional(),
   /** Wide image behind slim page headers (e.g. the knowledge map). */
   bannerImageUrl: z.string().optional(),
+  /**
+   * Typefaces for this portal, as CSS font stacks. Each family must also be
+   * loaded in apps/web/index.html. Omitted portals fall back to the defaults in
+   * styles.css.
+   */
+  fonts: z.object({
+    /** Body and UI. */
+    sans: z.string(),
+    /** Headings (.rp-display). */
+    display: z.string(),
+  }).optional(),
 })
 
 export const TopicSchema = z.object({

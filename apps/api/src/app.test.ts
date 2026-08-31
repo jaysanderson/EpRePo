@@ -124,14 +124,15 @@ function makeApp(enrichments?: EnrichmentStore) {
 }
 
 describe('GET /api/tenants', () => {
-  it('returns the seeded tenant', async () => {
+  it('returns the seeded tenants', async () => {
     const app = makeApp()
     const response = await app.request('/api/tenants')
 
     expect(response.status).toBe(200)
     const body = await response.json() as Array<{ slug: string }>
     const slugs = body.map((tenant) => tenant.slug)
-    expect(slugs).toEqual(['frdc'])
+    expect(slugs).toContain('frdc')
+    expect(slugs).toContain('grdc')
   })
 })
 
@@ -296,7 +297,7 @@ describe('admin', () => {
 
     expect(response.status).toBe(200)
     const rows = (await response.json()) as unknown[]
-    expect(rows.length).toBe(1)
+    expect(rows.length).toBe(2)
     for (const row of rows) AdminTenantOverviewSchema.parse(row)
   })
 

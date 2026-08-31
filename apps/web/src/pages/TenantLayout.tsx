@@ -4,6 +4,7 @@ import { Link, NavLink, Outlet, useLocation, useNavigate, useParams } from 'reac
 import type { TenantConfig } from '@research-portal/core'
 import { ApiError, getKnowledgeBoxStatus, getTenantConfig } from '../api/client.ts'
 import { CommandPalette } from '../components/CommandPalette.tsx'
+import { KbSwitcher } from '../components/KbSwitcher.tsx'
 import { PortalFooter } from '../components/PortalFooter.tsx'
 import { SignInDialog } from '../components/SignInDialog.tsx'
 import { GENERATE_KINDS, GENERATE_WORKSPACES, GenerateMenu } from '../components/GenerateMenu.tsx'
@@ -131,6 +132,24 @@ export function TenantLayout() {
     // would attach to nothing and never set the property.
   }, [config])
 
+  // The tenant's typefaces have to land on :root - `--font-sans` is resolved
+  // there, so setting the override on a descendant leaves body on the default.
+  useEffect(() => {
+    const root = document.documentElement
+    const fonts = config?.branding.fonts
+    if (!fonts) {
+      root.style.removeProperty('--rp-font-sans')
+      root.style.removeProperty('--rp-font-display')
+      return
+    }
+    root.style.setProperty('--rp-font-sans', fonts.sans)
+    root.style.setProperty('--rp-font-display', fonts.display)
+    return () => {
+      root.style.removeProperty('--rp-font-sans')
+      root.style.removeProperty('--rp-font-display')
+    }
+  }, [config])
+
   useEffect(() => {
     if (config) {
       document.title = config.branding.productName
@@ -191,25 +210,32 @@ export function TenantLayout() {
       <header ref={headerRef} className='sticky top-0 z-40'>
         <div className='border-b border-line bg-surface'>
           <div className='rp-shell flex items-center justify-between gap-4 py-3'>
-            <Link
-              to={`/t/${config.slug}`}
-              className='rp-focus flex min-w-0 items-center gap-3 rounded-none'
-            >
-              {config.branding.logoUrl && !logoFailed
-                ? (
-                  <img
-                    src={config.branding.logoUrl}
-                    alt={config.branding.organisation}
-                    onError={() => setLogoFailed(true)}
-                    className='h-14 w-auto max-w-[20rem] object-contain sm:h-16'
-                  />
-                )
-                : (
-                  <span className='rp-display truncate text-lg text-ink sm:text-xl'>
-                    {config.branding.productName}
-                  </span>
-                )}
-            </Link>
+            <div className='flex min-w-0 items-center gap-2'>
+              <Link
+                to={`/t/${config.slug}`}
+                className='rp-focus flex min-w-0 items-center gap-3 rounded-none'
+              >
+                {config.branding.logoUrl && !logoFailed
+                  ? (
+                    <img
+                      src={config.branding.logoUrl}
+                      alt={config.branding.organisation}
+                      onError={() => setLogoFailed(true)}
+                      className='h-14 w-auto max-w-[20rem] object-contain sm:h-16'
+                    />
+                  )
+                  : (
+                    <span className='rp-display truncate text-lg text-ink sm:text-xl'>
+                      {config.branding.productName}
+                    </span>
+                  )}
+              </Link>
+              {
+                /* Portal switcher, beside the logo - each portal is its own
+                * knowledge box, content and branding. */
+              }
+              <KbSwitcher config={config} />
+            </div>
             <div className='flex shrink-0 items-center gap-2'>
               {/* Header search, as on frdc.com.au - submits into the Library. */}
               <form
@@ -519,7 +545,7 @@ export function TenantLayout() {
         * it, and it overruns anything stacked below - which is exactly the
         * overlap this avoids. */
       }
-      {isViewportHeightRoute ? null : <PortalFooter />}
+      {isViewportHeightRoute ? null : <PortalFooter slug={config.slug} />}
 
       {signInOpen ? <SignInDialog onClose={() => setSignInOpen(false)} /> : null}
 

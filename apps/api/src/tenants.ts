@@ -3,11 +3,64 @@ import { type TenantConfig, TenantConfigSchema, type TenantSummary } from '@rese
 import { readJsonSafe, writeJsonAtomic } from './persist.ts'
 
 // ---------------------------------------------------------------------------
-// Seed tenant config - the single source of truth for tenant-driven theming
+// Seed tenant configs - the single source of truth for tenant-driven theming
 // and copy, validated at module load so a bad seed fails fast on boot.
 // Persistence is deliberately plain JSON files on the volume (project rule:
 // no SQLite or embedded databases unless absolutely unavoidable).
 // ---------------------------------------------------------------------------
+
+const grdc: TenantConfig = TenantConfigSchema.parse({
+  slug: 'grdc',
+  branding: {
+    productName: 'GRDC Knowledge Hub',
+    organisation: 'Grains Research and Development Corporation',
+    tagline: 'Investing in RD&E for Australian grain growers',
+    colours: {
+      // Sampled from grdc.com.au: the nav band and footer are their charcoal,
+      // the greens carry the brand.
+      primary: '#28292a',
+      accent: '#007945',
+      heroFrom: '#007945',
+      heroTo: '#004628',
+    },
+    logoUrl: '/brand/grdc-logo.png',
+    heroImageUrl: '/brand/hero/grdc-hero.png',
+    fonts: {
+      sans: "'Montserrat', ui-sans-serif, system-ui, -apple-system, sans-serif",
+      display: "'Montserrat', ui-sans-serif, system-ui, -apple-system, sans-serif",
+    },
+  },
+  searchPlaceholder: 'Search agronomy, crop protection, soils, farm business…',
+  // These ids must match the `topic` labelset on the bound knowledge box; until
+  // a GRDC box is connected they are the intended taxonomy, not a live one.
+  topics: [
+    { id: 'agronomy', label: 'Agronomy' },
+    { id: 'crop-protection', label: 'Crop protection' },
+    { id: 'soils-nutrition', label: 'Soils and nutrition' },
+    { id: 'farm-business', label: 'Farm business' },
+    { id: 'climate-environment', label: 'Climate and environment' },
+    { id: 'harvest-storage', label: 'Harvest and storage' },
+  ],
+  suggestedQuestions: [
+    {
+      id: 'grdc-q1',
+      text: 'What rotation strategies help manage herbicide-resistant ryegrass?',
+    },
+    { id: 'grdc-q2', text: 'How does nitrogen timing affect grain protein in dryland wheat?' },
+    { id: 'grdc-q3', text: 'What is the current guidance on managing net blotch in barley?' },
+    { id: 'grdc-q4', text: 'How is frost risk managed across the southern cropping region?' },
+    { id: 'grdc-q5', text: 'What storage conditions reduce grain quality loss after harvest?' },
+    { id: 'grdc-q6', text: 'Which practices improve water use efficiency in low rainfall zones?' },
+  ],
+  entityTypes: [
+    { id: 'crop', label: 'Crop', colour: '#7cb342' },
+    { id: 'pest', label: 'Pest or disease', colour: '#e53935' },
+    { id: 'researcher', label: 'Researcher', colour: '#5e97f6' },
+    { id: 'project', label: 'GRDC project', colour: '#007945' },
+    { id: 'region', label: 'Growing region', colour: '#26a69a' },
+  ],
+  relationTypes: ['studies', 'affects', 'conducted-in', 'funded-by', 'collaborates-with'],
+})
 
 const frdc: TenantConfig = TenantConfigSchema.parse({
   slug: 'frdc',
@@ -74,6 +127,7 @@ const frdc: TenantConfig = TenantConfigSchema.parse({
 
 const tenantsBySlug: Record<string, TenantConfig> = {
   frdc,
+  grdc,
 }
 
 export function tenantConfig(slug: string): TenantConfig | undefined {

@@ -47,11 +47,28 @@
 }
 
 @theme {
-  /* Matches frdc.com.au: Manrope for body and navigation, Inter for headings. */
-  --font-sans:
-    'Manrope', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-  --font-display:
-    'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  /* Defaults match frdc.com.au: Manrope for body and navigation, Inter for
+   * headings. A tenant overrides both by setting --rp-font-sans and
+   * --rp-font-display (see TenantLayout), so each portal keeps its own
+   * typeface without a rebuild. */
+  --font-sans: var(
+    --rp-font-sans,
+    'Manrope',
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    sans-serif
+  );
+  --font-display: var(
+    --rp-font-display,
+    'Inter',
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    sans-serif
+  );
 }
 
 html {

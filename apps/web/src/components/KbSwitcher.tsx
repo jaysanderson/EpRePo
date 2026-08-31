@@ -27,20 +27,6 @@ function StatusDot({ status }: { status?: KnowledgeBoxStatus['status'] }) {
   )
 }
 
-/** The tenant logo when one is uploaded, otherwise nothing. */
-function TenantMark({ src, alt }: { src: string; alt: string }) {
-  const [failed, setFailed] = useState(false)
-  if (failed) return null
-  return (
-    <img
-      src={src}
-      alt={alt}
-      onError={() => setFailed(true)}
-      className='h-7 w-auto max-w-[7rem] rounded-none object-contain'
-    />
-  )
-}
-
 /**
  * The knowledge box switcher: the portal wordmark (with its logo, when the
  * tenant has one) doubles as a dropdown that switches between every portal -
@@ -120,8 +106,6 @@ export function KbSwitcher({ config }: { config: TenantConfig }) {
     navigate(`/t/${slug}${section}${location.search}`)
   }
 
-  const logoUrl = config.branding.logoUrl
-
   return (
     <div ref={wrapRef} className='relative'>
       <button
@@ -130,23 +114,15 @@ export function KbSwitcher({ config }: { config: TenantConfig }) {
         onClick={() => setOpen((prev) => !prev)}
         aria-haspopup='menu'
         aria-expanded={open}
-        className='rp-focus flex max-w-[15rem] items-center gap-2.5 rounded-none px-2 py-1 text-left transition-colors duration-150 hover:bg-[var(--rp-surface-2)] sm:max-w-none'
+        aria-label={`Switch portal - currently ${config.branding.productName}`}
+        title='Switch portal'
+        className='rp-focus flex h-9 w-9 shrink-0 items-center justify-center rounded-none text-ink-3 transition-colors duration-150 hover:bg-[var(--rp-surface-2)] hover:text-ink'
       >
-        {logoUrl
-          ? (
-            // A logo carries the brand on its own, so it replaces the wordmark
-            // rather than sitting beside it (avoids the logo-plus-name doubling
-            // up). The product name stays for screen readers and the tab title.
-            <>
-              <TenantMark src={logoUrl} alt={config.branding.productName} />
-              <span className='sr-only'>{config.branding.productName}</span>
-            </>
-          )
-          : (
-            <span className='truncate text-[1.0625rem] font-semibold tracking-[-0.02em] text-ink'>
-              {config.branding.productName}
-            </span>
-          )}
+        {
+          /* The header already shows this portal's logo, so the trigger is just
+          * the disclosure - a second mark here would double up. */
+        }
+        <span className='sr-only'>{config.branding.productName}</span>
         <svg
           className={`h-4 w-4 shrink-0 text-ink-3 transition-transform duration-200 ${
             open ? 'rotate-180' : ''

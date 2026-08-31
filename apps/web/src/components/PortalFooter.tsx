@@ -1,6 +1,17 @@
-const FRDC = 'https://www.frdc.com.au'
+interface FooterContent {
+  columns: { heading: string; links: { label: string; href: string }[] }[]
+  legal: { label: string; href: string }[]
+  socials: { label: string; href: string; path: string }[]
+  acknowledgement: string
+  copyright: string
+  subscribe: { heading: string; blurb: string; label: string; href: string }
+  subscribeImageUrl?: string
+}
 
-const COLUMNS: { heading: string; links: { label: string; href: string }[] }[] = [
+const FRDC = 'https://www.frdc.com.au'
+const GRDC = 'https://grdc.com.au'
+
+const FRDC_COLUMNS: { heading: string; links: { label: string; href: string }[] }[] = [
   {
     heading: 'Research & Funding',
     links: [
@@ -35,7 +46,7 @@ const COLUMNS: { heading: string; links: { label: string; href: string }[] }[] =
   },
 ]
 
-const LEGAL: { label: string; href: string }[] = [
+const FRDC_LEGAL: { label: string; href: string }[] = [
   { label: 'Accessibility', href: `${FRDC}/accessibility` },
   { label: 'Copyright', href: `${FRDC}/copyright` },
   { label: 'Disclaimer', href: `${FRDC}/legal` },
@@ -45,7 +56,7 @@ const LEGAL: { label: string; href: string }[] = [
   { label: 'Legal', href: `${FRDC}/legal` },
 ]
 
-const SOCIALS: { label: string; href: string; path: string }[] = [
+const FRDC_SOCIALS: { label: string; href: string; path: string }[] = [
   {
     label: 'FRDC on Facebook',
     href: 'https://www.facebook.com/FRDCAustralia',
@@ -77,9 +88,109 @@ const SOCIALS: { label: string; href: string; path: string }[] = [
  * link points at frdc.com.au - this portal does not reproduce their newsletter
  * or legal pages, it sends people to the real ones.
  */
-export function PortalFooter(
-  { subscribeImageUrl = '/brand/hero/frdc-subscribe.jpg' }: { subscribeImageUrl?: string },
-) {
+const FRDC_ACK =
+  'FRDC acknowledges Aboriginal and Torres Strait Islander Peoples as the Traditional ' +
+  'Custodians of land, sea and sky, recognising their deep, enduring connection to these ' +
+  'places. We pay our respects to Elders past and present who hold the knowledge, culture ' +
+  'and spiritual connections to land, sky and waters and whose guidance continues to shape ' +
+  'their sustainable, ethical and responsible care.'
+
+const GRDC_ACK =
+  'In the spirit of reconciliation GRDC acknowledges the Traditional Custodians of Country ' +
+  'throughout Australia and their connections to land, waters and community. We pay our ' +
+  'respects to their Elders past, present and extend that respect to all Aboriginal and ' +
+  'Torres Strait Islander peoples today.'
+
+/** Social marks reuse one icon set; only the destinations differ per portal. */
+const NETWORKS = ['Facebook', 'Instagram', 'LinkedIn', 'YouTube'] as const
+
+const socialFor = (
+  handles: Partial<Record<typeof NETWORKS[number], string>>,
+  org: string,
+): { label: string; href: string; path: string }[] =>
+  NETWORKS.flatMap((network) => {
+    const href = handles[network]
+    const mark = FRDC_SOCIALS.find((m) => m.label.includes(network))
+    return href && mark ? [{ label: `${org} on ${network}`, href, path: mark.path }] : []
+  })
+
+/**
+ * Footer content per portal. Each carries its own organisation's links, legal
+ * pages and Acknowledgement of Country - none of it is interchangeable, so it
+ * is written out rather than templated.
+ */
+const FOOTERS: Record<string, FooterContent> = {
+  frdc: {
+    columns: FRDC_COLUMNS,
+    legal: FRDC_LEGAL,
+    socials: FRDC_SOCIALS,
+    acknowledgement: FRDC_ACK,
+    copyright: '\u00a9 Fisheries Research and Development Corporation',
+    subscribe: {
+      heading: 'Stay up to date',
+      blurb: 'Subscribe to our newsletter and updates',
+      label: 'Subscribe',
+      href: `${FRDC}/stay-up-to-date`,
+    },
+    subscribeImageUrl: '/brand/hero/frdc-subscribe.jpg',
+  },
+  grdc: {
+    columns: [
+      {
+        heading: 'Stay updated',
+        links: [
+          { label: 'My newsletters', href: `${GRDC}/grdc-subscriptions` },
+          { label: 'News and media', href: `${GRDC}/news-and-media` },
+        ],
+      },
+      {
+        heading: 'Research',
+        links: [
+          { label: 'RD&E', href: `${GRDC}/research-and-development` },
+          { label: 'Resources and publications', href: `${GRDC}/resources-and-publications` },
+        ],
+      },
+      {
+        heading: 'Contact GRDC',
+        links: [
+          { label: 'Tel: (02) 6166 4500', href: 'tel:0261664500' },
+          { label: 'grdc@grdc.com.au', href: 'mailto:grdc@grdc.com.au' },
+          { label: 'Contact us', href: `${GRDC}/about/contact-us` },
+        ],
+      },
+    ],
+    legal: [
+      { label: 'Privacy', href: `${GRDC}/policies/privacy` },
+      { label: 'Terms of use and Disclaimer', href: `${GRDC}/policies/disclaimer` },
+      { label: 'Copyright', href: `${GRDC}/policies/copyright` },
+      {
+        label: 'Public interest disclosure',
+        href: `${GRDC}/policies/public-interest-disclosure`,
+      },
+    ],
+    socials: socialFor({
+      Facebook: 'https://www.facebook.com/theGRDC',
+      Instagram: 'https://www.instagram.com/thegrdc/',
+      LinkedIn: 'https://www.linkedin.com/company/thegrdc/',
+      YouTube: 'https://www.youtube.com/c/theGRDC/',
+    }, 'GRDC'),
+    acknowledgement: GRDC_ACK,
+    copyright: '\u00a9 Grains Research and Development Corporation',
+    subscribe: {
+      heading: 'Stay updated',
+      blurb: 'Get GRDC research, news and events in your inbox',
+      label: 'Subscribe',
+      href: `${GRDC}/grdc-subscriptions`,
+    },
+  },
+}
+
+export function PortalFooter({ slug }: { slug: string }) {
+  const content = FOOTERS[slug]
+  // A portal with no footer content of its own gets none - inventing an
+  // organisation's links or Acknowledgement of Country would be worse.
+  if (!content) return null
+  const subscribeImageUrl = content.subscribeImageUrl
   return (
     <footer style={{ backgroundColor: 'var(--rp-primary)' }}>
       {/* Subscribe band */}
@@ -104,15 +215,15 @@ export function PortalFooter(
         />
         <div className='rp-shell relative py-16 sm:py-20'>
           <h2 className='rp-display text-2xl text-white sm:text-3xl'>Stay up to date</h2>
-          <p className='mt-3 text-base text-white/80'>Subscribe to our newsletter and updates</p>
+          <p className='mt-3 text-base text-white/80'>{content.subscribe.blurb}</p>
           <a
-            href={`${FRDC}/stay-up-to-date`}
+            href={content.subscribe.href}
             target='_blank'
             rel='noreferrer noopener'
             className='rp-focus-inverse mt-7 inline-flex items-center bg-white px-7 py-3 text-sm font-semibold transition-colors duration-150 hover:bg-white/90'
             style={{ color: 'var(--rp-primary)' }}
           >
-            Subscribe
+            {content.subscribe.label}
           </a>
         </div>
       </div>
@@ -120,7 +231,7 @@ export function PortalFooter(
       {/* Link columns */}
       <div className='rp-shell py-10'>
         <div className='grid grid-cols-2 gap-x-6 gap-y-8 sm:grid-cols-3 lg:grid-cols-5'>
-          {COLUMNS.map((column) => (
+          {content.columns.map((column) => (
             <div key={column.heading} className='min-w-0'>
               <h3 className='border-b border-white/25 pb-3 text-sm font-semibold text-white'>
                 {column.heading}
@@ -145,7 +256,7 @@ export function PortalFooter(
 
         {/* Social */}
         <div className='mt-10 flex justify-center gap-6 border-t border-white/20 pt-8'>
-          {SOCIALS.map((social) => (
+          {content.socials.map((social) => (
             <a
               key={social.label}
               href={social.href}
@@ -164,19 +275,15 @@ export function PortalFooter(
         {/* Acknowledgement of Country */}
         <div className='mx-auto mt-8 max-w-3xl border border-white/35 px-6 py-5'>
           <p className='text-center text-xs leading-relaxed text-white/85'>
-            FRDC acknowledges Aboriginal and Torres Strait Islander Peoples as the Traditional
-            Custodians of land, sea and sky, recognising their deep, enduring connection to these
-            places. We pay our respects to Elders past and present who hold the knowledge, culture
-            and spiritual connections to land, sky and waters and whose guidance continues to shape
-            their sustainable, ethical and responsible care.
+            {content.acknowledgement}
           </p>
         </div>
 
         {/* Copyright and legal */}
         <div className='mt-8 flex flex-col items-center justify-between gap-3 text-xs text-white/70 sm:flex-row'>
-          <p>&copy; Fisheries Research and Development Corporation</p>
+          <p>{content.copyright}</p>
           <ul className='flex flex-wrap justify-center gap-x-4 gap-y-1.5'>
-            {LEGAL.map((item) => (
+            {content.legal.map((item) => (
               <li key={item.label}>
                 <a
                   href={item.href}
