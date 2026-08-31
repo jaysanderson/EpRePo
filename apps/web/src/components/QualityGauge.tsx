@@ -1,5 +1,13 @@
-import { useEffect, useRef, useState } from 'react'
-import { assessConfidence } from '../lib/confidence.ts'
+import {
+  type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
+  useEffect,
+  useRef,
+  useState,
+} from 'react'
+import { createPortal } from 'react-dom'
+import { assessConfidence, type ConfidenceState } from '../lib/confidence.ts'
+import { useCompactViewport } from './useViewMode.ts'
 
 const SEGMENTS = 5
 
@@ -37,7 +45,7 @@ function bandColour(score: number): string {
   return 'var(--rp-bad-ink)'
 }
 
-function ShieldCheckIcon() {
+function ShieldCheckIcon({ className = 'h-3.5 w-3.5' }: { className?: string }) {
   return (
     <svg
       viewBox='0 0 20 20'
@@ -47,7 +55,7 @@ function ShieldCheckIcon() {
       strokeLinecap='round'
       strokeLinejoin='round'
       aria-hidden='true'
-      className='h-3.5 w-3.5 shrink-0'
+      className={`${className} shrink-0`}
     >
       <path d='M10 2.3l6.2 2.25v4.4c0 4.2-2.7 7.2-6.2 8.85-3.5-1.65-6.2-4.65-6.2-8.85v-4.4z' />
       <path d='M6.9 10.1l2 2 4-4.3' />
@@ -82,6 +90,13 @@ function MiniMeter(
 
 export interface TrustSignalsProps {
   quality: QualityScores
+  /**
+   * Set false where the surrounding panel already says "Answer quality" - the
+   * assistant's disclosure heads its own popup, and two identical labels one
+   * above the other read as a rendering bug. Defaults true, so every existing
+   * caller keeps the labelled row it has.
+   */
+  showLabel?: boolean
 }
 
 type PresentMetric = { key: keyof QualityScores; label: string; description: string; score: number }
@@ -93,7 +108,7 @@ type PresentMetric = { key: keyof QualityScores; label: string; description: str
  * own ok/warn/bad band and carries a one-sentence explanation in its title
  * attribute. A null metric is skipped; if every metric is null nothing renders.
  */
-export function TrustSignals({ quality }: TrustSignalsProps) {
+export function TrustSignals({ quality, showLabel = true }: TrustSignalsProps) {
   const present: PresentMetric[] = []
   for (const metric of METRICS) {
     const score = quality[metric.key]
@@ -104,13 +119,17 @@ export function TrustSignals({ quality }: TrustSignalsProps) {
 
   return (
     <div className='flex flex-wrap items-center gap-x-3 gap-y-1.5'>
-      <span
-        className={'inline-flex items-center gap-1 text-[10px] font-medium uppercase ' +
-          'tracking-wide text-ink-3'}
-      >
-        <ShieldCheckIcon />
-        Answer quality
-      </span>
+      {showLabel
+        ? (
+          <span
+            className={'inline-flex items-center gap-1 text-[10px] font-medium uppercase ' +
+              'tracking-wide text-ink-3'}
+          >
+            <ShieldCheckIcon />
+            Answer quality
+          </span>
+        )
+        : null}
       {present.map((metric) => (
         <MiniMeter
           key={metric.key}
@@ -147,7 +166,7 @@ function CheckCircleIcon() {
   )
 }
 
-function InfoCircleIcon() {
+function InfoCircleIcon({ className = 'h-3.5 w-3.5' }: { className?: string }) {
   return (
     <svg
       viewBox='0 0 20 20'
@@ -157,7 +176,7 @@ function InfoCircleIcon() {
       strokeLinecap='round'
       strokeLinejoin='round'
       aria-hidden='true'
-      className='h-3.5 w-3.5 shrink-0'
+      className={`${className} shrink-0`}
     >
       <circle cx='10' cy='10' r='7.25' />
       <path d='M10 9.2v4' />
@@ -183,6 +202,22 @@ function AlertTriangleIcon({ className = 'h-4 w-4' }: { className?: string }) {
       <circle cx='10' cy='14.2' r='0.15' fill='currentColor' stroke='none' />
     </svg>
   )
+}
+
+/**
+ * The sentence that elaborates each confidence level. Held in one place so the
+ * inline pill (`ConfidenceIndicator`, still used by search and the docs
+ * assistant) and the assistant's popup (`AnswerQualityDisclosure`) can never
+ * tell a reader two different things about the same score.
+ */
+const CONFIDENCE_DETAIL: Record<ConfidenceState, string> = {
+  unscored:
+    'The automatic quality checks did not run for this answer, so there is no score to report. Judge it on its citations.',
+  high: 'The retrieved sources support this answer well.',
+  moderate:
+    'The retrieved sources only partly support this answer - check the citations before relying on it.',
+  low:
+    'The retrieved sources only weakly support this answer. Treat it as a lead and verify against the cited sources below.',
 }
 
 export interface ConfidenceIndicatorProps {
@@ -228,7 +263,7 @@ export function ConfidenceIndicator({ quality }: ConfidenceIndicatorProps) {
       <ConfidencePill
         tone='warn'
         label='Moderate confidence'
-        detail='The retrieved sources only partly support this answer - check the citations before relying on it.'
+        detail={CONFIDENCE_DETAIL.moderate}
       />
     )
   }
@@ -237,7 +272,7 @@ export function ConfidenceIndicator({ quality }: ConfidenceIndicatorProps) {
     <ConfidencePill
       tone='bad'
       label='Low confidence'
-      detail='The retrieved sources only weakly support this answer. Treat it as a lead and verify against the cited sources below.'
+      detail={CONFIDENCE_DETAIL.low}
     />
   )
 }
@@ -301,5 +336,324 @@ function ConfidencePill(
         )
         : null}
     </span>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Answer quality disclosure - one control on the answer's actions row that
+// opens the confidence headline, the REMi meters and the grounding advice
+// together.
+//
+// Those three used to stack as full-width blocks between the answer and the
+// actions row. On a phone that is most of a screen of chrome after every
+// answer, and it is chrome a reader mostly scrolls past.
+//
+// The thing this must NOT do is hide a bad answer. A groundedness of 1.0/5 is
+// an answer nobody should act on, and putting that behind a click the reader
+// has no reason to make would trade a UI problem for a credibility one. So the
+// TRIGGER carries the state: high and unscored collapse to a quiet icon, but
+// moderate and low keep their colour, their alert glyph AND their words right
+// there on the row, and the accessible name always leads with the level. The
+// reader still learns "low confidence" without opening anything; what the
+// popup saves them is the detail they only want once they act on it.
+// ---------------------------------------------------------------------------
+
+/** The focusable descendants of a panel, in tab order. */
+function focusablesIn(panel: HTMLElement): HTMLElement[] {
+  return [
+    ...panel.querySelectorAll<HTMLElement>(
+      'a[href], button:not([disabled]), input:not([disabled]), select, textarea, [tabindex]:not([tabindex="-1"])',
+    ),
+  ]
+}
+
+function CloseIcon() {
+  return (
+    <svg
+      viewBox='0 0 24 24'
+      fill='none'
+      stroke='currentColor'
+      strokeWidth='1.7'
+      strokeLinecap='round'
+      strokeLinejoin='round'
+      aria-hidden='true'
+      className='h-4 w-4'
+    >
+      <path d='M6 6l12 12M18 6L6 18' />
+    </svg>
+  )
+}
+
+/**
+ * How loudly each confidence level announces itself on the actions row - three
+ * tiers, escalating only as far as the news warrants.
+ *
+ * Only `low` spells itself out. That is the state a reader must not miss (a
+ * groundedness in the bad band: an answer to verify, not to act on), so it
+ * keeps its words and its colour out on the row. `moderate` is a caution, not
+ * an alarm, so it takes the warn tone and the alert glyph but no label -
+ * visibly different from quiet without shouting, and the accessible name still
+ * says "Moderate confidence". Good and unscored news collapses to a plain grey
+ * icon indistinguishable in weight from copy or watch.
+ *
+ * The tiering is also what keeps the row on one line at 390px: six controls fit
+ * comfortably when at most one of them carries text.
+ */
+const TRIGGER_TONE: Record<
+  ConfidenceState,
+  { tone: 'quiet' | 'warn' | 'bad'; labelled: boolean }
+> = {
+  high: { tone: 'quiet', labelled: false },
+  unscored: { tone: 'quiet', labelled: false },
+  moderate: { tone: 'warn', labelled: false },
+  low: { tone: 'bad', labelled: true },
+}
+
+export interface AnswerQualityDisclosureProps {
+  quality: QualityScores | null | undefined
+  /**
+   * Present only when a deep re-answer is genuinely on offer for this answer -
+   * the caller owns that decision, because it turns on message state (already
+   * deep, already dismissed) this component cannot see.
+   */
+  onReanswerDeeply?: () => void
+  /**
+   * Set when the answer outruns its passages but the deep re-answer is not on
+   * offer (already taken, or this already is a deep answer). Same advice, no
+   * action to go with it.
+   */
+  sparselyGrounded?: boolean
+}
+
+/**
+ * The trigger plus its panel, rendered as a single inline control so it drops
+ * into the answer's actions row beside copy/retry/watch with no layout of its
+ * own. Entrance reuses `rp-answer-tail` (the `rp-stage-in` keyframes on the
+ * shared `--rp-stage-i` stagger), so it needs no CSS of its own and honours
+ * `prefers-reduced-motion` through that rule.
+ *
+ * Below `sm` the panel is a modal bottom sheet portalled to the body, and above
+ * it an anchored dropdown - the shape the "Save to investigation" picker
+ * arrived at, for the same reason: this trigger sits at the right of a row, so
+ * a 20rem panel anchored to it on a phone runs off the edge and up over the
+ * site header. The breakpoint comes from the shared `useCompactViewport`, which
+ * matches Tailwind's own `sm` rather than guessing at a `max-width` epsilon.
+ */
+export function AnswerQualityDisclosure(
+  { quality, onReanswerDeeply, sparselyGrounded = false }: AnswerQualityDisclosureProps,
+) {
+  const [open, setOpen] = useState(false)
+  const rootRef = useRef<HTMLDivElement | null>(null)
+  const panelRef = useRef<HTMLDivElement | null>(null)
+  const triggerRef = useRef<HTMLButtonElement | null>(null)
+  const compact = useCompactViewport()
+
+  // Escape and outside taps dismiss. The sheet is portalled to the body, so
+  // "inside" has to mean the trigger OR the panel; without the second test the
+  // sheet's own taps would read as outside clicks and close it.
+  useEffect(() => {
+    if (!open) return
+    const onDown = (event: PointerEvent) => {
+      const target = event.target as Node
+      if (rootRef.current?.contains(target) || panelRef.current?.contains(target)) return
+      setOpen(false)
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('pointerdown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('pointerdown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  // Focus in on open, back to the trigger on close - but only when the panel
+  // still held it. A click that landed on another control has already moved
+  // focus deliberately and yanking it back would fight the reader; a panel that
+  // closes while focused drops focus to <body>, which is the case worth
+  // rescuing.
+  useEffect(() => {
+    if (!open) return
+    panelRef.current?.focus()
+    return () => {
+      const active = document.activeElement
+      if (!active || active === document.body) triggerRef.current?.focus()
+    }
+  }, [open])
+
+  function trapTab(event: ReactKeyboardEvent<HTMLDivElement>) {
+    if (event.key !== 'Tab') return
+    const panel = panelRef.current
+    if (!panel) return
+    const focusables = focusablesIn(panel)
+    const first = focusables[0]
+    const last = focusables[focusables.length - 1]
+    if (!first || !last) return
+    if (event.shiftKey && (document.activeElement === first || document.activeElement === panel)) {
+      event.preventDefault()
+      last.focus()
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault()
+      first.focus()
+    }
+  }
+
+  const confidence = assessConfidence(quality)
+  const detail = CONFIDENCE_DETAIL[confidence.state]
+  const { tone, labelled } = TRIGGER_TONE[confidence.state]
+  const loud = tone !== 'quiet'
+
+  const glyph = (size: string) =>
+    loud
+      ? <AlertTriangleIcon className={size} />
+      : confidence.state === 'high'
+      ? <ShieldCheckIcon className={size} />
+      : <InfoCircleIcon className={size} />
+
+  const body = (
+    <>
+      <div className='flex items-start gap-2'>
+        <span
+          className='mt-px shrink-0'
+          style={{ color: loud ? `var(--rp-${tone}-ink)` : 'var(--rp-ink-3)' }}
+        >
+          {glyph('h-4 w-4')}
+        </span>
+        <div className='min-w-0'>
+          <p className='text-sm font-semibold text-ink'>{confidence.label}</p>
+          <p className='mt-1 text-xs leading-relaxed text-ink-2'>{detail}</p>
+        </div>
+      </div>
+
+      {quality
+        ? (
+          <div className='mt-3 rounded-[var(--rp-radius)] border border-line bg-surface-2 px-3 py-2.5'>
+            <TrustSignals quality={quality} showLabel={false} />
+          </div>
+        )
+        : null}
+
+      {
+        /* The remedy sits with the diagnosis that motivates it. A reader who has
+        * not registered that the answer is thinly grounded has no reason to want
+        * a deep re-answer, so a bare "Re-answer deeply" button out on the actions
+        * row would be an action stripped of its reason. The loud trigger is what
+        * keeps it from being missed: it is the alarm, this is the remedy behind
+        * it. */
+      }
+      {onReanswerDeeply
+        ? (
+          <div
+            className='mt-3 rounded-[var(--rp-radius)] border p-3'
+            style={{ borderColor: 'var(--rp-warn-line)', background: 'var(--rp-warn-bg)' }}
+          >
+            <p className='text-xs leading-relaxed text-[var(--rp-warn-ink)]'>
+              This answer is thinly grounded - re-answer with full-document context?
+            </p>
+            <button
+              type='button'
+              onClick={() => {
+                setOpen(false)
+                onReanswerDeeply()
+              }}
+              className='rp-btn rp-btn-outline mt-2 h-8 px-3 text-xs'
+            >
+              Re-answer deeply
+            </button>
+          </div>
+        )
+        : sparselyGrounded
+        ? (
+          <p className='mt-3 text-xs leading-relaxed text-[var(--rp-warn-ink)]'>
+            Parts of this answer go beyond the retrieved passages - open the retrieved sources below
+            to check it before relying on it.
+          </p>
+        )
+        : null}
+    </>
+  )
+
+  const panel = compact
+    ? createPortal(
+      <div className='fixed inset-0 z-[90]'>
+        <div
+          aria-hidden='true'
+          className='rp-answer-tail absolute inset-0 touch-none bg-[color-mix(in_srgb,var(--rp-ink)_45%,transparent)]'
+        />
+        <div
+          ref={panelRef}
+          tabIndex={-1}
+          role='dialog'
+          aria-modal='true'
+          aria-label={`Answer quality: ${confidence.label}`}
+          onKeyDown={trapTab}
+          style={{ '--rp-stage-i': 1 } as CSSProperties}
+          className='rp-answer-tail absolute inset-x-0 bottom-0 max-h-[85vh] overflow-y-auto rounded-t-[var(--rp-radius)] border-t border-line bg-surface p-4 pb-[calc(1rem+env(safe-area-inset-bottom,0px))] shadow-lg outline-none'
+        >
+          <div className='flex items-center justify-between gap-2 pb-3'>
+            <p className='text-xs font-medium uppercase tracking-wide text-ink-3'>
+              Answer quality
+            </p>
+            <button
+              type='button'
+              onClick={() => setOpen(false)}
+              aria-label='Close'
+              className='rp-focus -mr-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--rp-radius-btn)] text-ink-3 transition-colors duration-150 hover:text-ink'
+            >
+              <CloseIcon />
+            </button>
+          </div>
+          {body}
+        </div>
+      </div>,
+      document.body,
+    )
+    : (
+      <div
+        ref={panelRef}
+        tabIndex={-1}
+        role='dialog'
+        aria-label={`Answer quality: ${confidence.label}`}
+        onKeyDown={trapTab}
+        className='rp-answer-tail absolute right-0 top-full z-30 mt-1.5 w-80 rounded-[var(--rp-radius)] border border-line bg-surface p-3.5 shadow-lg outline-none'
+      >
+        <p className='pb-2 text-xs font-medium uppercase tracking-wide text-ink-3'>
+          Answer quality
+        </p>
+        {body}
+      </div>
+    )
+
+  return (
+    <div ref={rootRef} className='relative inline-flex'>
+      <button
+        ref={triggerRef}
+        type='button'
+        onClick={() => setOpen((prev) => !prev)}
+        aria-expanded={open}
+        aria-haspopup='dialog'
+        // Leads with the level, so a screen-reader user gets the same signal a
+        // sighted one takes from the colour without opening anything - and, on
+        // the loud states, starts with the visible label it repeats.
+        aria-label={`${confidence.label}. Answer quality details.`}
+        title={`${confidence.label} - answer quality`}
+        className={`rp-focus flex h-9 shrink-0 items-center justify-center gap-1 rounded-[var(--rp-radius-btn)] transition-colors duration-150 ${
+          labelled ? 'px-2 text-[0.6875rem] font-semibold' : 'w-9'
+        } ${loud ? 'border' : 'text-ink-3 hover:bg-[var(--rp-surface-2)] hover:text-ink'}`}
+        style={loud
+          ? {
+            borderColor: `var(--rp-${tone}-line)`,
+            background: `var(--rp-${tone}-bg)`,
+            color: `var(--rp-${tone}-ink)`,
+          }
+          : undefined}
+      >
+        {glyph('h-[1.15rem] w-[1.15rem]')}
+        {labelled ? <span>{confidence.label}</span> : null}
+      </button>
+      {open ? panel : null}
+    </div>
   )
 }

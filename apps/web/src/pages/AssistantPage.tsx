@@ -32,12 +32,9 @@ import {
   type EvidenceVerdictInfo,
 } from '../components/EvidenceTable.tsx'
 import { PipelinePanel } from '../components/PipelinePanel.tsx'
-import {
-  ConfidenceIndicator,
-  type QualityScores,
-  TrustSignals,
-} from '../components/QualityGauge.tsx'
+import { AnswerQualityDisclosure, type QualityScores } from '../components/QualityGauge.tsx'
 import { LiveStatus } from '../components/ui.tsx'
+import { useCompactViewport } from '../components/useViewMode.ts'
 import { isThinlyGrounded } from '../lib/confidence.ts'
 import type { TenantOutletContext } from './TenantLayout.tsx'
 import {
@@ -962,25 +959,13 @@ function AssistantCard({
         : null}
 
       {
-        /* Answer quality - kept prominent, directly under the answer. The
-          plain-language confidence headline plus the REMi mini-meters sit
-          together here so the cue to check the evidence lands with the answer,
-          not buried below the sources. */
+        /* The confidence headline, the REMi mini-meters and the thin-grounding
+          offer used to stack here as three full-width blocks. On a phone that
+          was most of a screen of chrome after every answer, so they now live
+          together behind one control on the actions row below - a control that
+          stays loud and labelled while the news is bad, so folding them away
+          never softens a poorly grounded answer. See AnswerQualityDisclosure. */
       }
-      {!message.pending
-        ? (
-          <div className='rp-answer-tail mt-4 space-y-2.5' style={tailStyle(TAIL_QUALITY)}>
-            <ConfidenceIndicator quality={message.quality} />
-            {message.quality
-              ? (
-                <div className='rounded-[var(--rp-radius)] border border-line bg-surface-2 px-3 py-2.5'>
-                  <TrustSignals quality={message.quality} />
-                </div>
-              )
-              : null}
-          </div>
-        )
-        : null}
 
       {message.error && message.text.trim()
         ? (
@@ -1006,57 +991,42 @@ function AssistantCard({
         )
         : null}
 
-      {offerDeepReanswer
-        ? (
-          <div
-            className='rp-answer-tail mt-3 flex flex-wrap items-center justify-between gap-2 rounded-[var(--rp-radius)] border p-3'
-            style={{
-              ...tailStyle(TAIL_NOTICE),
-              borderColor: 'var(--rp-warn-line)',
-              background: 'var(--rp-warn-bg)',
-            }}
-          >
-            <p className='text-xs text-[var(--rp-warn-ink)]'>
-              This answer is thinly grounded - re-answer with full-document context?
-            </p>
-            <button
-              type='button'
-              onClick={onReanswerDeeply}
-              className='rp-btn rp-btn-outline h-7 shrink-0 px-2 text-xs'
-            >
-              Re-answer deeply
-            </button>
-          </div>
-        )
-        : null}
-
-      {isSparselyGrounded && !offerDeepReanswer && evidenceSources.length > 0
-        ? (
-          <p
-            className='rp-answer-tail mt-3 text-xs text-[var(--rp-warn-ink)]'
-            style={tailStyle(TAIL_NOTICE)}
-          >
-            Parts of this answer go beyond the retrieved passages - open the evidence below to check
-            it before relying on it.
-          </p>
-        )
-        : null}
-
-      {/* Answer-level actions stay visible next to the quality signal. */}
-      {!message.pending && (message.learningId || question.trim().length > 0)
+      {
+        /* Answer-level actions. The quality control leads the right-hand group:
+          it is the one thing here that describes the answer rather than acting
+          on it, and on the loud states it grows a label leftwards into the row's
+          own empty middle, which is exactly where there is room for it. */
+      }
+      {
+        /* Gated on `!message.pending` alone now, where it used to also require a
+          learningId or a question. The quality control lives on this row, and it
+          has to appear on every finished answer - an answer with neither of
+          those would otherwise lose its confidence signal altogether. The
+          controls that need a question or a learningId hide themselves. */
+      }
+      {!message.pending
         ? (
           <div
             className='rp-answer-tail mt-3 flex flex-wrap items-center justify-between gap-3'
             style={tailStyle(TAIL_ACTIONS)}
           >
             <FeedbackControl message={message} onFeedback={onFeedback} />
-            <div className='flex items-center gap-0.5'>
-              <CopyAnswer text={message.text} />
-              <ActionIcon
-                label='Ask this again'
-                onClick={() => onAskSubquery?.(question)}
-                path={ICON_RETRY}
+            <div className='ml-auto flex items-center gap-0.5'>
+              <AnswerQualityDisclosure
+                quality={message.quality}
+                {...(offerDeepReanswer ? { onReanswerDeeply } : {})}
+                sparselyGrounded={isSparselyGrounded && evidenceSources.length > 0}
               />
+              <CopyAnswer text={message.text} />
+              {question.trim().length > 0
+                ? (
+                  <ActionIcon
+                    label='Ask this again'
+                    onClick={() => onAskSubquery?.(question)}
+                    path={ICON_RETRY}
+                  />
+                )
+                : null}
               <WatchControl question={question} slug={slug} />
             </div>
           </div>
@@ -1341,6 +1311,12 @@ export function AssistantPage() {
   const [followUps, setFollowUps] = useState<{ messageId: string; questions: string[] } | null>(
     null,
   )
+  /**
+   * Whether the title/Export bar is currently translated out of the way. Only
+   * ever true below `lg`; the effect that drives it resets it on the way up to
+   * a wide layout so the bar can never be left hidden where it does not move.
+   */
+  const [subHeaderHidden, setSubHeaderHidden] = useState(false)
 
   const abortRef = useRef<AbortController | null>(null)
   /** In-flight follow-up generation, cancelled the moment a new ask starts. */
@@ -1362,6 +1338,9 @@ export function AssistantPage() {
   // Debounced per-session background sync to the server, keyed by session id.
   const syncTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
   const composerRef = useRef<HTMLFormElement | null>(null)
+  /** The element that actually scrolls below `lg` - see the wrapper's comment. */
+  const scrollWrapRef = useRef<HTMLDivElement | null>(null)
+  const subHeaderRef = useRef<HTMLDivElement | null>(null)
 
   /**
    * Below `lg` the composer is a pinned bar and the layout is a single column;
@@ -1388,6 +1367,13 @@ export function AssistantPage() {
    * the genuinely visible area.
    */
   const [keyboardInset, setKeyboardInset] = useState(0)
+  /**
+   * Below the `sm` breakpoint, where the empty state's suggestion grid is a
+   * single column. Distinct from `isCompact`, which is the `lg` boundary this
+   * page's whole layout turns on; this is the narrower one the `sm:` utilities
+   * use, read from the shared hook so it cannot drift off Tailwind's own value.
+   */
+  const isNarrow = useCompactViewport()
 
   useEffect(() => {
     const query = globalThis.matchMedia('(max-width: 1023.98px)')
@@ -1406,6 +1392,75 @@ export function AssistantPage() {
     observer.observe(element)
     return () => observer.disconnect()
   }, [])
+
+  /**
+   * Hide the title/Export bar on the way down, bring it back on the way up.
+   *
+   * Bound to the wrapper, not to `window`: below `lg` that is the element that
+   * actually scrolls (the document itself never does - `main` is a fixed-height
+   * flex column), and at `lg` and up the thread's own `section` takes over,
+   * which is why this only runs while compact.
+   *
+   * The three details that separate this from a bar that twitches:
+   *
+   *  - It measures a RUN in one direction, not a raw delta. The accumulator
+   *    resets the moment the direction flips, so 60px of jitter never adds up
+   *    to a threshold and only a deliberate movement moves the bar.
+   *  - It clamps `scrollTop` into range. iOS rubber-band reports negative
+   *    positions at the top and beyond-end ones at the bottom, and a bounce
+   *    reads as a direction change that would flap the bar at both extremes.
+   *  - Near the top the bar is shown unconditionally, whatever the last
+   *    direction was, so it is always where a reader expects to find it.
+   *
+   * Reveal is deliberately more eager than hide: a reader scrolling up is
+   * asking for the bar.
+   */
+  useEffect(() => {
+    if (!isCompact) {
+      setSubHeaderHidden(false)
+      return
+    }
+    const scroller = scrollWrapRef.current
+    if (!scroller) return
+
+    const HIDE_AFTER = 56
+    const REVEAL_AFTER = 28
+    const TOP_ZONE = 24
+
+    const clampedTop = () => {
+      const max = Math.max(0, scroller.scrollHeight - scroller.clientHeight)
+      return Math.min(Math.max(scroller.scrollTop, 0), max)
+    }
+
+    let lastY = clampedTop()
+    let run = 0
+    let direction = 0
+
+    const onScroll = () => {
+      const y = clampedTop()
+      const delta = y - lastY
+      lastY = y
+      if (y <= TOP_ZONE) {
+        run = 0
+        direction = 0
+        setSubHeaderHidden(false)
+        return
+      }
+      if (delta === 0) return
+      const next = delta > 0 ? 1 : -1
+      if (next !== direction) {
+        direction = next
+        run = 0
+      }
+      run += Math.abs(delta)
+      if (run < (next === 1 ? HIDE_AFTER : REVEAL_AFTER)) return
+      run = 0
+      setSubHeaderHidden(next === 1)
+    }
+
+    scroller.addEventListener('scroll', onScroll, { passive: true })
+    return () => scroller.removeEventListener('scroll', onScroll)
+  }, [isCompact])
 
   useEffect(() => {
     const viewport = globalThis.visualViewport
@@ -2066,35 +2121,6 @@ export function AssistantPage() {
         * showed. */
       }
       <div className='flex w-full min-w-0 min-h-0 flex-1 flex-col'>
-        {!isEmpty
-          ? (
-            <div className='mb-6 flex shrink-0 items-center justify-between gap-4'>
-              <h1 className='rp-display min-w-0 truncate text-xl text-ink sm:text-2xl'>
-                {currentSessionTitle()}
-              </h1>
-              <button
-                type='button'
-                onClick={exportSession}
-                className='rp-btn rp-btn-outline shrink-0 gap-2'
-              >
-                <svg
-                  viewBox='0 0 24 24'
-                  fill='none'
-                  stroke='currentColor'
-                  strokeWidth='1.7'
-                  strokeLinecap='round'
-                  strokeLinejoin='round'
-                  className='h-4 w-4'
-                  aria-hidden='true'
-                >
-                  <path d='M12 4v11m0 0l-4-4m4 4l4-4M5 19h14' />
-                </svg>
-                Export
-              </button>
-            </div>
-          )
-          : null}
-
         <LiveStatus message={liveMessage} />
 
         {
@@ -2103,7 +2129,62 @@ export function AssistantPage() {
           * instead of stopping above it. From `lg` up the wrapper is inert and
           * the thread keeps its own scrollbar exactly as before. */
         }
-        <div className='flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain lg:overflow-visible'>
+        <div
+          ref={scrollWrapRef}
+          className='flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain lg:overflow-visible'
+        >
+          {
+            /* The title and Export bar. It lives INSIDE the scroll container
+            * rather than above it so that below `lg` it can be `sticky` and
+            * slide out of the way on the way down: an element that only sits
+            * above the scrollport reserves its row whatever you do to it, so
+            * translating it there would buy the reader nothing. Sticky, it
+            * overlays the thread, and translating it out hands that band back.
+            *
+            * Only below `lg`. On a wide screen this bar costs a small, constant
+            * slice of a tall viewport, a mouse wheel flips direction far more
+            * often than a thumb does, and a header that comes and going while
+            * you read is worse than the space it returns. From `lg` up it is
+            * `static`, untransformed and transparent - exactly what it was.
+            *
+            * Opaque below `lg` because the thread now passes underneath it. */
+          }
+          {!isEmpty
+            ? (
+              <div
+                ref={subHeaderRef}
+                onFocusCapture={() => setSubHeaderHidden(false)}
+                style={isCompact && subHeaderHidden
+                  ? { transform: 'translateY(-100%)' }
+                  : undefined}
+                className='sticky top-0 z-20 mb-6 flex shrink-0 items-center justify-between gap-4 bg-[var(--rp-app)] pb-2 transition-transform duration-300 ease-out motion-reduce:transition-none lg:static lg:bg-transparent lg:pb-0'
+              >
+                <h1 className='rp-display min-w-0 truncate text-xl text-ink sm:text-2xl'>
+                  {currentSessionTitle()}
+                </h1>
+                <button
+                  type='button'
+                  onClick={exportSession}
+                  className='rp-btn rp-btn-outline shrink-0 gap-2'
+                >
+                  <svg
+                    viewBox='0 0 24 24'
+                    fill='none'
+                    stroke='currentColor'
+                    strokeWidth='1.7'
+                    strokeLinecap='round'
+                    strokeLinejoin='round'
+                    className='h-4 w-4'
+                    aria-hidden='true'
+                  >
+                    <path d='M12 4v11m0 0l-4-4m4 4l4-4M5 19h14' />
+                  </svg>
+                  Export
+                </button>
+              </div>
+            )
+            : null}
+
           <section
             aria-label='Conversation'
             className='flex-1 space-y-4 pb-4 lg:overflow-y-auto'
@@ -2119,8 +2200,22 @@ export function AssistantPage() {
                           /* Chips on a phone, where a grid of cards would stack into
                           * a wall; proper cards from sm up. */
                         }
+                        {
+                          /* Four on a phone, six from `sm` up. Six single-column
+                          * cards fill a 390px screen outright, so the page opens
+                          * as a wall of questions with the composer's own
+                          * controls pushed to the very bottom edge; from `sm` the
+                          * grid is two columns and six is three tidy rows.
+                          *
+                          * Sliced, not rendered-and-hidden: a `hidden` card stays
+                          * in the accessibility tree and in the tab order, which
+                          * is a keyboard trap - and `hidden` on an element
+                          * carrying a component class would not have hidden it
+                          * anyway, since those set their own `display` later in
+                          * the stylesheet. */
+                        }
                         <div className='mt-4 grid gap-2.5 sm:grid-cols-2'>
-                          {suggestions.slice(0, 6).map((question) => (
+                          {suggestions.slice(0, isNarrow ? 4 : 6).map((question) => (
                             <button
                               key={question.id}
                               type='button'
