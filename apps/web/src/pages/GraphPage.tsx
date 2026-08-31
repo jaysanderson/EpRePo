@@ -84,12 +84,12 @@ function radiusFor(weight: number): number {
 }
 
 const CATEGORY_COLOURS = [
-  'var(--rp-cat-1)',
-  'var(--rp-cat-2)',
-  'var(--rp-cat-3)',
-  'var(--rp-cat-4)',
-  'var(--rp-cat-5)',
-  'var(--rp-cat-6)',
+  'var(--rp-map-1)',
+  'var(--rp-map-2)',
+  'var(--rp-map-3)',
+  'var(--rp-map-4)',
+  'var(--rp-map-5)',
+  'var(--rp-map-6)',
 ]
 
 /** Stable colour per group name - assigned in first-seen order for contrast. */
@@ -513,8 +513,7 @@ function GraphCanvas({
         role='application'
         aria-label='Knowledge map - drag to pan, scroll to zoom, click a node to explore it'
         tabIndex={0}
-        className='rp-focus block h-full w-full cursor-grab touch-none select-none active:cursor-grabbing'
-        style={{ background: 'var(--rp-surface)' }}
+        className='rp-map-ocean rp-focus block h-full w-full cursor-grab touch-none select-none active:cursor-grabbing'
         onWheel={onWheel}
         onPointerDown={onPointerDownBackground}
         onPointerMove={onPointerMove}
@@ -631,7 +630,7 @@ function GraphCanvas({
                     cx={sim.x}
                     cy={sim.y}
                     r={r}
-                    fill={groupColours.get(node.group) ?? 'var(--rp-cat-1)'}
+                    fill={groupColours.get(node.group) ?? 'var(--rp-map-1)'}
                     fillOpacity={1}
                     stroke={isSelected || isPathStart ? 'var(--rp-ink)' : 'var(--rp-surface)'}
                     strokeWidth={isSelected || isPathStart ? 3 : 1.5}
@@ -809,7 +808,7 @@ function DetailDock({ onClose, children }: { onClose: () => void; children: Reac
   return (
     <aside
       aria-label='Selection details'
-      className='rp-anim-fade absolute inset-x-0 bottom-0 z-30 flex max-h-[68%] flex-col overflow-hidden rounded-t-[16px] border border-line bg-surface rp-shadow-xl md:inset-x-auto md:right-3 md:top-3 md:bottom-3 md:max-h-none md:w-[360px] md:rounded-[calc(var(--rp-radius)+4px)]'
+      className='rp-anim-fade absolute inset-x-0 bottom-0 z-30 flex max-h-[68%] flex-col overflow-hidden rounded-t-[16px] border border-line bg-surface rp-shadow-xl rp-map-gutter-right md:inset-x-auto md:top-3 md:bottom-3 md:max-h-none md:w-[360px] md:rounded-[calc(var(--rp-radius)+4px)]'
     >
       <button
         type='button'
@@ -1122,7 +1121,7 @@ function NavigatorRail({
   return (
     <aside
       aria-label='Map navigator'
-      className='rp-anim-fade absolute inset-x-0 bottom-0 z-20 flex max-h-[60%] flex-col overflow-hidden rounded-t-[16px] border border-line bg-surface rp-shadow-lg md:inset-x-auto md:bottom-auto md:left-4 md:top-1/2 md:max-h-[calc(100%-2rem)] md:w-[300px] md:-translate-y-1/2 md:rounded-[calc(var(--rp-radius)+4px)]'
+      className='rp-anim-fade absolute inset-x-0 bottom-0 z-20 flex max-h-[60%] flex-col overflow-hidden rounded-t-[16px] border border-line bg-surface rp-shadow-lg rp-map-gutter-left md:inset-x-auto md:bottom-auto md:top-1/2 md:max-h-[calc(100%-2rem)] md:w-[300px] md:-translate-y-1/2 md:rounded-[calc(var(--rp-radius)+4px)]'
     >
       <div className='flex items-start justify-between gap-2 border-b border-line px-4 py-3'>
         <div className='min-w-0'>
@@ -1534,7 +1533,7 @@ export function GraphPage() {
       </div>
 
       {/* Canvas stage - the map fills it; panels float over it. */}
-      <div className='relative min-h-0 flex-1 bg-surface'>
+      <div className='rp-map-ocean relative min-h-0 flex-1'>
         {loading
           ? <CanvasLoading />
           : error

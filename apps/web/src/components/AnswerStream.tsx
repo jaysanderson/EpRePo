@@ -5,7 +5,7 @@ import { type AskRequest, streamAsk } from '../api/client.ts'
 import { AnswerJourney } from './AnswerJourney.tsx'
 import { CurrencyNote } from './CurrencyNote.tsx'
 import { type QualityScores, TrustSignals } from './QualityGauge.tsx'
-import { StageTimeline, statusesFor } from './StageTimeline.tsx'
+import { StageTimeline, statusesFor, useAnswerPhase } from './StageTimeline.tsx'
 
 type Status = 'idle' | 'streaming' | 'done' | 'error'
 type UsageEvent = Extract<AskEvent, { type: 'usage' }>
@@ -320,6 +320,8 @@ export function AnswerStream({ slug, request, onSources, onRetry }: AnswerStream
     onRetry?.()
   }
 
+  const phase = useAnswerPhase(text.length > 0, status === 'streaming' || status === 'done')
+
   const existingResultIds = useExistingResultIds(citations.map((citation) => citation.resourceId))
 
   useEffect(() => {
@@ -431,10 +433,15 @@ export function AnswerStream({ slug, request, onSources, onRetry }: AnswerStream
       </div>
 
       <div className='rp-prose mt-3 space-y-3 text-sm text-ink'>
-        {text.length > 0
-          ? renderAnswerText(text)
-          : status === 'streaming'
-          ? <StageTimeline statuses={statusesFor(activeStage, seenStages)} />
+        {phase !== 'answer' && status === 'streaming'
+          ? (
+            <StageTimeline
+              statuses={statusesFor(activeStage, seenStages)}
+              exiting={phase === 'handoff'}
+            />
+          )
+          : text.length > 0
+          ? <div className='rp-answer-in'>{renderAnswerText(text)}</div>
           : null}
         {status === 'streaming' && text.length > 0
           ? (

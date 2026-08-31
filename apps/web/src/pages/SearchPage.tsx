@@ -1,4 +1,4 @@
-import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createPortal } from 'react-dom'
 import { Link, useOutletContext, useSearchParams } from 'react-router-dom'
@@ -14,11 +14,10 @@ import {
   summarizeResources,
 } from '../api/client.ts'
 import { ResourceThumb } from '../components/ResourceThumb.tsx'
-import { LibraryBrowser } from './LibraryPage.tsx'
+import { LibraryBrowser, SORT_OPTIONS, SORT_VALUES, type SortValue } from './LibraryPage.tsx'
 import { sameLabel, typeLabel } from '../components/ui.tsx'
 import { SaveEvidenceButton } from '../components/SaveEvidence.tsx'
 import { SearchAnswer, type SearchAnswerResult } from '../components/SearchAnswer.tsx'
-import { TypeaheadDropdown, type TypeaheadItem, useTypeahead } from '../components/Typeahead.tsx'
 import { EmptyState, ErrorCard, prettyLabel, Skeleton, TypeBadge } from '../components/ui.tsx'
 import { answerModeParam, readAnswerMode } from '../lib/search-mode.ts'
 import type { TenantOutletContext } from './TenantLayout.tsx'
@@ -472,13 +471,14 @@ export function SearchPage() {
   // `answer=0` is the explicit, shareable opt-out.
   const answerMode = readAnswerMode(searchParams)
 
-  const [draft, setDraft] = useState(q)
   // Open by default on the desktop layout; the Filters button hides it again.
   const [filtersOpen, setFiltersOpen] = useState(true)
-  const inputRef = useRef<HTMLInputElement | null>(null)
+  // The no-query state is the library listing, so its controls belong in the
+  // same row as the retrieval modes rather than floating above the grid.
+  const [librarySort, setLibrarySort] = useState<SortValue>('newest')
+  const [libraryDensity, setLibraryDensity] = useState(4)
 
   useEffect(() => {
-    setDraft(q)
   }, [q])
 
   const updateParams = useCallback(
@@ -515,19 +515,6 @@ export function SearchPage() {
 
   const topicLabel = (id: string) => config.topics.find((topic) => topic.id === id)?.label ?? id
   const kindLabel = (id: string) => prettyLabel(id, config.branding.organisation)
-
-  // Entities sharpen the query in place; a resource title is a search of its own.
-  const onPick = useCallback((item: TypeaheadItem) => {
-    if (item.kind === 'title') {
-      setDraft(item.text)
-      updateParams({ q: item.text })
-      return
-    }
-    setDraft((prev) => `${prev.trim()} ${item.text} `.trimStart())
-    inputRef.current?.focus()
-  }, [updateParams])
-
-  const typeahead = useTypeahead(config.slug, draft, onPick)
 
   const { data: facets } = useQuery({
     queryKey: ['facets', config.slug],
@@ -630,24 +617,18 @@ export function SearchPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedTopics, selectedKinds, strength, config.topics, config.branding.organisation])
 
-  // Submit the current draft. `withAnswer` picks the intent: true for the
+  // Run a search. `withAnswer` picks the intent: true for the
   // default answered search (results + streamed cited answer), false for the
   // results-only opt-out, which fires no LLM call.
   function runSearch(text: string, withAnswer: boolean) {
     const trimmed = text.trim()
     if (trimmed.length === 0) return
-    typeahead.close()
-    setDraft(trimmed)
     updateParams({ q: trimmed, answer: answerModeParam(withAnswer) })
   }
 
   // Enter and the primary button run the search in whatever answer state the
   // page is already in - answered by default, results-only once the user has
   // opted out - so refining a query never flips the mode under them.
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    runSearch(draft, answerMode)
-  }
 
   // Suggested and "people also ask" chips are phrased as questions, so their
   // payoff is the synthesised answer - they always run answered, which is also
@@ -682,7 +663,6 @@ export function SearchPage() {
     (watches ?? []).some((watch) => watch.query.trim() === trimmedQuery)
 
   function runWatch(watch: SavedWatch) {
-    setDraft(watch.query)
     updateParams({ q: watch.query })
     markSeenMutation.mutate(watch.id)
   }
@@ -697,81 +677,7 @@ export function SearchPage() {
 
   return (
     <main className='rp-shell py-8'>
-      <div className='flex flex-wrap items-baseline justify-between gap-3'>
-        <h1 className='rp-display text-2xl text-ink'>Search</h1>
-        <Link
-          to={`/t/${config.slug}`}
-          className='text-sm font-medium text-[var(--rp-ink-3)] transition-colors duration-150 hover:text-[var(--rp-ink)]'
-        >
-          &larr; Back to explore
-        </Link>
-      </div>
-
-      <form onSubmit={handleSubmit} className='mt-4' role='search'>
-        <label htmlFor='search-input' className='sr-only'>
-          Search {config.branding.productName}
-        </label>
-        <div ref={typeahead.wrapRef} className='relative'>
-          <div className='rp-shadow-sm flex items-center gap-2 rounded-none border border-line bg-surface p-1.5 pl-3'>
-            <svg
-              viewBox='0 0 20 20'
-              fill='none'
-              stroke='currentColor'
-              strokeWidth='1.8'
-              strokeLinecap='round'
-              aria-hidden='true'
-              className='h-4 w-4 shrink-0 text-ink-3'
-            >
-              <circle cx='9' cy='9' r='5.5' />
-              <path d='M13.2 13.2L17 17' />
-            </svg>
-            <input
-              id='search-input'
-              ref={inputRef}
-              type='text'
-              autoComplete='off'
-              value={draft}
-              onChange={(event) => setDraft(event.target.value)}
-              onKeyDown={typeahead.onKeyDown}
-              placeholder={config.searchPlaceholder}
-              role='combobox'
-              aria-autocomplete='list'
-              aria-expanded={typeahead.open}
-              aria-controls={typeahead.listboxId}
-              aria-activedescendant={typeahead.activeDescendant}
-              className='min-w-0 flex-1 border-0 bg-transparent px-1.5 py-1.5 text-sm text-ink placeholder:text-[var(--rp-ink-3)] focus:outline-none'
-            />
-            <div className='flex shrink-0 items-center gap-1.5'>
-              <button type='submit' className='rp-btn rp-btn-primary font-semibold'>
-                Search
-              </button>
-              {
-                /* The opt-out, not an opt-in: every search is answered unless
-                * this is pressed, and pressing it again brings the answer back.
-                * Falls back to the submitted query so the control still works
-                * on the results already on screen after the box is cleared. */
-              }
-              <button
-                type='button'
-                onClick={() => runSearch(draft.trim() || q, !answerMode)}
-                aria-pressed={!answerMode}
-                title={answerMode
-                  ? 'Hide the AI answer and show only the matching resources'
-                  : 'Show a cited AI answer above the results again'}
-                className='rp-btn rp-btn-outline font-semibold'
-                style={!answerMode
-                  ? { borderColor: 'var(--rp-accent)', color: 'var(--rp-accent)' }
-                  : undefined}
-              >
-                Results only
-              </button>
-            </div>
-          </div>
-          <TypeaheadDropdown state={typeahead} />
-        </div>
-      </form>
-
-      <div className='mt-4 flex flex-wrap items-center gap-2.5'>
+      <div className='flex flex-wrap items-center gap-2.5'>
         <div
           className='inline-flex overflow-hidden rounded-none border border-line bg-surface'
           role='radiogroup'
@@ -810,6 +716,57 @@ export function SearchPage() {
         >
           Filters{activeFilters.length > 0 ? ` (${activeFilters.length})` : ''}
         </button>
+
+        {!hasQuery
+          ? (
+            <div className='ml-auto flex items-center gap-2'>
+              <label htmlFor='search-density' className='text-xs font-medium text-ink-3'>
+                Grid
+              </label>
+              <input
+                id='search-density'
+                type='range'
+                min={2}
+                max={7}
+                step={1}
+                value={libraryDensity}
+                onChange={(event) => setLibraryDensity(Number(event.target.value))}
+                aria-label='Cards across the grid'
+                className='rp-focus w-24 accent-[var(--rp-primary)]'
+              />
+              <label htmlFor='search-sort' className='text-xs font-medium text-ink-3'>
+                Sort
+              </label>
+              <select
+                id='search-sort'
+                value={librarySort}
+                onChange={(event) => setLibrarySort(event.target.value as SortValue)}
+                className='rp-focus rounded-none border border-line bg-surface px-2.5 py-1.5 text-xs text-ink'
+              >
+                {SORT_VALUES.map((value) => (
+                  <option key={value} value={value}>{SORT_OPTIONS[value].label}</option>
+                ))}
+              </select>
+            </div>
+          )
+          : null}
+
+        {/* The answer opt-out, which used to live beside the removed search box. */}
+        {hasQuery
+          ? (
+            <button
+              type='button'
+              onClick={() => runSearch(q, !answerMode)}
+              aria-pressed={!answerMode}
+              title={answerMode
+                ? 'Hide the AI answer and show only the matching resources'
+                : 'Show a cited AI answer above the results again'}
+              className={`rp-chip h-9 sm:h-7 ${!answerMode ? 'rp-chip-active' : ''}`}
+            >
+              Results only
+            </button>
+          )
+          : null}
 
         {hasQuery
           ? (
@@ -1013,7 +970,17 @@ export function SearchPage() {
             /* No query yet: show the library itself rather than a panel of copy -
             * this route is the Library entry in the nav. */
           }
-          {!hasQuery ? <LibraryBrowser bare /> : null}
+          {!hasQuery
+            ? (
+              <LibraryBrowser
+                bare
+                sort={librarySort}
+                onSortChange={setLibrarySort}
+                density={libraryDensity}
+                onDensityChange={setLibraryDensity}
+              />
+            )
+            : null}
 
           {hasQuery && isLoading
             ? (

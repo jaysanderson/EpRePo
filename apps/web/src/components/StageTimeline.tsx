@@ -1,3 +1,4 @@
+import { type CSSProperties, useEffect, useState } from 'react'
 import type { AskStage } from '@research-portal/core'
 
 export type StageStatus = 'pending' | 'active' | 'complete'
@@ -67,7 +68,34 @@ function Dot() {
  * fixed script. A stage the server never reports simply stays pending, so the
  * timeline can never claim work that did not happen.
  */
-export function StageTimeline({ statuses }: { statuses: StageStatuses }) {
+/**
+ * The handoff between the waiting state and the answer. Once text starts
+ * arriving the timeline is held for one beat while its rows lift away, then the
+ * answer takes the space. Without the hold the steps would vanish on the first
+ * token and the answer would appear to jump.
+ */
+export type Phase = 'stages' | 'handoff' | 'answer'
+
+export function useAnswerPhase(hasText: boolean, active: boolean): Phase {
+  const [phase, setPhase] = useState<Phase>('stages')
+
+  useEffect(() => {
+    if (!active) {
+      setPhase('stages')
+      return
+    }
+    if (!hasText) return
+    setPhase((prev) => (prev === 'answer' ? prev : 'handoff'))
+    const timer = setTimeout(() => setPhase('answer'), 320)
+    return () => clearTimeout(timer)
+  }, [hasText, active])
+
+  return phase
+}
+
+export function StageTimeline(
+  { statuses, exiting = false }: { statuses: StageStatuses; exiting?: boolean },
+) {
   const activeLabel = STAGE_STEPS.find((s) => statuses[s.key] === 'active')?.label
 
   return (
@@ -78,7 +106,11 @@ export function StageTimeline({ statuses }: { statuses: StageStatuses }) {
           const state = statuses[step.key] ?? 'pending'
           const last = index === STAGE_STEPS.length - 1
           return (
-            <li key={step.key} className='flex gap-3'>
+            <li
+              key={step.key}
+              className={`flex gap-3 ${exiting ? 'rp-stage-row-exit' : ''}`}
+              style={{ '--rp-stage-i': index } as CSSProperties}
+            >
               <div className='flex flex-col items-center'>
                 <span
                   className={`rp-stage-mark ${state === 'active' ? 'rp-stage-mark-active' : ''} ${

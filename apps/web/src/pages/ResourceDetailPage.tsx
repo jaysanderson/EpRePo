@@ -1,4 +1,5 @@
 import {
+  type CSSProperties,
   type FormEvent,
   type ReactNode,
   type RefObject,
@@ -32,6 +33,7 @@ import {
   selectViewerVariant,
 } from '../lib/resource-view.ts'
 import type { TenantOutletContext } from './TenantLayout.tsx'
+import { useResizableRail } from '../components/useResizableRail.ts'
 
 /** Publish year from an ISO date, or null when the date is missing/unparseable. */
 function formatYear(iso: string): string | null {
@@ -835,7 +837,14 @@ function ResourceContext({ resource }: { resource: ResourceSummary }) {
  * Surfaced prominently, always available, with starter prompts as an empty
  * state rather than a blank box.
  */
-function DocumentChat({ slug, resource }: { slug: string; resource: ResourceSummary }) {
+function DocumentChat(
+  { slug, resource, onFocus }: {
+    slug: string
+    resource: ResourceSummary
+    /** Lets the page widen the rail when the reader starts asking. */
+    onFocus?: () => void
+  },
+) {
   const [draft, setDraft] = useState('')
   const [query, setQuery] = useState('')
 
@@ -890,6 +899,7 @@ function DocumentChat({ slug, resource }: { slug: string; resource: ResourceSumm
         <div className='flex items-center gap-2 rounded-none border border-line bg-surface p-1.5 pl-3'>
           <input
             id='ask-document'
+            onFocus={onFocus}
             type='text'
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
@@ -1109,6 +1119,8 @@ function ViewerSkeleton() {
 
 export function ResourceDetailPage() {
   const { config } = useOutletContext<TenantOutletContext>()
+  const rail = useResizableRail()
+  const revealRail = rail.reveal
   const { id } = useParams<{ id: string }>()
   const [searchParams] = useSearchParams()
   const passage = searchParams.get('passage')
@@ -1241,7 +1253,12 @@ export function ResourceDetailPage() {
                 organisation={config.branding.organisation}
               />
 
-              <div className='mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_368px] 2xl:grid-cols-[minmax(0,1fr)_408px]'>
+              <div
+                className={`mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_auto_var(--rp-rail)] ${
+                  rail.dragging ? '' : 'rp-rail-eased'
+                }`}
+                style={{ '--rp-rail': `${rail.width}px` } as CSSProperties}
+              >
                 <div className='min-w-0 space-y-6'>
                   <div className='relative' ref={contentRef} onMouseUp={handleContentMouseUp}>
                     {contentLoading ? <ViewerSkeleton /> : content
@@ -1269,13 +1286,34 @@ export function ResourceDetailPage() {
                   <ResourceContext resource={resource} />
                 </div>
 
+                {
+                  /* Splitter. Pointer-draggable, and arrow-key adjustable so it
+                  * is not a pointer-only control. */
+                }
+                <div
+                  role='separator'
+                  aria-orientation='vertical'
+                  aria-label='Resize the document rail'
+                  aria-valuenow={rail.width}
+                  aria-valuemin={rail.min}
+                  aria-valuemax={rail.max}
+                  tabIndex={0}
+                  onPointerDown={rail.onPointerDown}
+                  onKeyDown={rail.onKeyDown}
+                  onDoubleClick={() =>
+                    rail.onKeyDown(
+                      { key: 'Home', preventDefault: () => {} } as never,
+                    )}
+                  className='rp-rail-handle hidden lg:block'
+                />
+
                 <aside className='space-y-5 lg:sticky lg:top-20 lg:max-h-[calc(100vh-6rem)] lg:self-start lg:overflow-y-auto lg:pr-1'>
                   <MatchesPanel
                     indices={matchIndices}
                     blockTexts={blockTexts}
                     onJump={jumpToBlock}
                   />
-                  <DocumentChat slug={config.slug} resource={resource} />
+                  <DocumentChat slug={config.slug} resource={resource} onFocus={revealRail} />
                   <RecommendationsRail slug={config.slug} resource={resource} />
                 </aside>
               </div>

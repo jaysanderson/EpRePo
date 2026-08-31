@@ -10,11 +10,11 @@ import type { TenantOutletContext } from './TenantLayout.tsx'
 
 const PAGE_SIZE = 24
 
-type SortValue = 'newest' | 'oldest' | 'title'
+export type SortValue = 'newest' | 'oldest' | 'title'
 
-const SORT_VALUES: SortValue[] = ['newest', 'oldest', 'title']
+export const SORT_VALUES: SortValue[] = ['newest', 'oldest', 'title']
 
-const SORT_OPTIONS: Record<
+export const SORT_OPTIONS: Record<
   SortValue,
   { label: string; sort: 'created' | 'title'; order: 'asc' | 'desc' }
 > = {
@@ -385,14 +385,27 @@ function LibraryCardSkeleton() {
  * The library browser. Exported separately so the Library route (which is the
  * search page) can render it as its own no-query state.
  */
-export function LibraryBrowser({ bare = false }: { bare?: boolean } = {}) {
+export function LibraryBrowser(
+  { bare = false, sort: sortProp, onSortChange, density: densityProp, onDensityChange }: {
+    bare?: boolean
+    /** Controlled sort and density, when the host renders the controls itself. */
+    sort?: SortValue
+    onSortChange?: (value: SortValue) => void
+    density?: number
+    onDensityChange?: (value: number) => void
+  } = {},
+) {
   const { config } = useOutletContext<TenantOutletContext>()
 
   const [queryDraft, setQueryDraft] = useState('')
   const [debouncedQuery, setDebouncedQuery] = useState('')
-  const [sort, setSort] = useState<SortValue>('newest')
+  const [sortState, setSortState] = useState<SortValue>('newest')
+  const sort = sortProp ?? sortState
+  const setSort = onSortChange ?? setSortState
   // Grid density: how many cards sit across the widest breakpoint.
-  const [density, setDensity] = useState(4)
+  const [densityState, setDensityState] = useState(4)
+  const density = densityProp ?? densityState
+  const setDensity = onDensityChange ?? setDensityState
   const [searchParams] = useSearchParams()
   const [selectedTopics, setSelectedTopics] = useState<string[]>(() => {
     const fromUrl = searchParams.get('topic')
@@ -527,7 +540,7 @@ export function LibraryBrowser({ bare = false }: { bare?: boolean } = {}) {
         /* Bare mode drops the library's own heading, search and facet rail, but
         * the listing still needs its sort. */
       }
-      {bare && (
+      {bare && !onSortChange && (
         <div className='mb-4 flex flex-wrap items-center justify-end gap-2'>
           <label htmlFor='library-density' className='text-xs font-medium text-ink-3'>
             Grid

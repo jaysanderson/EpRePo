@@ -38,7 +38,12 @@ import {
 import { LiveStatus } from '../components/ui.tsx'
 import { isThinlyGrounded } from '../lib/confidence.ts'
 import type { TenantOutletContext } from './TenantLayout.tsx'
-import { type StageStatuses, StageTimeline, statusesFor } from '../components/StageTimeline.tsx'
+import {
+  type StageStatuses,
+  StageTimeline,
+  statusesFor,
+  useAnswerPhase,
+} from '../components/StageTimeline.tsx'
 
 // ---------------------------------------------------------------------------
 // Local types + localStorage persistence
@@ -803,6 +808,8 @@ function AssistantCard({
     groundedness !== undefined &&
     groundedness <= 2
 
+  const phase = useAnswerPhase(message.text.length > 0, message.pending || !message.pending)
+
   const evidenceSources: EvidenceSource[] = message.sources.map((source) => ({
     id: source.id,
     title: source.title,
@@ -892,19 +899,13 @@ function AssistantCard({
         )
         : null}
 
-      {message.text.length > 0
-        ? renderMarkdown(message.text, message.citations, message.sources, slug)
-        : message.pending
-        ? <StageTimeline statuses={stageStatuses ?? {}} />
-        : null}
-
-      {message.pending && message.text.length > 0
+      {phase !== 'answer' && message.pending
+        ? <StageTimeline statuses={stageStatuses ?? {}} exiting={phase === 'handoff'} />
+        : message.text.length > 0
         ? (
-          <span
-            className='ml-0.5 inline-block h-4 w-1.5 animate-pulse align-text-bottom'
-            style={{ backgroundColor: 'var(--rp-accent)' }}
-            aria-hidden='true'
-          />
+          <div className='rp-answer-in'>
+            {renderMarkdown(message.text, message.citations, message.sources, slug)}
+          </div>
         )
         : null}
 
@@ -1860,7 +1861,7 @@ export function AssistantPage() {
         )
         : null}
 
-      <div className='mx-auto flex w-full min-w-0 max-w-[56rem] flex-1 flex-col 2xl:max-w-[60rem]'>
+      <div className='flex w-full min-w-0 flex-1 flex-col'>
         {!isEmpty
           ? (
             <div className='mb-2 flex shrink-0 items-center justify-between gap-2'>
@@ -1889,17 +1890,25 @@ export function AssistantPage() {
               <div className='space-y-4'>
                 {suggestions && suggestions.length > 0
                   ? (
-                    <div className='flex flex-wrap justify-center gap-2.5 pt-10'>
-                      {suggestions.slice(0, 6).map((question) => (
-                        <button
-                          key={question.id}
-                          type='button'
-                          onClick={() => void send(question.text)}
-                          className='rp-chip h-auto px-4 py-2.5 text-sm leading-snug'
-                        >
-                          {question.text}
-                        </button>
-                      ))}
+                    <div className='pt-10'>
+                      <p className='rp-eyebrow text-center text-ink-3'>Try a question</p>
+                      {
+                        /* Chips on a phone, where a grid of cards would stack into
+                        * a wall; proper cards from sm up. */
+                      }
+                      <div className='mt-4 grid gap-2.5 sm:grid-cols-2'>
+                        {suggestions.slice(0, 6).map((question) => (
+                          <button
+                            key={question.id}
+                            type='button'
+                            onClick={() => void send(question.text)}
+                            className='rp-suggest-card'
+                          >
+                            <span className='rp-suggest-text'>{question.text}</span>
+                            <span aria-hidden='true' className='rp-suggest-arrow'>&rarr;</span>
+                          </button>
+                        ))}
+                      </div>
                     </div>
                   )
                   : null}

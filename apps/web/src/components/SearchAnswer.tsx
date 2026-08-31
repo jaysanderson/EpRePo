@@ -6,7 +6,7 @@ import { citationHref } from './AnswerStream.tsx'
 import { CurrencyNote } from './CurrencyNote.tsx'
 import { ConfidenceIndicator, type QualityScores } from './QualityGauge.tsx'
 import { ErrorCard, LiveStatus } from './ui.tsx'
-import { StageTimeline, statusesFor } from './StageTimeline.tsx'
+import { StageTimeline, statusesFor, useAnswerPhase } from './StageTimeline.tsx'
 
 /**
  * Matches `RATE_LIMIT_MESSAGE` in apps/api/src/rate-limit.ts word for word.
@@ -286,6 +286,8 @@ export function SearchAnswer({ slug, query, onResult }: SearchAnswerProps) {
     ? 'Answer unavailable'
     : ''
 
+  const phase = useAnswerPhase(text.length > 0, status === 'streaming' || status === 'done')
+
   const headerSummary = status === 'streaming'
     ? (stageLabel ?? '')
     : status === 'error'
@@ -345,8 +347,13 @@ export function SearchAnswer({ slug, query, onResult }: SearchAnswerProps) {
                   onRetry={retry}
                 />
               )
-              : status === 'streaming' && text.length === 0
-              ? <StageTimeline statuses={statusesFor(activeStage, seenStages)} />
+              : status === 'streaming' && phase !== 'answer'
+              ? (
+                <StageTimeline
+                  statuses={statusesFor(activeStage, seenStages)}
+                  exiting={phase === 'handoff'}
+                />
+              )
               : (
                 <>
                   {refused
@@ -359,18 +366,9 @@ export function SearchAnswer({ slug, query, onResult }: SearchAnswerProps) {
 
                   {text.length > 0
                     ? (
-                      <div className='rp-prose text-sm text-ink'>
+                      <div className='rp-answer-in rp-prose text-sm text-ink'>
                         {renderAnswer(text, citations, sources, slug)}
                       </div>
-                    )
-                    : null}
-
-                  {status === 'streaming'
-                    ? (
-                      <span
-                        className='mt-1 inline-block h-4 w-1.5 animate-pulse bg-[var(--rp-ink-3)] align-text-bottom'
-                        aria-hidden='true'
-                      />
                     )
                     : null}
 

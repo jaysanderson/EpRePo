@@ -2,7 +2,7 @@ import { type FormEvent, useCallback, useMemo, useRef, useState } from 'react'
 import { useQueries, useQuery } from '@tanstack/react-query'
 import { Link, useNavigate, useOutletContext } from 'react-router-dom'
 import type { ResourceSummary, TenantConfig } from '@research-portal/core'
-import { getFacets, getTopicResources } from '../api/client.ts'
+import { getCatalog, getFacets, getTopicResources } from '../api/client.ts'
 import { topicsWithFacetCounts } from '../lib/topic-rows.ts'
 import { EmptyState, ErrorCard, Skeleton, TypeBadge } from '../components/ui.tsx'
 import { ResourceThumb } from '../components/ResourceThumb.tsx'
@@ -86,64 +86,130 @@ function Hero({
     <section className='relative isolate px-6 pb-24 pt-14 sm:pb-28 sm:pt-20'>
       <HeroBackdrop imageUrl={config.branding.heroImageUrl} />
 
-      <div className='mx-auto max-w-3xl text-center'>
-        <h1 className='rp-display rp-anim-rise text-4xl text-white sm:text-5xl lg:text-6xl'>
-          What would you like to explore?
-        </h1>
+      <div className='rp-shell grid items-start gap-10 lg:grid-cols-[minmax(0,1fr)_22rem] lg:gap-14'>
+        <div className='min-w-0'>
+          <h1 className='rp-display rp-anim-rise text-4xl text-white sm:text-5xl lg:text-6xl'>
+            What would you like to explore?
+          </h1>
 
-        <form onSubmit={handleSubmit} className='rp-anim-rise rp-delay-1 mt-8' role='search'>
-          <label htmlFor='explore-search' className='sr-only'>
-            Ask {config.branding.productName}
-          </label>
-          <div className='relative mx-auto max-w-2xl'>
-            <div className='rp-shadow-xl flex items-center gap-2 rounded-[var(--rp-radius-input)] bg-surface p-1.5 pl-3.5 ring-1 ring-white/40 focus-within:ring-2 focus-within:ring-white'>
-              <svg
-                viewBox='0 0 20 20'
-                fill='none'
-                stroke='currentColor'
-                strokeWidth='1.8'
-                strokeLinecap='round'
-                aria-hidden='true'
-                className='h-5 w-5 shrink-0 text-ink-3'
-              >
-                <circle cx='9' cy='9' r='5.5' />
-                <path d='M13.2 13.2L17 17' />
-              </svg>
-              <input
-                id='explore-search'
-                ref={inputRef}
-                type='text'
-                autoComplete='off'
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder={askPlaceholder(config.searchPlaceholder)}
-                className='min-w-0 flex-1 border-0 bg-transparent px-2 py-2 text-[0.95rem] text-ink placeholder:text-[var(--rp-ink-3)] focus:outline-none'
-              />
-              <button type='submit' className='rp-btn rp-btn-primary shrink-0 font-semibold'>
-                Ask
-              </button>
-            </div>
-          </div>
-        </form>
-
-        {config.suggestedQuestions.length > 0
-          ? (
-            <div className='rp-anim-rise rp-delay-2 mt-4 flex flex-wrap justify-center gap-2'>
-              {config.suggestedQuestions.slice(0, 3).map((question) => (
-                <button
-                  key={question.id}
-                  type='button'
-                  onClick={() => onAsk(question.text)}
-                  className='rp-focus-inverse rounded-[var(--rp-radius-chip)] border border-white/30 bg-white/12 px-3 py-1.5 text-sm text-white backdrop-blur-sm transition-colors duration-150 hover:bg-white/25'
+          <form onSubmit={handleSubmit} className='rp-anim-rise rp-delay-1 mt-8' role='search'>
+            <label htmlFor='explore-search' className='sr-only'>
+              Ask {config.branding.productName}
+            </label>
+            <div className='relative max-w-2xl'>
+              <div className='rp-shadow-xl flex items-center gap-2 rounded-[var(--rp-radius-input)] bg-surface p-1.5 pl-3.5 ring-1 ring-white/40 focus-within:ring-2 focus-within:ring-white'>
+                <svg
+                  viewBox='0 0 20 20'
+                  fill='none'
+                  stroke='currentColor'
+                  strokeWidth='1.8'
+                  strokeLinecap='round'
+                  aria-hidden='true'
+                  className='h-5 w-5 shrink-0 text-ink-3'
                 >
-                  {question.text}
+                  <circle cx='9' cy='9' r='5.5' />
+                  <path d='M13.2 13.2L17 17' />
+                </svg>
+                <input
+                  id='explore-search'
+                  ref={inputRef}
+                  type='text'
+                  autoComplete='off'
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder={askPlaceholder(config.searchPlaceholder)}
+                  className='min-w-0 flex-1 border-0 bg-transparent px-2 py-2 text-[0.95rem] text-ink placeholder:text-[var(--rp-ink-3)] focus:outline-none'
+                />
+                <button type='submit' className='rp-btn rp-btn-primary shrink-0 font-semibold'>
+                  Ask
                 </button>
-              ))}
+              </div>
             </div>
-          )
-          : null}
+          </form>
+
+          {config.suggestedQuestions.length > 0
+            ? (
+              <div className='rp-anim-rise rp-delay-2 mt-4 flex max-w-2xl flex-wrap gap-2'>
+                {config.suggestedQuestions.slice(0, 3).map((question) => (
+                  <button
+                    key={question.id}
+                    type='button'
+                    onClick={() => onAsk(question.text)}
+                    className='rp-focus-inverse rounded-[var(--rp-radius-chip)] border border-white/30 bg-white/12 px-3 py-1.5 text-sm text-white backdrop-blur-sm transition-colors duration-150 hover:bg-white/25'
+                  >
+                    {question.text}
+                  </button>
+                ))}
+              </div>
+            )
+            : null}
+        </div>
+
+        <RecentDocuments slug={config.slug} />
       </div>
     </section>
+  )
+}
+
+/**
+ * A short list of what has most recently landed in the corpus, beside the ask.
+ * It is a sign of life on a portal that is still loading, and a way in for a
+ * reader who does not yet have a question.
+ */
+function RecentDocuments({ slug }: { slug: string }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ['recent-documents', slug],
+    queryFn: () => getCatalog(slug, { pageSize: 12, sort: 'created', order: 'desc' }),
+    staleTime: 5 * 60 * 1000,
+  })
+
+  // Only documents the platform has finished with - a pending one has no
+  // thumbnail and no real title yet.
+  const items = (data?.items ?? []).filter((item) => item.status === 'processed').slice(0, 5)
+
+  if (!isLoading && items.length === 0) return null
+
+  return (
+    <div className='rp-anim-rise rp-delay-3 hidden lg:block'>
+      <p className='rp-eyebrow text-white/60'>Recently added</p>
+      <ul className='mt-4 space-y-1'>
+        {isLoading
+          ? Array.from({ length: 4 }).map((_, index) => (
+            <li key={index} className='flex items-center gap-3 py-2.5'>
+              <span className='rp-shimmer h-14 w-11 shrink-0 bg-white/15' />
+              <span className='rp-shimmer h-3 w-40 bg-white/15' />
+            </li>
+          ))
+          : items.map((item) => (
+            <li key={item.id}>
+              <Link
+                to={`/t/${slug}/library/${item.id}`}
+                className='rp-focus-inverse group flex items-center gap-3 border-b border-white/15 py-2.5 transition-colors duration-150 hover:bg-white/5'
+              >
+                <span className='h-14 w-11 shrink-0 overflow-hidden bg-white/10'>
+                  <ResourceThumb
+                    slug={slug}
+                    id={item.id}
+                    type='document'
+                    imgClassName='object-top'
+                  />
+                </span>
+                <span className='min-w-0 flex-1'>
+                  <span className='rp-clamp-2 block text-sm leading-snug text-white'>
+                    {item.title}
+                  </span>
+                </span>
+                <span
+                  aria-hidden='true'
+                  className='shrink-0 text-white/50 transition-transform duration-200 group-hover:translate-x-0.5'
+                >
+                  &rarr;
+                </span>
+              </Link>
+            </li>
+          ))}
+      </ul>
+    </div>
   )
 }
 

@@ -192,8 +192,8 @@ export function TenantLayout() {
       }
       <header ref={headerRef} className='sticky top-0 z-40'>
         <div className='border-b border-line bg-surface'>
-          <div className='rp-shell flex items-center justify-between gap-4 py-3'>
-            <div className='flex min-w-0 items-center gap-2'>
+          <div className='rp-shell flex items-center gap-6 py-3'>
+            <div className='flex min-w-0 flex-1 items-center gap-2'>
               <Link
                 to={`/t/${config.slug}`}
                 className='rp-focus flex min-w-0 items-center gap-3 rounded-none'
@@ -219,8 +219,11 @@ export function TenantLayout() {
               }
               <KbSwitcher config={config} />
             </div>
-            <div className='flex shrink-0 items-center gap-2'>
-              {/* Header search, as on frdc.com.au - submits into the Library. */}
+            {
+              /* Header search, centred and full-measure: it is the only search
+              * box in the product now, so it carries the weight. */
+            }
+            <div className='hidden w-[min(40rem,42vw)] shrink-0 items-center lg:flex'>
               <form
                 role='search'
                 onSubmit={(event) => {
@@ -230,7 +233,7 @@ export function TenantLayout() {
                   navigate(`/t/${config.slug}/search?q=${encodeURIComponent(trimmed)}`)
                   setHeaderQuery('')
                 }}
-                className='hidden items-center lg:mr-3 lg:flex'
+                className='flex w-full items-center'
               >
                 <label htmlFor='header-search' className='sr-only'>
                   Search {config.branding.productName}
@@ -240,13 +243,13 @@ export function TenantLayout() {
                   type='search'
                   value={headerQuery}
                   onChange={(event) => setHeaderQuery(event.target.value)}
-                  placeholder='Search'
-                  className='rp-input rp-input-flush-end h-10 w-56 xl:w-72'
+                  placeholder={config.searchPlaceholder}
+                  className='rp-input rp-input-flush-end h-12 min-w-0 flex-1 text-base'
                 />
                 <button
                   type='submit'
                   aria-label='Search'
-                  className='rp-focus flex h-10 w-11 shrink-0 items-center justify-center rounded-e-[var(--rp-radius-input)] border border-l-0 transition-colors duration-150'
+                  className='rp-focus flex h-12 w-12 shrink-0 items-center justify-center rounded-e-[var(--rp-radius-input)] border border-l-0 transition-colors duration-150'
                   style={{
                     borderColor: 'var(--rp-line)',
                     color: 'var(--rp-primary)',
@@ -258,7 +261,7 @@ export function TenantLayout() {
                     stroke='currentColor'
                     strokeWidth='1.8'
                     strokeLinecap='round'
-                    className='h-4 w-4'
+                    className='h-5 w-5'
                     aria-hidden='true'
                   >
                     <circle cx='9' cy='9' r='5.5' />
@@ -266,6 +269,9 @@ export function TenantLayout() {
                   </svg>
                 </button>
               </form>
+            </div>
+
+            <div className='flex flex-1 items-center justify-end gap-2'>
               {kbStatus?.status === 'none' && (
                 <span className='hidden shrink-0 lg:block'>
                   <Link to='/admin' className='rp-badge rp-badge-quiet rp-focus'>
