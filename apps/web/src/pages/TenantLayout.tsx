@@ -192,7 +192,7 @@ export function TenantLayout() {
       }
       <header ref={headerRef} className='sticky top-0 z-40'>
         <div className='border-b border-line bg-surface'>
-          <div className='rp-shell flex items-center gap-6 py-3'>
+          <div className='rp-shell flex items-center gap-3 py-3 sm:gap-6'>
             <div className='flex min-w-0 flex-1 items-center gap-2'>
               <Link
                 to={`/t/${config.slug}`}
@@ -204,7 +204,18 @@ export function TenantLayout() {
                       src={config.branding.logoUrl}
                       alt={config.branding.organisation}
                       onError={() => setLogoFailed(true)}
-                      className='h-14 w-auto max-w-[20rem] object-contain sm:h-16'
+                      // Tenant logos vary wildly in aspect ratio (FRDC is a 4:1
+                      // wordmark-plus-tagline, GRDC is close to 2:1), so a fixed
+                      // height alone decides nothing about how much of a phone
+                      // row the logo eats. Below `sm` it is boxed by BOTH a max
+                      // width and a max height and left free to pick its own
+                      // height, so every tenant fits the same slot without being
+                      // letterboxed. `min-w-0` is the real overlap guard: an
+                      // image is a flex item whose automatic minimum size is its
+                      // intrinsic width, so without it the logo refuses to
+                      // shrink and simply paints over its neighbours. Desktop is
+                      // untouched - `sm:` restores h-16 with the 20rem cap.
+                      className='h-auto max-h-10 w-auto min-w-0 max-w-[9rem] object-contain sm:h-16 sm:max-h-none sm:max-w-[20rem]'
                     />
                   )
                   : (
@@ -271,7 +282,13 @@ export function TenantLayout() {
               </form>
             </div>
 
-            <div className='flex flex-1 items-center justify-end gap-2'>
+            {
+              /* Below `sm` this cluster takes exactly the width its buttons
+              * need, so the rest of the row belongs to the logo. `flex-1` from
+              * `sm` up restores the even three-way split that keeps the desktop
+              * search box optically centred. */
+            }
+            <div className='flex flex-none items-center justify-end gap-2 sm:flex-1'>
               {kbStatus?.status === 'none' && (
                 <span className='hidden shrink-0 lg:block'>
                   <Link to='/admin' className='rp-badge rp-badge-quiet rp-focus'>
