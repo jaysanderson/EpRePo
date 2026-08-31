@@ -40,7 +40,7 @@ export function sameLabel(a: string, b: string): boolean {
  */
 export function TypeBadge({ type }: { type: ResourceType }) {
   return (
-    <span className='rp-badge rp-badge-quiet uppercase tracking-[0.06em]'>
+    <span className='rp-badge rp-badge-quiet'>
       {TYPE_LABELS[type]}
     </span>
   )

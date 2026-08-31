@@ -210,7 +210,7 @@ function DetailDock({ onClose, children }: { onClose: () => void; children: Reac
   return (
     <aside
       aria-label='Selection details'
-      className='rp-anim-fade absolute inset-x-0 bottom-0 z-30 flex max-h-[68%] flex-col overflow-hidden rounded-t-[16px] border border-line bg-surface rp-shadow-xl rp-map-gutter-right md:inset-x-auto md:top-3 md:bottom-3 md:max-h-none md:w-[360px] md:rounded-[calc(var(--rp-radius)+4px)]'
+      className='rp-anim-fade absolute inset-x-0 bottom-0 z-30 flex max-h-[68%] flex-col overflow-hidden rounded-t-[var(--rp-radius)] border border-line bg-surface rp-shadow-xl rp-map-gutter-right md:inset-x-auto md:top-3 md:bottom-3 md:max-h-none md:w-[360px] md:rounded-[calc(var(--rp-radius)+4px)]'
     >
       <button
         type='button'
@@ -624,7 +624,7 @@ function NavigatorRail({
   return (
     <aside
       aria-label='Map navigator'
-      className='rp-anim-fade absolute inset-x-0 bottom-0 z-20 flex max-h-[60%] flex-col overflow-hidden rounded-t-[16px] border border-line bg-surface rp-shadow-lg rp-map-gutter-left md:inset-x-auto md:bottom-auto md:top-1/2 md:max-h-[calc(100%-2rem)] md:w-[300px] md:-translate-y-1/2 md:rounded-[calc(var(--rp-radius)+4px)]'
+      className='rp-anim-fade absolute inset-x-0 bottom-0 z-20 flex max-h-[60%] flex-col overflow-hidden rounded-t-[var(--rp-radius)] border border-line bg-surface rp-shadow-lg rp-map-gutter-left md:inset-x-auto md:bottom-auto md:top-1/2 md:max-h-[calc(100%-2rem)] md:w-[300px] md:-translate-y-1/2 md:rounded-[calc(var(--rp-radius)+4px)]'
     >
       <div className='flex items-start justify-between gap-2 border-b border-line px-4 py-3'>
         <div className='min-w-0'>
@@ -787,20 +787,22 @@ function ModeToggle({ mode, onChange }: { mode: Mode; onChange: (mode: Mode) => 
     <div
       role='group'
       aria-label='Graph mode'
-      className='inline-flex h-11 shrink-0 overflow-hidden rounded-[var(--rp-radius-btn)] border border-line bg-surface'
+      className='inline-flex h-11 shrink-0 items-center overflow-hidden rounded-[var(--rp-radius-btn)] border border-[var(--rp-on-primary)]/30'
     >
+      <span className='px-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--rp-on-primary)]/60'>
+        View
+      </span>
       {options.map((option) => (
         <button
           key={option.value}
           type='button'
           aria-pressed={mode === option.value}
           onClick={() => onChange(option.value)}
-          className={`rp-focus px-4 text-sm font-medium transition-colors duration-150 ${
+          className={`rp-focus h-full border-l border-[var(--rp-on-primary)]/20 px-3.5 text-sm font-medium transition-colors duration-150 ${
             mode === option.value
-              ? 'text-[var(--rp-on-primary)]'
-              : 'text-ink-3 hover:bg-[var(--rp-surface-2)] hover:text-[var(--rp-ink)]'
+              ? 'bg-[var(--rp-on-primary)]/20 text-[var(--rp-on-primary)]'
+              : 'text-[var(--rp-on-primary)]/65 hover:bg-[var(--rp-on-primary)]/10 hover:text-[var(--rp-on-primary)]'
           }`}
-          style={mode === option.value ? { backgroundColor: 'var(--rp-primary)' } : undefined}
         >
           {option.label}
         </button>
@@ -832,9 +834,9 @@ function LayoutToggle({
     <div
       role='group'
       aria-label='Map layout'
-      className='inline-flex h-11 shrink-0 items-center overflow-hidden border border-white/30'
+      className='inline-flex h-11 shrink-0 items-center overflow-hidden rounded-[var(--rp-radius-btn)] border border-[var(--rp-on-primary)]/30'
     >
-      <span className='px-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/60'>
+      <span className='px-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--rp-on-primary)]/60'>
         Layout
       </span>
       {options.map((option) => (
@@ -844,10 +846,10 @@ function LayoutToggle({
           aria-pressed={layout === option.value}
           title={option.title}
           onClick={() => onChange(option.value)}
-          className={`rp-focus h-full border-l border-white/20 px-3.5 text-sm font-medium transition-colors duration-150 ${
+          className={`rp-focus h-full border-l border-[var(--rp-on-primary)]/20 px-3.5 text-sm font-medium transition-colors duration-150 ${
             layout === option.value
-              ? 'bg-white/20 text-white'
-              : 'text-white/65 hover:bg-white/10 hover:text-white'
+              ? 'bg-[var(--rp-on-primary)]/20 text-[var(--rp-on-primary)]'
+              : 'text-[var(--rp-on-primary)]/65 hover:bg-[var(--rp-on-primary)]/10 hover:text-[var(--rp-on-primary)]'
           }`}
         >
           {option.label}

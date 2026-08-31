@@ -891,7 +891,7 @@ export function SearchPage() {
                       return (
                         <label
                           key={topic.id}
-                          className={`flex cursor-pointer items-center gap-2.5 rounded-[var(--rp-radius-btn)] px-1 py-1 text-sm ${
+                          className={`flex cursor-pointer items-start gap-2.5 rounded-[var(--rp-radius-btn)] px-1 py-1 text-sm ${
                             muted ? 'text-ink-3' : 'text-ink-2'
                           }`}
                         >
@@ -899,11 +899,13 @@ export function SearchPage() {
                             type='checkbox'
                             checked={checked}
                             onChange={() => toggleTopic(topic.id)}
-                            className='h-4 w-4 shrink-0 rounded-[var(--rp-radius)] border-line'
+                            className='mt-[2px] h-4 w-4 shrink-0 rounded-[var(--rp-radius-input)] border-line'
                             style={{ accentColor: 'var(--rp-accent)' }}
                           />
                           <span className='min-w-0 flex-1'>{topic.label}</span>
-                          <span className='text-xs tabular-nums text-ink-3'>{count}</span>
+                          <span className='self-center text-xs tabular-nums text-ink-3'>
+                            {count}
+                          </span>
                         </label>
                       )
                     })}
@@ -937,7 +939,7 @@ export function SearchPage() {
                       return (
                         <label
                           key={id}
-                          className={`flex cursor-pointer items-center gap-2.5 rounded-[var(--rp-radius-btn)] px-1 py-1 text-sm ${
+                          className={`flex cursor-pointer items-start gap-2.5 rounded-[var(--rp-radius-btn)] px-1 py-1 text-sm ${
                             muted ? 'text-ink-3' : 'text-ink-2'
                           }`}
                         >
@@ -945,11 +947,13 @@ export function SearchPage() {
                             type='checkbox'
                             checked={checked}
                             onChange={() => toggleKind(id)}
-                            className='h-4 w-4 shrink-0 rounded-[var(--rp-radius)] border-line'
+                            className='mt-[2px] h-4 w-4 shrink-0 rounded-[var(--rp-radius-input)] border-line'
                             style={{ accentColor: 'var(--rp-accent)' }}
                           />
                           <span className='min-w-0 flex-1'>{kindLabel(id)}</span>
-                          <span className='text-xs tabular-nums text-ink-3'>{count}</span>
+                          <span className='self-center text-xs tabular-nums text-ink-3'>
+                            {count}
+                          </span>
                         </label>
                       )
                     })}

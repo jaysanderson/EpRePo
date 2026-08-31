@@ -118,7 +118,7 @@ export function EvidenceDisclosure({
       </span>
       {summary
         ? (
-          <span className='rounded-[var(--rp-radius-chip)] bg-surface-2 px-1.5 py-0.5 text-[10px] font-normal tabular-nums text-ink-3'>
+          <span className='rounded-[var(--rp-radius-chip)] border border-line bg-surface-2 px-1.5 py-0.5 text-[10px] font-normal tabular-nums text-ink-3'>
             {summary}
           </span>
         )
@@ -474,7 +474,7 @@ export function AnswerStream({ slug, request, onSources, onRetry }: AnswerStream
                       >
                         {citation.index}
                       </span>
-                      <span className='rp-clamp-2 max-w-[14rem] text-left'>{citation.title}</span>
+                      <span className='max-w-[16rem] truncate text-left'>{citation.title}</span>
                     </Link>
                     {existingResultIds.has(citation.resourceId)
                       ? (

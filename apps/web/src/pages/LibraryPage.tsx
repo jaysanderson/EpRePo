@@ -148,7 +148,7 @@ function LibraryCard(
               {topicLabels.slice(0, 3).map((label) => (
                 <span
                   key={label}
-                  className='rounded-[var(--rp-radius-chip)] bg-surface-2 px-1.5 py-0.5 text-[11px] text-ink-2'
+                  className='rp-badge rp-badge-quiet'
                 >
                   {label}
                 </span>
@@ -591,7 +591,7 @@ export function LibraryBrowser(
             id='library-sort-bare'
             value={sort}
             onChange={(event) => setSort(event.target.value as SortValue)}
-            className='rp-focus rounded-[var(--rp-radius)] border border-line bg-surface px-3 py-2 text-sm text-ink'
+            className='rp-focus h-[calc(2.25rem*var(--rp-density-ctl,1))] rounded-[var(--rp-radius-input)] border border-line bg-surface px-3 text-sm text-ink'
           >
             {SORT_VALUES.map((value) => (
               <option key={value} value={value}>
@@ -604,7 +604,7 @@ export function LibraryBrowser(
 
       {!bare && (
         <div className='mt-4 flex flex-wrap items-center gap-2'>
-          <div className='flex min-w-[16rem] flex-1 items-center gap-2 rounded-[var(--rp-radius)] border border-line bg-surface px-3 py-1.5'>
+          <div className='flex h-[calc(2.25rem*var(--rp-density-ctl,1))] min-w-[16rem] flex-1 items-center gap-2 rounded-[var(--rp-radius-input)] border border-line bg-surface px-3'>
             <label htmlFor='library-search' className='sr-only'>
               Search the library
             </label>
@@ -627,7 +627,7 @@ export function LibraryBrowser(
               value={queryDraft}
               onChange={(event: ChangeEvent<HTMLInputElement>) => setQueryDraft(event.target.value)}
               placeholder='Search within the library'
-              className='min-w-0 flex-1 border-0 bg-transparent py-1 text-sm text-ink placeholder:text-[var(--rp-ink-3)] focus:outline-none'
+              className='min-w-0 flex-1 border-0 bg-transparent text-sm text-ink placeholder:text-[var(--rp-ink-3)] focus:outline-none'
             />
           </div>
 
@@ -638,7 +638,7 @@ export function LibraryBrowser(
             id='library-sort'
             value={sort}
             onChange={(event) => setSort(event.target.value as SortValue)}
-            className='rp-focus rounded-[var(--rp-radius)] border border-line bg-surface px-3 py-2 text-sm text-ink'
+            className='rp-focus h-[calc(2.25rem*var(--rp-density-ctl,1))] rounded-[var(--rp-radius-input)] border border-line bg-surface px-3 text-sm text-ink'
           >
             {SORT_VALUES.map((value) => (
               <option key={value} value={value}>
@@ -652,7 +652,7 @@ export function LibraryBrowser(
               <button
                 type='button'
                 onClick={() => setFiltersOpen((open) => !open)}
-                className='rp-chip h-9 sm:h-7 lg:hidden'
+                className='rp-btn rp-btn-outline lg:hidden'
                 aria-expanded={filtersOpen}
               >
                 Filters{(selectedTopics.length + selectedKinds.length) > 0
@@ -668,7 +668,7 @@ export function LibraryBrowser(
                 type='button'
                 onClick={() => selecting ? exitSelection() : setSelecting(true)}
                 aria-pressed={selecting}
-                className='rp-chip h-9 sm:h-7'
+                className='rp-btn rp-btn-outline'
               >
                 {selecting ? 'Done selecting' : 'Select'}
               </button>
@@ -726,7 +726,7 @@ export function LibraryBrowser(
                     return (
                       <label
                         key={topic.id}
-                        className={`flex cursor-pointer items-center gap-2.5 rounded-[var(--rp-radius-btn)] px-1 py-1 text-sm ${
+                        className={`flex cursor-pointer items-start gap-2.5 rounded-[var(--rp-radius-btn)] px-1 py-1 text-sm ${
                           muted ? 'text-ink-3' : 'text-ink-2'
                         }`}
                       >
@@ -734,11 +734,11 @@ export function LibraryBrowser(
                           type='checkbox'
                           checked={checked}
                           onChange={() => toggleTopic(topic.id)}
-                          className='h-4 w-4 shrink-0 rounded-[var(--rp-radius)] border-line'
+                          className='mt-[2px] h-4 w-4 shrink-0 rounded-[var(--rp-radius-input)] border-line'
                           style={{ accentColor: 'var(--rp-accent)' }}
                         />
                         <span className='min-w-0 flex-1'>{topic.label}</span>
-                        <span className='text-xs tabular-nums text-ink-3'>{count}</span>
+                        <span className='self-center text-xs tabular-nums text-ink-3'>{count}</span>
                       </label>
                     )
                   })}

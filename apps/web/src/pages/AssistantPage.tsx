@@ -479,7 +479,7 @@ function UserBubble({
     <div className='flex flex-col items-end gap-1.5'>
       <div
         className='max-w-[85%] rounded-[calc(var(--rp-radius)+4px)] rounded-tr-sm px-4 py-3 text-sm leading-relaxed text-ink sm:max-w-[70%]'
-        style={{ backgroundColor: 'color-mix(in srgb, var(--rp-accent) 14%, var(--rp-surface))' }}
+        style={{ backgroundColor: 'var(--rp-wash)' }}
       >
         {message.text}
       </div>
@@ -1051,7 +1051,7 @@ function AssistantCard({
                               >
                                 {citation.index}
                               </span>
-                              <span className='rp-clamp-2 max-w-[10rem]'>{citation.title}</span>
+                              <span className='max-w-[14rem] truncate'>{citation.title}</span>
                             </Link>
                           )
                         })}
