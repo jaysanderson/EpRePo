@@ -4,6 +4,52 @@ import { z } from 'zod'
 // Tenant configuration - the single document that drives the whole portal UI.
 // ---------------------------------------------------------------------------
 
+/** The named Google Fonts heading/body pairings a portal can choose from. */
+export const FontPairingIdSchema = z.enum([
+  'albert-barlow',
+  'fraunces-poppins',
+  'corben-montserrat',
+  'bebas-heebo',
+  'lexend-zilla',
+])
+export type FontPairingId = z.infer<typeof FontPairingIdSchema>
+
+/**
+ * A portal's typeface choice: a named pairing, 'custom' for uploaded font
+ * files, or 'default' for the house faces. Absent means 'default'.
+ */
+export const TypographyChoiceSchema = z.union([
+  FontPairingIdSchema,
+  z.literal('custom'),
+  z.literal('default'),
+])
+export type TypographyChoice = z.infer<typeof TypographyChoiceSchema>
+
+/**
+ * Shape language: 'square' has no rounding, 'rounded' slightly rounds
+ * surfaces, buttons and tags, 'soft' rounds surfaces further and makes
+ * buttons and tags pill-shaped. Absent means 'square'.
+ */
+export const ShapeIdSchema = z.enum(['square', 'rounded', 'soft'])
+export type ShapeId = z.infer<typeof ShapeIdSchema>
+
+/**
+ * Base text size: scales the root font size so the whole rem-based interface
+ * (text and the spacing tied to it) sizes up or down together. Absent means
+ * 'default'.
+ */
+export const TextScaleIdSchema = z.enum(['default', 'smaller', 'larger'])
+export type TextScaleId = z.infer<typeof TextScaleIdSchema>
+
+/**
+ * Interface density: rescales the spacing rhythm (paddings, gaps, stacks)
+ * without touching text sizes. 'compact' fits more on screen, 'comfortable'
+ * adds a touch of air, 'spacious' is the airy reading-first setting. Absent
+ * means 'default'.
+ */
+export const DensityIdSchema = z.enum(['compact', 'default', 'comfortable', 'spacious'])
+export type DensityId = z.infer<typeof DensityIdSchema>
+
 export const BrandingSchema = z.object({
   /** Own-system product name, e.g. "GrainsIQ Research Portal" - never vendor branding. */
   productName: z.string().min(1),
@@ -16,16 +62,24 @@ export const BrandingSchema = z.object({
     heroFrom: z.string(),
     heroTo: z.string(),
   }),
+  typography: TypographyChoiceSchema.optional(),
+  shape: ShapeIdSchema.optional(),
+  textScale: TextScaleIdSchema.optional(),
+  density: DensityIdSchema.optional(),
   /** Served when an administrator uploaded a logo for this portal. */
   logoUrl: z.string().optional(),
   /** Served when an administrator uploaded a hero image for this portal. */
   heroImageUrl: z.string().optional(),
   /** Wide image behind slim page headers (e.g. the knowledge map). */
   bannerImageUrl: z.string().optional(),
+  /** Served when custom heading/body font files are uploaded (typography 'custom'). */
+  headingFontUrl: z.string().optional(),
+  bodyFontUrl: z.string().optional(),
   /**
-   * Typefaces for this portal, as CSS font stacks. Each family must also be
-   * loaded in apps/web/index.html. Omitted portals fall back to the defaults in
-   * styles.css.
+   * The portal's seeded brand typefaces, as CSS font stacks (each family must
+   * also be loaded in apps/web/index.html). These are what 'default' means for
+   * this portal: used when `typography` is absent or 'default', and overridden
+   * by any explicit pairing or custom-upload choice made in Manage.
    */
   fonts: z.object({
     /** Body and UI. */
@@ -34,6 +88,99 @@ export const BrandingSchema = z.object({
     display: z.string(),
   }).optional(),
 })
+
+/** One face of a font pairing, with the display metrics the theme layer applies. */
+export interface PairingHeadingFace {
+  family: string
+  /** Weight for .rp-display headings. */
+  weight: number
+  /** Weight .rp-display-bold escalates to (equal to `weight` when the face has one cut). */
+  boldWeight: number
+  /** Letter-spacing for display headings - display faces want different tracking. */
+  tracking: string
+  /** Line-height for display headings. */
+  leading: string
+}
+
+export interface FontPairing {
+  id: FontPairingId
+  label: string
+  heading: PairingHeadingFace
+  body: {
+    family: string
+    /** Base body weight - e.g. 300 for a deliberately light body face. */
+    weight: number
+  }
+  /** Query string for the Google Fonts css2 stylesheet loading both faces. */
+  googleQuery: string
+}
+
+/**
+ * The five heading/body pairings offered in Appearance. The weights requested
+ * in `googleQuery` must exist for the face (css2 rejects the whole request
+ * otherwise) - Corben ships only 400/700 and Bebas Neue only 400.
+ */
+export const FONT_PAIRINGS: Record<FontPairingId, FontPairing> = {
+  'albert-barlow': {
+    id: 'albert-barlow',
+    label: 'Albert Sans & Barlow',
+    heading: {
+      family: 'Albert Sans',
+      weight: 600,
+      boldWeight: 700,
+      tracking: '-0.02em',
+      leading: '1.05',
+    },
+    body: { family: 'Barlow', weight: 400 },
+    googleQuery: 'family=Albert+Sans:wght@600;700&family=Barlow:wght@400;500;600;700',
+  },
+  'fraunces-poppins': {
+    id: 'fraunces-poppins',
+    label: 'Fraunces & Poppins',
+    heading: {
+      family: 'Fraunces',
+      weight: 700,
+      boldWeight: 800,
+      tracking: '-0.015em',
+      leading: '1.08',
+    },
+    body: { family: 'Poppins', weight: 400 },
+    googleQuery: 'family=Fraunces:wght@700;800&family=Poppins:wght@400;500;600;700',
+  },
+  'corben-montserrat': {
+    id: 'corben-montserrat',
+    label: 'Corben & Montserrat',
+    heading: { family: 'Corben', weight: 700, boldWeight: 700, tracking: '0em', leading: '1.15' },
+    body: { family: 'Montserrat', weight: 400 },
+    googleQuery: 'family=Corben:wght@400;700&family=Montserrat:wght@400;500;600;700',
+  },
+  'bebas-heebo': {
+    id: 'bebas-heebo',
+    label: 'Bebas Neue & Heebo Light',
+    heading: {
+      family: 'Bebas Neue',
+      weight: 400,
+      boldWeight: 400,
+      tracking: '0.01em',
+      leading: '0.98',
+    },
+    body: { family: 'Heebo', weight: 300 },
+    googleQuery: 'family=Bebas+Neue&family=Heebo:wght@300;400;500;600;700',
+  },
+  'lexend-zilla': {
+    id: 'lexend-zilla',
+    label: 'Lexend & Zilla Slab',
+    heading: {
+      family: 'Lexend',
+      weight: 600,
+      boldWeight: 700,
+      tracking: '-0.012em',
+      leading: '1.05',
+    },
+    body: { family: 'Zilla Slab', weight: 400 },
+    googleQuery: 'family=Lexend:wght@600;700&family=Zilla+Slab:wght@400;500;600;700',
+  },
+}
 
 export const TopicSchema = z.object({
   id: z.string().min(1),

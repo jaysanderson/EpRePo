@@ -96,7 +96,7 @@ function Hero({
             Ask {config.branding.productName}
           </label>
           <div className='relative mx-auto max-w-2xl'>
-            <div className='rp-shadow-xl flex items-center gap-2 rounded-none bg-surface p-1.5 pl-3.5 ring-1 ring-white/40 focus-within:ring-2 focus-within:ring-white'>
+            <div className='rp-shadow-xl flex items-center gap-2 rounded-[var(--rp-radius-input)] bg-surface p-1.5 pl-3.5 ring-1 ring-white/40 focus-within:ring-2 focus-within:ring-white'>
               <svg
                 viewBox='0 0 20 20'
                 fill='none'
@@ -134,7 +134,7 @@ function Hero({
                   key={question.id}
                   type='button'
                   onClick={() => onAsk(question.text)}
-                  className='rp-focus-inverse border border-white/30 bg-white/12 px-3 py-1.5 text-sm text-white backdrop-blur-sm transition-colors duration-150 hover:bg-white/25'
+                  className='rp-focus-inverse rounded-[var(--rp-radius-chip)] border border-white/30 bg-white/12 px-3 py-1.5 text-sm text-white backdrop-blur-sm transition-colors duration-150 hover:bg-white/25'
                 >
                   {question.text}
                 </button>
