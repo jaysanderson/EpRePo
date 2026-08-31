@@ -135,21 +135,20 @@ export const DOC_PAGES: DocPage[] = [
   {
     id: 'search',
     category: 'Finding answers',
-    title: 'Search: results, or a cited answer',
-    summary: 'Two ways to search - Search returns matching documents, Ask AI adds a short cited ' +
-      'answer over them.',
+    title: 'Search: a cited answer, or just the results',
+    summary: 'Search answers by default - a short cited answer over the matching documents. ' +
+      'Results only turns the answer off.',
     sections: [
       {
-        heading: 'Two buttons, one search box',
-        body: 'Type your query once, then choose what you want back:\n\n' +
-          '- **Search** returns a ranked list of matching documents, each with the passage that ' +
-          'matched, so you can judge a source and open it. It is fast and answer-free.\n' +
-          '- **Ask AI** reads the top results and writes a short, cited answer over them, with the ' +
-          'sources it drew on listed. Plain search stays instant; only Ask AI spends the extra ' +
-          'moment to synthesise.\n\n' +
-          'Use **Search** to find documents and read them yourself. Use **Ask AI** when you want ' +
-          'the portal to pull the thread together for you. From an Ask AI answer you can ' +
-          '**Continue in Assistant** to keep asking follow-ups.',
+        heading: 'Answered by default',
+        body: 'Type your query and the portal reads the top results and writes a short, cited ' +
+          'answer over them, with the sources it drew on listed underneath. Every claim carries ' +
+          'a citation you can follow back to the passage it came from.\n\n' +
+          'The ranked documents are always there below the answer, each with the passage that ' +
+          'matched, so you can judge a source and open it yourself.\n\n' +
+          '**Results only** turns the answer off when you just want the document list - it is ' +
+          'instant and answer-free. Press it again to bring the answer back. From an answer you ' +
+          'can **Continue in Assistant** to keep asking follow-ups.',
       },
       {
         heading: 'How matching works',
