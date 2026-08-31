@@ -330,8 +330,8 @@ body {
 }
 
 .rp-lift:hover {
-  transform: translateY(-4px);
-  box-shadow: var(--rp-shadow-lg);
+  transform: translateY(-2px);
+  box-shadow: var(--rp-shadow-md);
 }
 
 .rp-zoom {

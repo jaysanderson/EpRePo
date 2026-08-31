@@ -1056,8 +1056,15 @@ export class AragProvider implements RetrievalProvider {
     )
     // Failed ingests and junk (hash/bot-challenge) titles never surface in a
     // topic row - see isDisplayableResource. Documentation is research-invisible.
+    // A resource the platform has not finished processing has no extracted text
+    // behind it yet, so its card would be an empty placeholder - browse rows
+    // wait for it. The library still lists them, badged, so a curator can watch
+    // the load progress.
     return Object.entries(raw.resources ?? {})
-      .filter(([, r]) => isDisplayableResource(r) && !isDocumentationResource(r))
+      .filter(([, r]) =>
+        isDisplayableResource(r) && !isDocumentationResource(r) &&
+        (r.metadata?.status ?? '').toUpperCase() === 'PROCESSED'
+      )
       .map(([id, r]) => this.toSummary(id, r))
   }
 
