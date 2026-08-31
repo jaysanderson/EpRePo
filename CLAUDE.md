@@ -67,8 +67,26 @@ Capture the answers in `docs/VISION.md` as they're decided.
   - So the order is: **branch -> PR -> CI green -> orchestrator merges to main ->
     main deploys to fly.io.** A change that fails the gate never reaches
     production, and no single agent both writes and ships its own work.
+  - **Every agent works in its own git worktree**, never in the shared checkout.
+    One worktree, one branch, one PR. Branch from `noicework/main` explicitly
+    (`git fetch noicework main && git checkout -B <branch> noicework/main`) - the
+    shared checkout's HEAD is routinely a stale branch, and inheriting it
+    silently bases the work on the wrong commit.
   - Parallel agents must take disjoint file sets and their own branches. Two
     agents editing the same file in one working tree is how you lose work.
+  - Never `git add` a whole directory. The shared checkout usually carries other
+    people's in-progress edits, and `git add apps/web/src` has already swept a
+    second agent's half-finished file into an unrelated commit. Stage named
+    files, and when one file holds both your change and someone else's, stage
+    only your own hunks.
+  - **Each agent gets its own dev-server port** (8791, 8792, ... one per agent).
+    Kill only your own: `lsof -ti tcp:<port> | xargs kill`. A broad
+    `pkill -f "apps/api/src/server.ts"` matches every worktree's server and has
+    taken down five agents at once. A dead server renders blank or half-loaded
+    pages that look exactly like layout defects, so anything measured around an
+    unexplained restart has to be measured again.
+  - Write scratch files and logs to a path unique to your agent. Agents have
+    overwritten each other's shared log paths and lost their own output.
 
 ## Operating rules (locked with Jay, 2026-08-28) - these are HARD rules
 See `docs/VISION.md` decisions log and `docs/BACKLOG.md` for the running detail. The essentials:
@@ -79,6 +97,20 @@ See `docs/VISION.md` decisions log and `docs/BACKLOG.md` for the running detail.
   the change plus the surrounding chrome (header, rails, scroll). Only then is it "done", and say
   what was visually verified - never claim "tested" for gates-only. Confirm it is actually served
   (version/cache check) before telling Jay it is live.
+- **Mobile must be measured at a real 390px layout viewport, and resizing the window is NOT
+  one.** In this environment Chrome's layout viewport does not follow a window resize
+  (`innerWidth` stays ~1974 while `outerWidth` changes), so resize-based mobile checks pass
+  while the phone is still broken. Load the page in a 390px-wide iframe instead - an iframe
+  gets a true layout viewport - and measure through `iframe.contentDocument`. The app sends
+  `frame-ancestors 'none'`, so framing it locally needs that header temporarily relaxed to
+  `'self'` in `apps/api/src/app.ts`; that is a LOCAL probe and must be reverted before
+  committing (a test asserts `'none'`, and shipping `'self'` is a security regression).
+  Add `transform: scale(2.3)` to the iframe to read screenshots - it magnifies without
+  changing the layout viewport, so trust measured rects over apparent size.
+- **Check a scaled-up system font.** Several real defects here only appeared at a ~22px root
+  font: fixed-height boxes whose text spilled their own border, and flex rows with no
+  `min-w-0` that pushed the document wider than the viewport. Phones with large-text
+  accessibility settings hit these; a default-font check does not.
 - **Nothing but the best.** No "vibe coded" look, no visual/theme bugs shipped. Translucent
   surfaces must not let content bleed through (header, tiles); check both themes.
 - **Use the full screen on large displays.** Responsive scales UP (27-inch, maximised) not only
