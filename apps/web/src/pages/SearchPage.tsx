@@ -14,6 +14,7 @@ import {
   summarizeResources,
 } from '../api/client.ts'
 import { ResourceThumb } from '../components/ResourceThumb.tsx'
+import { SearchField } from '../components/SearchField.tsx'
 import { GridDensity, ViewToggle } from '../components/ViewControls.tsx'
 import { useViewMode } from '../components/useViewMode.ts'
 import { LibraryBrowser, SORT_OPTIONS, SORT_VALUES, type SortValue } from './LibraryPage.tsx'
@@ -488,8 +489,19 @@ export function SearchPage() {
   // and the toggle below overrides either from the first click on.
   const { view: libraryView, setView: setLibraryView } = useViewMode()
 
-  useEffect(() => {
-  }, [q])
+  // What the search field is showing. The URL stays the one source of truth for
+  // the query - `q` above is what is searched, shared and navigated back to -
+  // and this holds only the keystrokes since the last commit, which have to live
+  // somewhere until Enter. Re-seeded during render whenever `q` moves, so the
+  // back button, a saved-watch chip and a suggested question all put their
+  // query in the box; an effect would do the same a paint later, with the old
+  // text visible in between.
+  const [draft, setDraft] = useState(q)
+  const [draftSeed, setDraftSeed] = useState(q)
+  if (draftSeed !== q) {
+    setDraftSeed(q)
+    setDraft(q)
+  }
 
   const updateParams = useCallback(
     (patch: Record<string, string | null>) => {
@@ -647,6 +659,15 @@ export function SearchPage() {
     runSearch(text, true)
   }
 
+  // What the search field's Enter does. Emptying the box and committing it is a
+  // meaningful thing to ask for - it is how the reader gets back out of a search
+  // to the browse listing - so it drops `q` rather than being swallowed by
+  // runSearch's guard and leaving an empty box above someone else's results.
+  function submitQuery(text: string) {
+    if (text.trim().length === 0) updateParams({ q: null })
+    else runSearch(text, answerMode)
+  }
+
   const hasQuery = q.trim().length > 0
   const trimmedQuery = q.trim()
 
@@ -687,15 +708,43 @@ export function SearchPage() {
 
   return (
     <main className='rp-shell py-8'>
-      {!hasQuery
-        ? (
-          <div className='mb-4 flex flex-wrap items-baseline justify-between gap-3'>
-            <h1 className='rp-display text-2xl text-ink'>Library</h1>
-          </div>
-        )
-        : null}
+      {
+        /* Heading, then the field, then the controls - the library's shape, so
+        * the two listing pages read as one product. The heading is "Search"
+        * rather than the query itself: the query is right below it in a box the
+        * reader can edit, and a heading that repeated it would say the same
+        * thing twice while breaking the parallel with "Library" next door. The
+        * count rides on the heading line the way the library's total does. */
+      }
+      <div className='flex flex-wrap items-baseline justify-between gap-2'>
+        <h1 className='rp-display text-2xl text-ink'>Search</h1>
+        {hasQuery && !isLoading && !isError && results
+          ? (
+            <p className='text-sm font-medium tabular-nums text-ink-3'>
+              {filteredResults.length} {filteredResults.length === 1 ? 'resource' : 'resources'}
+              {answerMode ? ` · ${citedResults.length} cited` : ''}
+            </p>
+          )
+          : null}
+      </div>
 
-      <div className='flex flex-wrap items-center gap-2.5'>
+      <div className='mt-4 flex flex-wrap items-center gap-2.5'>
+        {
+          /* Pre-filled with the query the URL carries, so the page opens saying
+          * what was asked. Enter commits the draft back to the URL, which is
+          * what re-runs the search - one source of truth, and a refined search
+          * is still a shareable link the back button walks. */
+        }
+        <SearchField
+          id='search-query'
+          label={`Search ${config.branding.productName}`}
+          value={draft}
+          onChange={setDraft}
+          onSubmit={submitQuery}
+          placeholder={config.searchPlaceholder}
+          className='min-w-[16rem] flex-1'
+        />
+
         <div
           className='inline-flex overflow-hidden rounded-[var(--rp-radius)] border border-line bg-surface'
           role='radiogroup'
@@ -726,18 +775,31 @@ export function SearchPage() {
           })}
         </div>
 
+        {
+          /* No `lg:hidden` here, unlike the library's: this page's facet rail is
+          * collapsible at every width, so the button has work to do on a desktop
+          * too. (The class was on it and inert - .rp-chip sets its own display
+          * and beat the utility - so dropping it changes nothing but the lie.) */
+        }
         <button
           type='button'
           onClick={() => setFiltersOpen((open) => !open)}
-          className='rp-chip h-9 sm:h-7 lg:hidden'
+          className='rp-chip h-9 sm:h-7'
           aria-expanded={filtersOpen}
         >
           Filters{activeFilters.length > 0 ? ` (${activeFilters.length})` : ''}
         </button>
 
+        {
+          /* The listing's own controls, in the no-query state. Right-aligned
+          * only where the toolbar is genuinely one line: once the search field
+          * makes the row wrap, `ml-auto` strands this cluster against the right
+          * edge of its own line with a ragged gap beside it, so below `lg` it
+          * just follows the chips. */
+        }
         {!hasQuery
           ? (
-            <div className='ml-auto flex items-center gap-2'>
+            <div className='flex items-center gap-2 lg:ml-auto'>
               <ViewToggle value={libraryView} onChange={setLibraryView} />
               <GridDensity
                 value={libraryDensity}
@@ -800,18 +862,6 @@ export function SearchPage() {
                   {addWatchMutation.isPending ? 'Saving…' : 'Watch this search'}
                 </button>
               )
-          )
-          : null}
-
-        {hasQuery && !isLoading && !isError && results
-          ? (
-            <p className='ml-auto text-sm font-medium tabular-nums text-ink-3'>
-              {filteredResults.length} {filteredResults.length === 1 ? 'resource' : 'resources'}
-              {answerMode ? ` · ${citedResults.length} cited` : ''}
-              {activeFilters.length > 0
-                ? ` · filters: ${activeFilters.map((f) => f.label).join(', ')}`
-                : ''}
-            </p>
           )
           : null}
       </div>

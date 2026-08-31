@@ -1,10 +1,10 @@
-import { type ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { createPortal } from 'react-dom'
 import { Link, useOutletContext, useSearchParams } from 'react-router-dom'
 import type { CatalogItem } from '@research-portal/core'
-import { getCatalog, getFacets, summarizeResources } from '../api/client.ts'
+import { getCatalog, getFacets } from '../api/client.ts'
 import { ResourceThumb } from '../components/ResourceThumb.tsx'
+import { SearchField } from '../components/SearchField.tsx'
 import { GridDensity, ViewToggle } from '../components/ViewControls.tsx'
 import { useViewMode, type ViewMode } from '../components/useViewMode.ts'
 import { EmptyState, ErrorCard, prettyLabel, Skeleton } from '../components/ui.tsx'
@@ -49,43 +49,12 @@ function formatYear(iso: string): string | null {
  */
 type CatalogItemMeta = CatalogItem & { kind?: string; published?: string }
 
-function SelectionMark({ selected }: { selected: boolean }) {
-  return (
-    <span
-      aria-hidden='true'
-      className='absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-[var(--rp-radius)] border'
-      style={selected
-        ? { backgroundColor: 'var(--rp-accent)', borderColor: 'var(--rp-accent)' }
-        : { backgroundColor: 'rgba(0, 0, 0, 0.28)', borderColor: 'rgba(255, 255, 255, 0.75)' }}
-    >
-      {selected
-        ? (
-          <svg
-            viewBox='0 0 20 20'
-            fill='none'
-            stroke='var(--rp-on-accent)'
-            strokeWidth='2.2'
-            strokeLinecap='round'
-            strokeLinejoin='round'
-            className='h-3.5 w-3.5'
-          >
-            <path d='M4.5 10.5l3.5 3.5 7.5-8' />
-          </svg>
-        )
-        : null}
-    </span>
-  )
-}
-
 function LibraryCard(
   {
     item,
     slug,
     topicLabel,
     organisation,
-    selecting,
-    selected,
-    onToggleSelect,
     view = 'grid',
     compact = false,
   }: {
@@ -93,9 +62,6 @@ function LibraryCard(
     slug: string
     topicLabel: (id: string) => string | undefined
     organisation: string
-    selecting?: boolean
-    selected?: boolean
-    onToggleSelect?: (id: string) => void
     /** A list row is a horizontal card with a small A4 thumbnail. */
     view?: ViewMode
     /** Narrow viewport - a list row's short lines earn a longer summary. */
@@ -141,7 +107,6 @@ function LibraryCard(
             </span>
           )
           : null}
-        {selecting ? <SelectionMark selected={Boolean(selected)} /> : null}
       </div>
       <div
         className={list
@@ -221,24 +186,6 @@ function LibraryCard(
     </>
   )
 
-  if (selecting) {
-    return (
-      <button
-        type='button'
-        onClick={() => onToggleSelect?.(item.id)}
-        aria-pressed={Boolean(selected)}
-        className={`rp-card rp-focus flex overflow-hidden text-left ${
-          list ? 'flex-row items-stretch' : 'flex-col'
-        }`}
-        style={selected
-          ? { borderColor: 'var(--rp-accent)', boxShadow: '0 0 0 1px var(--rp-accent)' }
-          : undefined}
-      >
-        {body}
-      </button>
-    )
-  }
-
   return (
     <Link
       to={`/t/${slug}/library/${item.id}`}
@@ -249,183 +196,6 @@ function LibraryCard(
       {body}
     </Link>
   )
-}
-
-/**
- * Multi-document summary overlay - reading state, the synthesised summary,
- * the source titles it drew from, and a copy action. Mirrors the one on
- * SearchPage; kept as a local component since the two pages don't share a
- * components file.
- */
-function SummaryModal({
-  loading,
-  error,
-  summary,
-  titles,
-  onClose,
-  onRetry,
-}: {
-  loading: boolean
-  error: string | null
-  summary: string
-  titles: string[]
-  onClose: () => void
-  onRetry: () => void
-}) {
-  const [copied, setCopied] = useState(false)
-  const dialogRef = useRef<HTMLDivElement | null>(null)
-
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
-    }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [onClose])
-
-  useEffect(() => {
-    const previous = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    return () => {
-      document.body.style.overflow = previous
-    }
-  }, [])
-
-  // Move focus into the dialog on open, and give it back to whatever
-  // triggered it once the dialog closes.
-  useEffect(() => {
-    const previouslyFocused = document.activeElement as HTMLElement | null
-    dialogRef.current?.focus()
-    return () => {
-      previouslyFocused?.focus()
-    }
-  }, [])
-
-  function copy() {
-    navigator.clipboard.writeText(summary).then(() => {
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1500)
-    }).catch(() => {
-      // Clipboard access can be denied - the summary is still on screen to select by hand.
-    })
-  }
-
-  return createPortal(
-    <div
-      className='rp-anim-fade fixed inset-0 z-[70] flex items-center justify-center bg-neutral-950/60 p-4 backdrop-blur-sm'
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose()
-      }}
-    >
-      <div
-        ref={dialogRef}
-        tabIndex={-1}
-        role='dialog'
-        aria-modal='true'
-        aria-label='Summary'
-        className='rp-card rp-shadow-xl flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden'
-      >
-        <div className='flex shrink-0 items-center justify-between gap-3 border-b border-line px-5 py-3.5'>
-          <h2 className='text-sm font-semibold text-ink'>Summary</h2>
-          <button
-            type='button'
-            onClick={onClose}
-            aria-label='Close'
-            className='rp-btn rp-btn-ghost h-8 w-8 !px-0'
-          >
-            <svg viewBox='0 0 20 20' fill='currentColor' aria-hidden='true' className='h-3.5 w-3.5'>
-              <path d='M5.3 4.3l4.7 4.7 4.7-4.7 1 1L11 10l4.7 4.7-1 1L10 11l-4.7 4.7-1-1L9 10 4.3 5.3z' />
-            </svg>
-          </button>
-        </div>
-
-        <div className='min-h-0 flex-1 overflow-y-auto px-5 py-4'>
-          {loading
-            ? (
-              <div>
-                <p className='text-sm text-ink-2'>
-                  Reading {titles.length} {titles.length === 1 ? 'document' : 'documents'}…
-                </p>
-                <div className='mt-3 space-y-2' aria-hidden='true'>
-                  <div className='rp-shimmer bg-surface-3 h-3.5 w-full rounded-[var(--rp-radius)]' />
-                  <div className='rp-shimmer bg-surface-3 h-3.5 w-full rounded-[var(--rp-radius)]' />
-                  <div className='rp-shimmer bg-surface-3 h-3.5 w-5/6 rounded-[var(--rp-radius)]' />
-                </div>
-              </div>
-            )
-            : null}
-
-          {!loading && error ? <ErrorCard message={error} onRetry={onRetry} /> : null}
-
-          {!loading && !error
-            ? <p className='whitespace-pre-wrap text-sm leading-relaxed text-ink-2'>{summary}</p>
-            : null}
-        </div>
-
-        {!loading && !error
-          ? (
-            <div className='shrink-0 border-t border-line px-5 py-3.5'>
-              <p className='rp-eyebrow text-ink-3'>Sources</p>
-              <ul className='mt-1.5 max-h-24 space-y-0.5 overflow-y-auto text-xs text-ink-3'>
-                {titles.map((title, index) => <li key={index} className='truncate'>{title}</li>)}
-              </ul>
-              <div className='mt-3 flex justify-end'>
-                <button type='button' onClick={copy} className='rp-btn rp-btn-outline'>
-                  {copied ? 'Copied' : 'Copy'}
-                </button>
-              </div>
-            </div>
-          )
-          : null}
-      </div>
-    </div>,
-    document.body,
-  )
-}
-
-/** Hook wiring for the multi-document summary overlay. */
-function useResourceSummary(slug: string) {
-  const [open, setOpen] = useState(false)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [summary, setSummary] = useState('')
-  const [titles, setTitles] = useState<string[]>([])
-  const lastRequest = useRef<{ ids: string[]; kind: 'simple' | 'extended' } | null>(null)
-  // A slower earlier request must never overwrite a newer one.
-  const requestSeq = useRef(0)
-
-  const run = useCallback(
-    (ids: string[], resourceTitles: string[], kind: 'simple' | 'extended' = 'simple') => {
-      lastRequest.current = { ids, kind }
-      const requestId = ++requestSeq.current
-      setTitles(resourceTitles)
-      setOpen(true)
-      setLoading(true)
-      setError(null)
-      setSummary('')
-      summarizeResources(slug, ids, kind)
-        .then((res) => {
-          if (requestId !== requestSeq.current) return
-          setSummary(res.summary)
-        })
-        .catch((err) => {
-          if (requestId !== requestSeq.current) return
-          setError(err instanceof Error ? err.message : 'Could not generate a summary.')
-        })
-        .finally(() => {
-          if (requestId !== requestSeq.current) return
-          setLoading(false)
-        })
-    },
-    [slug],
-  )
-
-  const retry = useCallback(() => {
-    if (!lastRequest.current) return
-    run(lastRequest.current.ids, titles, lastRequest.current.kind)
-  }, [run, titles])
-
-  return { open, loading, error, summary, titles, run, retry, close: () => setOpen(false) }
 }
 
 function LibraryCardSkeleton() {
@@ -502,8 +272,6 @@ export function LibraryBrowser(
   const [page, setPage] = useState(0)
   const [accumulated, setAccumulated] = useState<CatalogItem[]>([])
   const [total, setTotal] = useState(0)
-  const [selecting, setSelecting] = useState(false)
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedQuery(queryDraft.trim()), 300)
@@ -517,34 +285,7 @@ export function LibraryBrowser(
     setPage(0)
     setAccumulated([])
     setTotal(0)
-    setSelectedIds(new Set())
   }, [debouncedQuery, sort, topicsKey, kindsKey])
-
-  const summaryModal = useResourceSummary(config.slug)
-
-  function toggleSelect(id: string) {
-    setSelectedIds((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }
-
-  function exitSelection() {
-    setSelecting(false)
-    setSelectedIds(new Set())
-  }
-
-  function summariseSelected() {
-    if (selectedIds.size < 2 || selectedIds.size > 20) return
-    const chosen = accumulated.filter((item) => selectedIds.has(item.id))
-    summaryModal.run(
-      chosen.map((item) => item.id),
-      chosen.map((item) => item.title),
-      selectedIds.size > 5 ? 'extended' : 'simple',
-    )
-  }
 
   const sortOption = SORT_OPTIONS[sort]
 
@@ -650,32 +391,18 @@ export function LibraryBrowser(
 
       {!bare && (
         <div className='mt-4 flex flex-wrap items-center gap-2'>
-          <div className='flex h-[calc(2.25rem*var(--rp-density-ctl,1))] min-w-[16rem] flex-1 items-center gap-2 rounded-[var(--rp-radius-input)] border border-line bg-surface px-3'>
-            <label htmlFor='library-search' className='sr-only'>
-              Search the library
-            </label>
-            <svg
-              viewBox='0 0 20 20'
-              fill='none'
-              stroke='currentColor'
-              strokeWidth='1.8'
-              strokeLinecap='round'
-              aria-hidden='true'
-              className='h-4 w-4 shrink-0 text-ink-3'
-            >
-              <circle cx='9' cy='9' r='5.5' />
-              <path d='M13.2 13.2L17 17' />
-            </svg>
-            <input
-              id='library-search'
-              type='text'
-              autoComplete='off'
-              value={queryDraft}
-              onChange={(event: ChangeEvent<HTMLInputElement>) => setQueryDraft(event.target.value)}
-              placeholder='Search within the library'
-              className='min-w-0 flex-1 border-0 bg-transparent text-sm text-ink placeholder:text-[var(--rp-ink-3)] focus:outline-none'
-            />
-          </div>
+          {
+            /* No `onSubmit`: this listing is client-side, so it narrows as the
+            * reader types and there is nothing to commit. */
+          }
+          <SearchField
+            id='library-search'
+            label='Search the library'
+            value={queryDraft}
+            onChange={setQueryDraft}
+            placeholder='Search within the library'
+            className='min-w-[16rem] flex-1'
+          />
 
           {
             /* Layout, then grid size, then sort - the same trio in the same
@@ -704,31 +431,27 @@ export function LibraryBrowser(
             ))}
           </select>
 
+          {
+            /* Wrapped, because .rp-btn sets its own display and would beat an
+            * `lg:hidden` utility on the button itself - which is why this was
+            * still sitting in the desktop toolbar doing nothing, the facet rail
+            * beside it being `lg:block` and never hidden there. Same wrapping as
+            * the header's menu button, for the same reason. */
+          }
           {config.topics.length > 0
             ? (
-              <button
-                type='button'
-                onClick={() => setFiltersOpen((open) => !open)}
-                className='rp-btn rp-btn-outline lg:hidden'
-                aria-expanded={filtersOpen}
-              >
-                Filters{(selectedTopics.length + selectedKinds.length) > 0
-                  ? ` (${selectedTopics.length + selectedKinds.length})`
-                  : ''}
-              </button>
-            )
-            : null}
-
-          {accumulated.length > 0
-            ? (
-              <button
-                type='button'
-                onClick={() => selecting ? exitSelection() : setSelecting(true)}
-                aria-pressed={selecting}
-                className='rp-btn rp-btn-outline'
-              >
-                {selecting ? 'Done selecting' : 'Select'}
-              </button>
+              <span className='lg:hidden'>
+                <button
+                  type='button'
+                  onClick={() => setFiltersOpen((open) => !open)}
+                  className='rp-btn rp-btn-outline'
+                  aria-expanded={filtersOpen}
+                >
+                  Filters{(selectedTopics.length + selectedKinds.length) > 0
+                    ? ` (${selectedTopics.length + selectedKinds.length})`
+                    : ''}
+                </button>
+              </span>
             )
             : null}
         </div>
@@ -835,10 +558,7 @@ export function LibraryBrowser(
           {!isInitialLoading && !isError && accumulated.length > 0
             ? (
               <>
-                <div
-                  style={gridStyle}
-                  className={`grid gap-3 ${selecting ? 'pb-24' : ''}`}
-                >
+                <div style={gridStyle} className='grid gap-3'>
                   {accumulated.map((item) => (
                     <LibraryCard
                       view={view}
@@ -848,9 +568,6 @@ export function LibraryBrowser(
                       slug={config.slug}
                       topicLabel={topicLabel}
                       organisation={config.branding.organisation}
-                      selecting={selecting}
-                      selected={selectedIds.has(item.id)}
-                      onToggleSelect={toggleSelect}
                     />
                   ))}
                 </div>
@@ -874,46 +591,6 @@ export function LibraryBrowser(
             : null}
         </div>
       </div>
-
-      {selecting
-        ? (
-          <div
-            role='region'
-            aria-label='Selection actions'
-            className='fixed inset-x-0 bottom-4 z-40 flex justify-center px-4'
-          >
-            <div className='rp-shadow-lg flex items-center gap-3 rounded-[var(--rp-radius)] border border-line bg-surface px-4 py-2.5'>
-              <span className='text-sm font-medium tabular-nums text-ink'>
-                {selectedIds.size} selected
-              </span>
-              <button
-                type='button'
-                onClick={summariseSelected}
-                disabled={selectedIds.size < 2 || selectedIds.size > 20}
-                className='rp-btn rp-btn-primary'
-              >
-                Summarise
-              </button>
-              <button type='button' onClick={exitSelection} className='rp-btn rp-btn-ghost'>
-                Cancel
-              </button>
-            </div>
-          </div>
-        )
-        : null}
-
-      {summaryModal.open
-        ? (
-          <SummaryModal
-            loading={summaryModal.loading}
-            error={summaryModal.error}
-            summary={summaryModal.summary}
-            titles={summaryModal.titles}
-            onClose={summaryModal.close}
-            onRetry={summaryModal.retry}
-          />
-        )
-        : null}
     </main>
   )
 }
