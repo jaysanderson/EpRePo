@@ -438,7 +438,7 @@ function SessionList({
                       }}
                       aria-label={`Rename "${sessionTitle(session)}"`}
                       title='Rename session'
-                      className='rp-focus absolute right-8 top-1.5 flex h-6 w-6 items-center justify-center rounded-none text-ink-3 opacity-0 transition-opacity duration-150 hover:bg-[var(--rp-surface-2)] hover:text-ink group-hover:opacity-100 focus-visible:opacity-100'
+                      className='rp-focus absolute right-8 top-1.5 flex h-6 w-6 items-center justify-center rounded-[var(--rp-radius-btn)] text-ink-3 opacity-0 transition-opacity duration-150 hover:bg-[var(--rp-surface-2)] hover:text-ink group-hover:opacity-100 focus-visible:opacity-100'
                     >
                       ✎
                     </button>
@@ -452,7 +452,7 @@ function SessionList({
                   }}
                   aria-label={`Delete "${sessionTitle(session)}"`}
                   title='Delete session'
-                  className='rp-focus absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-none text-ink-3 opacity-0 transition-opacity duration-150 hover:bg-[var(--rp-surface-2)] hover:text-[var(--rp-bad-ink)] group-hover:opacity-100 focus-visible:opacity-100'
+                  className='rp-focus absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-[var(--rp-radius-btn)] text-ink-3 opacity-0 transition-opacity duration-150 hover:bg-[var(--rp-surface-2)] hover:text-[var(--rp-bad-ink)] group-hover:opacity-100 focus-visible:opacity-100'
                 >
                   &times;
                 </button>
@@ -620,9 +620,9 @@ function ActionIcon(
       aria-label={label}
       aria-pressed={active}
       title={label}
-      className={`rp-focus flex h-9 w-9 items-center justify-center rounded-none transition-colors duration-150 disabled:pointer-events-none disabled:opacity-40 ${
+      className={`rp-focus flex h-9 w-9 items-center justify-center rounded-[var(--rp-radius-btn)] transition-colors duration-150 disabled:pointer-events-none disabled:opacity-40 ${
         active
-          ? 'text-[var(--rp-accent)] bg-[color-mix(in_srgb,var(--rp-accent)_12%,transparent)]'
+          ? 'text-[var(--rp-accent-fg)] bg-[var(--rp-wash)]'
           : 'text-ink-3 hover:bg-surface-2 hover:text-ink'
       }`}
     >
@@ -895,7 +895,7 @@ function AssistantCard({
   return (
     <div
       className={message.pending
-        ? 'rounded-none p-5'
+        ? 'rounded-[var(--rp-radius)] p-5'
         : 'rounded-[calc(var(--rp-radius)+4px)] border border-line bg-surface p-5 shadow-sm'}
     >
       {message.deepBadge || message.interpretedQuery
@@ -1101,7 +1101,7 @@ function AssistantCard({
                             onClick={() => setShowPipeline((prev) => !prev)}
                             aria-expanded={showPipeline}
                             aria-controls={`${message.id}-pipeline`}
-                            className='rp-focus flex items-center gap-1.5 rounded-none text-xs font-medium text-ink-3 hover:text-ink'
+                            className='rp-focus flex items-center gap-1.5 rounded-[var(--rp-radius-btn)] text-xs font-medium text-ink-3 hover:text-ink'
                           >
                             <svg
                               viewBox='0 0 20 20'

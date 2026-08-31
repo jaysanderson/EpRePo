@@ -69,7 +69,7 @@ function SparkleMark() {
   return (
     <span
       aria-hidden='true'
-      className='flex h-12 w-12 items-center justify-center rounded-none bg-white/10 ring-1 ring-inset ring-white/15'
+      className='flex h-12 w-12 items-center justify-center rounded-[var(--rp-radius)] bg-white/10 ring-1 ring-inset ring-white/15'
     >
       <svg
         viewBox='0 0 24 24'
@@ -176,7 +176,7 @@ function IconButton({
       onClick={onClick}
       disabled={disabled}
       aria-label={label}
-      className='rp-focus-inverse flex h-11 w-11 shrink-0 items-center justify-center rounded-none text-white/70 ring-1 ring-inset ring-white/15 transition-colors duration-150 hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent sm:h-9 sm:w-9'
+      className='rp-focus-inverse flex h-11 w-11 shrink-0 items-center justify-center rounded-[var(--rp-radius-btn)] text-white/70 ring-1 ring-inset ring-white/15 transition-colors duration-150 hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent sm:h-9 sm:w-9'
     >
       {children}
     </button>
@@ -496,7 +496,7 @@ export function AnswerJourney({
         aria-modal='true'
         aria-label='Journey through the context'
         tabIndex={-1}
-        className='rp-shadow-xl fixed inset-2 flex flex-col overflow-hidden rounded-none bg-neutral-900 text-white ring-1 ring-white/10 focus:outline-none sm:static sm:max-h-[88vh] sm:w-full sm:max-w-3xl'
+        className='rp-shadow-xl fixed inset-2 flex flex-col overflow-hidden rounded-[var(--rp-radius)] bg-neutral-900 text-white ring-1 ring-white/10 focus:outline-none sm:static sm:max-h-[88vh] sm:w-full sm:max-w-3xl'
       >
         {/* Top bar */}
         <div className='flex shrink-0 items-center justify-between gap-3 border-b border-white/10 px-4 py-3 sm:px-5'>
@@ -508,7 +508,7 @@ export function AnswerJourney({
                   type='button'
                   onClick={() => setPlaying((prev) => !prev)}
                   aria-pressed={playing}
-                  className='rp-focus-inverse inline-flex min-h-11 items-center gap-1.5 rounded-none px-3 py-1.5 text-xs font-medium text-white/70 ring-1 ring-inset ring-white/15 transition-colors duration-150 hover:bg-white/10 hover:text-white sm:min-h-0'
+                  className='rp-focus-inverse inline-flex min-h-11 items-center gap-1.5 rounded-[var(--rp-radius-btn)] px-3 py-1.5 text-xs font-medium text-white/70 ring-1 ring-inset ring-white/15 transition-colors duration-150 hover:bg-white/10 hover:text-white sm:min-h-0'
                 >
                   {playing
                     ? (
@@ -557,7 +557,7 @@ export function AnswerJourney({
                 <button
                   type='button'
                   onClick={onClose}
-                  className='rp-focus-inverse mt-6 inline-flex items-center rounded-none bg-white px-5 py-2 text-sm font-semibold text-neutral-900 transition-colors duration-150 hover:bg-white/90'
+                  className='rp-focus-inverse mt-6 inline-flex items-center rounded-[var(--rp-radius-btn)] bg-white px-5 py-2 text-sm font-semibold text-neutral-900 transition-colors duration-150 hover:bg-white/90'
                 >
                   Close
                 </button>
@@ -579,7 +579,7 @@ export function AnswerJourney({
                 </p>
                 {query
                   ? (
-                    <p className='mx-auto mt-6 max-w-lg rounded-none bg-white/[0.06] px-5 py-3 text-sm italic leading-relaxed text-white/80 ring-1 ring-inset ring-white/10'>
+                    <p className='mx-auto mt-6 max-w-lg rounded-[var(--rp-radius)] bg-white/[0.06] px-5 py-3 text-sm italic leading-relaxed text-white/80 ring-1 ring-inset ring-white/10'>
                       &ldquo;{query}&rdquo;
                     </p>
                   )
@@ -587,7 +587,7 @@ export function AnswerJourney({
                 <button
                   type='button'
                   onClick={() => goTo(0)}
-                  className='rp-focus-inverse mt-8 inline-flex items-center gap-2 rounded-none bg-white px-5 py-2.5 text-sm font-semibold text-neutral-900 transition-transform duration-150 hover:-translate-y-px'
+                  className='rp-focus-inverse mt-8 inline-flex items-center gap-2 rounded-[var(--rp-radius-btn)] bg-white px-5 py-2.5 text-sm font-semibold text-neutral-900 transition-transform duration-150 hover:-translate-y-px'
                 >
                   Begin the journey
                   <ChevronRight />
@@ -614,12 +614,12 @@ export function AnswerJourney({
                       <Link
                         to={libraryHref(stop)}
                         onClick={onClose}
-                        className='rp-focus-inverse flex items-center gap-3 rounded-none px-3 py-3 ring-1 ring-inset ring-white/10 transition-colors duration-150 hover:bg-white/[0.06]'
+                        className='rp-focus-inverse flex items-center gap-3 rounded-[var(--rp-radius-btn)] px-3 py-3 ring-1 ring-inset ring-white/10 transition-colors duration-150 hover:bg-white/[0.06]'
                       >
                         <span className='w-5 shrink-0 text-center text-xs font-semibold tabular-nums text-white/40'>
                           {stopIndex + 1}
                         </span>
-                        <span className='block h-10 w-14 shrink-0 overflow-hidden rounded-none bg-white/10'>
+                        <span className='block h-10 w-14 shrink-0 overflow-hidden rounded-[var(--rp-radius)] bg-white/10'>
                           <ResourceThumb slug={slug} id={stop.resourceId} type={stop.type} />
                         </span>
                         <span className='min-w-0 flex-1'>
@@ -659,7 +659,7 @@ export function AnswerJourney({
                       setPlaying(!reducedMotion)
                       goTo(-1)
                     }}
-                    className='rp-focus-inverse inline-flex items-center gap-2 rounded-none px-4 py-2 text-sm font-medium text-white/80 ring-1 ring-inset ring-white/15 transition-colors duration-150 hover:bg-white/10 hover:text-white'
+                    className='rp-focus-inverse inline-flex items-center gap-2 rounded-[var(--rp-radius-btn)] px-4 py-2 text-sm font-medium text-white/80 ring-1 ring-inset ring-white/15 transition-colors duration-150 hover:bg-white/10 hover:text-white'
                   >
                     <svg
                       viewBox='0 0 20 20'
@@ -678,7 +678,7 @@ export function AnswerJourney({
                   <button
                     type='button'
                     onClick={onClose}
-                    className='rp-focus-inverse inline-flex items-center rounded-none bg-white px-5 py-2 text-sm font-semibold text-neutral-900 transition-colors duration-150 hover:bg-white/90'
+                    className='rp-focus-inverse inline-flex items-center rounded-[var(--rp-radius-btn)] bg-white px-5 py-2 text-sm font-semibold text-neutral-900 transition-colors duration-150 hover:bg-white/90'
                   >
                     Done
                   </button>
@@ -700,7 +700,7 @@ export function AnswerJourney({
 
                   {current.cited
                     ? (
-                      <span className='absolute right-3 top-3 inline-flex items-center gap-1.5 rounded-none bg-emerald-500/15 px-2.5 py-1 text-[11px] font-semibold text-emerald-200 ring-1 ring-inset ring-emerald-400/30 backdrop-blur-sm'>
+                      <span className='absolute right-3 top-3 inline-flex items-center gap-1.5 rounded-[var(--rp-radius-chip)] bg-emerald-500/15 px-2.5 py-1 text-[11px] font-semibold text-emerald-200 ring-1 ring-inset ring-emerald-400/30 backdrop-blur-sm'>
                         <span
                           aria-hidden='true'
                           className='h-1.5 w-1.5 rounded-full bg-emerald-400'
@@ -721,7 +721,7 @@ export function AnswerJourney({
                             {current.labels.slice(0, 4).map((label) => (
                               <span
                                 key={label}
-                                className='shrink-0 rounded-none bg-white/10 px-2.5 py-0.5 text-[11px] font-medium capitalize text-white/75 ring-1 ring-inset ring-white/15 backdrop-blur-sm'
+                                className='shrink-0 rounded-[var(--rp-radius-chip)] bg-white/10 px-2.5 py-0.5 text-[11px] font-medium capitalize text-white/75 ring-1 ring-inset ring-white/15 backdrop-blur-sm'
                               >
                                 {labelText(label)}
                               </span>
@@ -799,7 +799,7 @@ export function AnswerJourney({
                   <Link
                     to={libraryHref(current)}
                     onClick={onClose}
-                    className='rp-focus-inverse inline-flex items-center gap-1.5 rounded-none px-3.5 py-1.5 text-xs font-semibold text-white/80 ring-1 ring-inset ring-white/15 transition-colors duration-150 hover:bg-white/10 hover:text-white'
+                    className='rp-focus-inverse inline-flex items-center gap-1.5 rounded-[var(--rp-radius-btn)] px-3.5 py-1.5 text-xs font-semibold text-white/80 ring-1 ring-inset ring-white/15 transition-colors duration-150 hover:bg-white/10 hover:text-white'
                   >
                     View in library
                     <ChevronRight />

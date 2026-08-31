@@ -339,7 +339,7 @@ export function PdfReader(
     return (
       <iframe
         src={initialPage ? `${fileUrl}#page=${initialPage}` : fileUrl}
-        className='h-[60vh] w-full rounded-none border border-line bg-surface sm:h-[75vh]'
+        className='h-[60vh] w-full rounded-[var(--rp-radius)] border border-line bg-surface sm:h-[75vh]'
         title={title}
       />
     )
@@ -348,7 +348,7 @@ export function PdfReader(
   const zoomPercent = zoomMode === 'fit-width' ? null : Math.round(zoomMode.scale * 100)
 
   return (
-    <div className='overflow-hidden rounded-none border border-line bg-surface'>
+    <div className='overflow-hidden rounded-[var(--rp-radius)] border border-line bg-surface'>
       <div className='flex flex-wrap items-center gap-1 border-b border-line bg-surface-2 px-2 py-1.5'>
         <ToolbarButton
           label='Previous page'
@@ -385,7 +385,7 @@ export function PdfReader(
                 commitPageInput()
               }
             }}
-            className='rp-focus h-7 w-10 rounded-none border border-line bg-surface text-center text-xs tabular-nums text-ink'
+            className='rp-focus h-7 w-10 rounded-[var(--rp-radius)] border border-line bg-surface text-center text-xs tabular-nums text-ink'
           />
           <span className='tabular-nums'>of {numPages || '–'}</span>
         </div>

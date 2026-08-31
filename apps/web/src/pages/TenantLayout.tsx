@@ -196,7 +196,7 @@ export function TenantLayout() {
             <div className='flex min-w-0 flex-1 items-center gap-2'>
               <Link
                 to={`/t/${config.slug}`}
-                className='rp-focus flex min-w-0 items-center gap-3 rounded-none'
+                className='rp-focus flex min-w-0 items-center gap-3 rounded-[var(--rp-radius-btn)]'
               >
                 {config.branding.logoUrl && !logoFailed
                   ? (

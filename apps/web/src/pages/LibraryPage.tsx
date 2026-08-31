@@ -51,7 +51,7 @@ function SelectionMark({ selected }: { selected: boolean }) {
   return (
     <span
       aria-hidden='true'
-      className='absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-none border'
+      className='absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-[var(--rp-radius)] border'
       style={selected
         ? { backgroundColor: 'var(--rp-accent)', borderColor: 'var(--rp-accent)' }
         : { backgroundColor: 'rgba(0, 0, 0, 0.28)', borderColor: 'rgba(255, 255, 255, 0.75)' }}
@@ -148,7 +148,7 @@ function LibraryCard(
               {topicLabels.slice(0, 3).map((label) => (
                 <span
                   key={label}
-                  className='rounded-none bg-surface-2 px-1.5 py-0.5 text-[11px] text-ink-2'
+                  className='rounded-[var(--rp-radius-chip)] bg-surface-2 px-1.5 py-0.5 text-[11px] text-ink-2'
                 >
                   {label}
                 </span>
@@ -307,9 +307,9 @@ function SummaryModal({
                   Reading {titles.length} {titles.length === 1 ? 'document' : 'documents'}…
                 </p>
                 <div className='mt-3 space-y-2' aria-hidden='true'>
-                  <div className='rp-shimmer bg-surface-3 h-3.5 w-full rounded-none' />
-                  <div className='rp-shimmer bg-surface-3 h-3.5 w-full rounded-none' />
-                  <div className='rp-shimmer bg-surface-3 h-3.5 w-5/6 rounded-none' />
+                  <div className='rp-shimmer bg-surface-3 h-3.5 w-full rounded-[var(--rp-radius)]' />
+                  <div className='rp-shimmer bg-surface-3 h-3.5 w-full rounded-[var(--rp-radius)]' />
+                  <div className='rp-shimmer bg-surface-3 h-3.5 w-5/6 rounded-[var(--rp-radius)]' />
                 </div>
               </div>
             )
@@ -591,7 +591,7 @@ export function LibraryBrowser(
             id='library-sort-bare'
             value={sort}
             onChange={(event) => setSort(event.target.value as SortValue)}
-            className='rp-focus rounded-none border border-line bg-surface px-3 py-2 text-sm text-ink'
+            className='rp-focus rounded-[var(--rp-radius)] border border-line bg-surface px-3 py-2 text-sm text-ink'
           >
             {SORT_VALUES.map((value) => (
               <option key={value} value={value}>
@@ -604,7 +604,7 @@ export function LibraryBrowser(
 
       {!bare && (
         <div className='mt-4 flex flex-wrap items-center gap-2'>
-          <div className='flex min-w-[16rem] flex-1 items-center gap-2 rounded-none border border-line bg-surface px-3 py-1.5'>
+          <div className='flex min-w-[16rem] flex-1 items-center gap-2 rounded-[var(--rp-radius)] border border-line bg-surface px-3 py-1.5'>
             <label htmlFor='library-search' className='sr-only'>
               Search the library
             </label>
@@ -638,7 +638,7 @@ export function LibraryBrowser(
             id='library-sort'
             value={sort}
             onChange={(event) => setSort(event.target.value as SortValue)}
-            className='rp-focus rounded-none border border-line bg-surface px-3 py-2 text-sm text-ink'
+            className='rp-focus rounded-[var(--rp-radius)] border border-line bg-surface px-3 py-2 text-sm text-ink'
           >
             {SORT_VALUES.map((value) => (
               <option key={value} value={value}>
@@ -726,7 +726,7 @@ export function LibraryBrowser(
                     return (
                       <label
                         key={topic.id}
-                        className={`flex cursor-pointer items-center gap-2.5 rounded-none px-1 py-1 text-sm ${
+                        className={`flex cursor-pointer items-center gap-2.5 rounded-[var(--rp-radius-btn)] px-1 py-1 text-sm ${
                           muted ? 'text-ink-3' : 'text-ink-2'
                         }`}
                       >
@@ -734,7 +734,7 @@ export function LibraryBrowser(
                           type='checkbox'
                           checked={checked}
                           onChange={() => toggleTopic(topic.id)}
-                          className='h-4 w-4 shrink-0 rounded-none border-line'
+                          className='h-4 w-4 shrink-0 rounded-[var(--rp-radius)] border-line'
                           style={{ accentColor: 'var(--rp-accent)' }}
                         />
                         <span className='min-w-0 flex-1'>{topic.label}</span>
@@ -824,7 +824,7 @@ export function LibraryBrowser(
             aria-label='Selection actions'
             className='fixed inset-x-0 bottom-4 z-40 flex justify-center px-4'
           >
-            <div className='rp-shadow-lg flex items-center gap-3 rounded-none border border-line bg-surface px-4 py-2.5'>
+            <div className='rp-shadow-lg flex items-center gap-3 rounded-[var(--rp-radius)] border border-line bg-surface px-4 py-2.5'>
               <span className='text-sm font-medium tabular-nums text-ink'>
                 {selectedIds.size} selected
               </span>

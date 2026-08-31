@@ -85,7 +85,7 @@ export function InsightsPanel({ slug, passcode }: { slug: string; passcode: stri
       {isError && <p className='text-sm text-ink-3'>Could not load insights.</p>}
 
       {data && data.totalAsks === 0 && (
-        <div className='rounded-none border border-dashed border-line bg-surface-2 p-6'>
+        <div className='rounded-[var(--rp-radius)] border border-dashed border-line bg-surface-2 p-6'>
           <p className='text-sm font-semibold text-ink'>No questions asked yet</p>
           <p className='mt-1 max-w-xl text-sm leading-relaxed text-ink-2'>
             Insights appear once people start using the Assistant.

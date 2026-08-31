@@ -116,7 +116,7 @@ export function KbSwitcher({ config }: { config: TenantConfig }) {
         aria-expanded={open}
         aria-label={`Switch portal - currently ${config.branding.productName}`}
         title='Switch portal'
-        className='rp-focus flex h-9 w-9 shrink-0 items-center justify-center rounded-none text-ink-3 transition-colors duration-150 hover:bg-[var(--rp-surface-2)] hover:text-ink'
+        className='rp-focus flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--rp-radius-btn)] text-ink-3 transition-colors duration-150 hover:bg-[var(--rp-surface-2)] hover:text-ink'
       >
         {
           /* The header already shows this portal's logo, so the trigger is just
@@ -144,7 +144,7 @@ export function KbSwitcher({ config }: { config: TenantConfig }) {
           ref={panelRef}
           role='menu'
           onKeyDown={onMenuKeyDown}
-          className='rp-glass rp-shadow-lg rp-anim-fade absolute left-0 top-full z-50 mt-2 w-[calc(100vw-2rem)] max-w-72 rounded-none border border-line p-1.5 sm:w-[18.5rem] sm:max-w-none'
+          className='rp-glass rp-shadow-lg rp-anim-fade absolute left-0 top-full z-50 mt-2 w-[calc(100vw-2rem)] max-w-72 rounded-[var(--rp-radius)] border border-line p-1.5 sm:w-[18.5rem] sm:max-w-none'
         >
           <p className='rp-eyebrow px-2.5 pb-1.5 pt-2 text-ink-3'>
             Knowledge boxes
@@ -159,7 +159,7 @@ export function KbSwitcher({ config }: { config: TenantConfig }) {
                   role='menuitem'
                   tabIndex={-1}
                   onClick={() => switchTo(t.slug)}
-                  className={`rp-focus flex w-full items-center gap-3 rounded-none px-2.5 py-2 text-left transition-colors duration-150 hover:bg-[var(--rp-surface-2)] ${
+                  className={`rp-focus flex w-full items-center gap-3 rounded-[var(--rp-radius-btn)] px-2.5 py-2 text-left transition-colors duration-150 hover:bg-[var(--rp-surface-2)] ${
                     current ? 'bg-surface-2' : ''
                   }`}
                 >
@@ -197,7 +197,7 @@ export function KbSwitcher({ config }: { config: TenantConfig }) {
             role='menuitem'
             tabIndex={-1}
             onClick={() => setOpen(false)}
-            className='rp-focus flex w-full items-center gap-2.5 rounded-none px-2.5 py-2 text-sm font-medium text-ink-2 transition-colors duration-150 hover:bg-[var(--rp-surface-2)]'
+            className='rp-focus flex w-full items-center gap-2.5 rounded-[var(--rp-radius-btn)] px-2.5 py-2 text-sm font-medium text-ink-2 transition-colors duration-150 hover:bg-[var(--rp-surface-2)]'
           >
             <svg
               viewBox='0 0 20 20'
@@ -214,7 +214,7 @@ export function KbSwitcher({ config }: { config: TenantConfig }) {
             role='menuitem'
             tabIndex={-1}
             onClick={() => setOpen(false)}
-            className='rp-focus flex w-full items-center gap-2.5 rounded-none px-2.5 py-2 text-sm font-medium text-ink-2 transition-colors duration-150 hover:bg-[var(--rp-surface-2)]'
+            className='rp-focus flex w-full items-center gap-2.5 rounded-[var(--rp-radius-btn)] px-2.5 py-2 text-sm font-medium text-ink-2 transition-colors duration-150 hover:bg-[var(--rp-surface-2)]'
           >
             <svg
               viewBox='0 0 20 20'

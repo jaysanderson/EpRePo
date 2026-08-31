@@ -333,7 +333,7 @@ export function SearchAnswer({ slug, query, onResult }: SearchAnswerProps) {
           onClick={() => setCollapsed((prev) => !prev)}
           aria-expanded={!collapsed}
           aria-controls='search-answer-body'
-          className='rp-focus shrink-0 rounded-none px-1 text-xs font-medium text-[var(--rp-ink-3)] transition-colors duration-150 hover:text-[var(--rp-ink)]'
+          className='rp-focus shrink-0 rounded-[var(--rp-radius)] px-1 text-xs font-medium text-[var(--rp-ink-3)] transition-colors duration-150 hover:text-[var(--rp-ink)]'
         >
           {collapsed ? 'Show' : 'Hide'}
         </button>

@@ -27,7 +27,7 @@ function RelationChip({ edge, slug, name }: { edge: RelationEdge; slug: string; 
     return (
       <Link
         to={`/t/${slug}/entity/${encodeURIComponent(value)}`}
-        className='rp-focus rounded-none font-medium underline decoration-dotted underline-offset-2 transition-colors duration-150 hover:text-[var(--rp-ink)]'
+        className='rp-focus rounded-[var(--rp-radius-btn)] font-medium underline decoration-dotted underline-offset-2 transition-colors duration-150 hover:text-[var(--rp-ink)]'
         style={{ color: 'var(--rp-accent-fg)' }}
       >
         {value}
@@ -36,7 +36,7 @@ function RelationChip({ edge, slug, name }: { edge: RelationEdge; slug: string; 
   }
 
   return (
-    <div className='flex flex-wrap items-center gap-1.5 rounded-none border border-line bg-surface px-3.5 py-2.5 text-sm text-ink-2'>
+    <div className='flex flex-wrap items-center gap-1.5 rounded-[var(--rp-radius)] border border-line bg-surface px-3.5 py-2.5 text-sm text-ink-2'>
       {renderSide(edge.source)}
       <span className='text-ink-3'>- {edge.label} &rarr;</span>
       {renderSide(edge.target)}
@@ -51,7 +51,7 @@ function MentionCard({ resource, slug }: { resource: ScoredResource; slug: strin
       to={`/t/${slug}/library/${resource.id}`}
       className='rp-card rp-lift rp-focus flex gap-3.5 p-4'
     >
-      <div className='hidden h-16 w-24 shrink-0 overflow-hidden rounded-none border border-line sm:block'>
+      <div className='hidden h-16 w-24 shrink-0 overflow-hidden rounded-[var(--rp-radius)] border border-line sm:block'>
         <ResourceThumb slug={slug} id={resource.id} type={resource.type} />
       </div>
       <div className='min-w-0 flex-1'>

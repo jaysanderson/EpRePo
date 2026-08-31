@@ -222,7 +222,7 @@ export function PortalFooter({ slug }: { slug: string }) {
             href={content.subscribe.href}
             target='_blank'
             rel='noreferrer noopener'
-            className='rp-focus-inverse mt-7 inline-flex items-center bg-[var(--rp-on-primary)] px-7 py-3 text-sm font-semibold transition-colors duration-150 hover:bg-[var(--rp-on-primary)]/90'
+            className='rp-focus-inverse mt-7 inline-flex items-center rounded-[var(--rp-radius-btn)] bg-[var(--rp-on-primary)] px-7 py-3 text-sm font-semibold transition-colors duration-150 hover:bg-[var(--rp-on-primary)]/90'
             style={{ color: 'var(--rp-primary)' }}
           >
             {content.subscribe.label}
@@ -275,7 +275,7 @@ export function PortalFooter({ slug }: { slug: string }) {
         </div>
 
         {/* Acknowledgement of Country */}
-        <div className='mx-auto mt-8 max-w-3xl border border-[var(--rp-on-primary)]/35 px-6 py-5'>
+        <div className='mx-auto mt-8 max-w-3xl rounded-[var(--rp-radius)] border border-[var(--rp-on-primary)]/35 px-6 py-5'>
           <p className='text-center text-xs leading-relaxed text-[var(--rp-on-primary)]/85'>
             {content.acknowledgement}
           </p>

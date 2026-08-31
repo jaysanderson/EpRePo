@@ -58,7 +58,7 @@ function RelevanceMeter(
       {referenceChunk ? <span className='text-[11px] text-ink-3'>reference list</span> : null}
       {weak ? <span className='text-[11px] text-ink-3'>weak match</span> : null}
       <div
-        className='h-1 w-20 overflow-hidden rounded-none bg-surface-3'
+        className='h-1 w-20 overflow-hidden rounded-[var(--rp-radius)] bg-surface-3'
         role='progressbar'
         aria-valuenow={percent}
         aria-valuemin={0}
@@ -141,7 +141,10 @@ function ResultCard(
           </div>
 
           <h3 className='mt-2.5 text-base font-semibold tracking-[-0.01em] text-ink'>
-            <Link to={resourceLink(slug, resource)} className='rp-focus rounded-none'>
+            <Link
+              to={resourceLink(slug, resource)}
+              className='rp-focus rounded-[var(--rp-radius-btn)]'
+            >
               {resource.title}
             </Link>
           </h3>
@@ -311,9 +314,9 @@ function SummaryModal({
                   Reading {titles.length} {titles.length === 1 ? 'document' : 'documents'}…
                 </p>
                 <div className='mt-3 space-y-2' aria-hidden='true'>
-                  <div className='rp-shimmer bg-surface-3 h-3.5 w-full rounded-none' />
-                  <div className='rp-shimmer bg-surface-3 h-3.5 w-full rounded-none' />
-                  <div className='rp-shimmer bg-surface-3 h-3.5 w-5/6 rounded-none' />
+                  <div className='rp-shimmer bg-surface-3 h-3.5 w-full rounded-[var(--rp-radius)]' />
+                  <div className='rp-shimmer bg-surface-3 h-3.5 w-full rounded-[var(--rp-radius)]' />
+                  <div className='rp-shimmer bg-surface-3 h-3.5 w-5/6 rounded-[var(--rp-radius)]' />
                 </div>
               </div>
             )
@@ -408,12 +411,12 @@ function WatchStrip(
       {watches.map((watch) => (
         <div
           key={watch.id}
-          className='inline-flex items-center gap-0.5 rounded-none border border-line bg-surface py-0.5 pl-1 pr-0.5'
+          className='inline-flex items-center gap-0.5 rounded-[var(--rp-radius)] border border-line bg-surface py-0.5 pl-1 pr-0.5'
         >
           <button
             type='button'
             onClick={() => onRun(watch)}
-            className='rp-focus flex items-center gap-1.5 rounded-none px-1.5 py-1 text-xs text-ink-2 transition-colors duration-150 hover:text-[var(--rp-ink)]'
+            className='rp-focus flex items-center gap-1.5 rounded-[var(--rp-radius-btn)] px-1.5 py-1 text-xs text-ink-2 transition-colors duration-150 hover:text-[var(--rp-ink)]'
           >
             {watch.changed
               ? (
@@ -437,7 +440,7 @@ function WatchStrip(
               onDelete(watch.id)
             }}
             aria-label={`Remove saved search "${watch.query}"`}
-            className='rp-focus flex h-6 w-6 shrink-0 items-center justify-center rounded-none text-ink-3 transition-colors duration-150 hover:bg-[var(--rp-surface-2)] hover:text-[var(--rp-ink)]'
+            className='rp-focus flex h-6 w-6 shrink-0 items-center justify-center rounded-[var(--rp-radius-btn)] text-ink-3 transition-colors duration-150 hover:bg-[var(--rp-surface-2)] hover:text-[var(--rp-ink)]'
           >
             <svg viewBox='0 0 20 20' fill='currentColor' aria-hidden='true' className='h-3 w-3'>
               <path d='M5.3 4.3l4.7 4.7 4.7-4.7 1 1L11 10l4.7 4.7-1 1L10 11l-4.7 4.7-1-1L9 10 4.3 5.3z' />
@@ -689,7 +692,7 @@ export function SearchPage() {
 
       <div className='flex flex-wrap items-center gap-2.5'>
         <div
-          className='inline-flex overflow-hidden rounded-none border border-line bg-surface'
+          className='inline-flex overflow-hidden rounded-[var(--rp-radius)] border border-line bg-surface'
           role='radiogroup'
           aria-label='Retrieval mode'
         >
@@ -731,7 +734,7 @@ export function SearchPage() {
           ? (
             <div className='ml-auto flex items-center gap-2'>
               <div
-                className='inline-flex overflow-hidden rounded-none border border-line bg-surface'
+                className='inline-flex overflow-hidden rounded-[var(--rp-radius-btn)] border border-line bg-surface'
                 role='radiogroup'
                 aria-label='Result layout'
               >
@@ -785,7 +788,7 @@ export function SearchPage() {
                 id='search-sort'
                 value={librarySort}
                 onChange={(event) => setLibrarySort(event.target.value as SortValue)}
-                className='rp-focus rounded-none border border-line bg-surface px-2.5 py-1.5 text-xs text-ink'
+                className='rp-focus rounded-[var(--rp-radius)] border border-line bg-surface px-2.5 py-1.5 text-xs text-ink'
               >
                 {SORT_VALUES.map((value) => (
                   <option key={value} value={value}>{SORT_OPTIONS[value].label}</option>
@@ -888,7 +891,7 @@ export function SearchPage() {
                       return (
                         <label
                           key={topic.id}
-                          className={`flex cursor-pointer items-center gap-2.5 rounded-none px-1 py-1 text-sm ${
+                          className={`flex cursor-pointer items-center gap-2.5 rounded-[var(--rp-radius-btn)] px-1 py-1 text-sm ${
                             muted ? 'text-ink-3' : 'text-ink-2'
                           }`}
                         >
@@ -896,7 +899,7 @@ export function SearchPage() {
                             type='checkbox'
                             checked={checked}
                             onChange={() => toggleTopic(topic.id)}
-                            className='h-4 w-4 shrink-0 rounded-none border-line'
+                            className='h-4 w-4 shrink-0 rounded-[var(--rp-radius)] border-line'
                             style={{ accentColor: 'var(--rp-accent)' }}
                           />
                           <span className='min-w-0 flex-1'>{topic.label}</span>
@@ -934,7 +937,7 @@ export function SearchPage() {
                       return (
                         <label
                           key={id}
-                          className={`flex cursor-pointer items-center gap-2.5 rounded-none px-1 py-1 text-sm ${
+                          className={`flex cursor-pointer items-center gap-2.5 rounded-[var(--rp-radius-btn)] px-1 py-1 text-sm ${
                             muted ? 'text-ink-3' : 'text-ink-2'
                           }`}
                         >
@@ -942,7 +945,7 @@ export function SearchPage() {
                             type='checkbox'
                             checked={checked}
                             onChange={() => toggleKind(id)}
-                            className='h-4 w-4 shrink-0 rounded-none border-line'
+                            className='h-4 w-4 shrink-0 rounded-[var(--rp-radius)] border-line'
                             style={{ accentColor: 'var(--rp-accent)' }}
                           />
                           <span className='min-w-0 flex-1'>{kindLabel(id)}</span>
@@ -962,7 +965,7 @@ export function SearchPage() {
             >
               <p className='rp-eyebrow text-ink-3'>Match strength</p>
               <div
-                className='mt-2.5 inline-flex overflow-hidden rounded-none border border-line bg-surface'
+                className='mt-2.5 inline-flex overflow-hidden rounded-[var(--rp-radius)] border border-line bg-surface'
                 role='radiogroup'
                 aria-label='Match strength'
               >
@@ -1095,7 +1098,7 @@ export function SearchPage() {
                         {answerMode
                           ? (
                             <div
-                              className='inline-flex overflow-hidden rounded-none border border-line bg-surface'
+                              className='inline-flex overflow-hidden rounded-[var(--rp-radius)] border border-line bg-surface'
                               role='radiogroup'
                               aria-label='Results view'
                             >
@@ -1196,7 +1199,7 @@ export function SearchPage() {
                             key={question.id}
                             type='button'
                             onClick={() => askQuestion(question.text)}
-                            className='rp-focus flex items-center justify-between gap-3 rounded-none border border-line bg-[var(--rp-surface)] px-3.5 py-2.5 text-left text-sm text-[var(--rp-ink-2)] transition-colors duration-150 hover:bg-[var(--rp-surface-2)] hover:text-[var(--rp-ink)]'
+                            className='rp-focus flex items-center justify-between gap-3 rounded-[var(--rp-radius-btn)] border border-line bg-[var(--rp-surface)] px-3.5 py-2.5 text-left text-sm text-[var(--rp-ink-2)] transition-colors duration-150 hover:bg-[var(--rp-surface-2)] hover:text-[var(--rp-ink)]'
                           >
                             <span>{question.text}</span>
                             <span aria-hidden='true' className='shrink-0 text-ink-3'>&rarr;</span>

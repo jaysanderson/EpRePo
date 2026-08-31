@@ -386,14 +386,12 @@ function DocsNav({ slug, activeId }: { slug: string; activeId: string }) {
                   <Link
                     to={`/t/${slug}/help/${page.id}`}
                     aria-current={isActive ? 'page' : undefined}
-                    className={`rp-focus block rounded-none px-2 py-1.5 text-sm transition-colors duration-150 ${
+                    className={`rp-focus block rounded-[var(--rp-radius-btn)] px-2 py-1.5 text-sm transition-colors duration-150 ${
                       isActive
                         ? 'font-medium text-ink'
                         : 'text-ink-2 hover:bg-[var(--rp-surface-2)] hover:text-ink'
                     }`}
-                    style={isActive
-                      ? { backgroundColor: 'color-mix(in srgb, var(--rp-accent) 12%, transparent)' }
-                      : {}}
+                    style={isActive ? { backgroundColor: 'var(--rp-wash)' } : {}}
                   >
                     {page.title}
                   </Link>

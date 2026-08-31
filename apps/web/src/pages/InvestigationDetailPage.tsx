@@ -109,7 +109,7 @@ function EditableField({
     <button
       type='button'
       onClick={() => setEditing(true)}
-      className='rp-focus group flex min-w-0 max-w-full items-center gap-1.5 rounded-none text-left'
+      className='rp-focus group flex min-w-0 max-w-full items-center gap-1.5 rounded-[var(--rp-radius-btn)] text-left'
     >
       <span className={`truncate ${value ? '' : 'italic text-ink-3'} ${className ?? ''}`}>
         {value || placeholder}

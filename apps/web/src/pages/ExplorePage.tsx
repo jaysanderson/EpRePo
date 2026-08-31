@@ -313,7 +313,7 @@ function RegionBand({ slug }: { slug: string }) {
               <li key={region.id}>
                 <Link
                   to={`/t/${slug}/search?q=${encodeURIComponent(region.query)}`}
-                  className='rp-focus-inverse inline-flex border border-[var(--rp-on-primary)]/30 bg-[var(--rp-on-primary)]/10 px-3 py-1.5 text-sm text-[var(--rp-on-primary)] transition-colors duration-150 hover:bg-[var(--rp-on-primary)]/20'
+                  className='rp-focus-inverse inline-flex rounded-[var(--rp-radius-chip)] border border-[var(--rp-on-primary)]/30 bg-[var(--rp-on-primary)]/10 px-3 py-1.5 text-sm text-[var(--rp-on-primary)] transition-colors duration-150 hover:bg-[var(--rp-on-primary)]/20'
                 >
                   {region.label}
                 </Link>
@@ -387,7 +387,7 @@ function SectionHeading(
       <span className='h-px flex-1 bg-[var(--rp-line)]' aria-hidden='true' />
       <Link
         to={`/t/${slug}/library?topic=${encodeURIComponent(topicId)}`}
-        className='rp-focus shrink-0 rounded-none text-sm font-medium text-[var(--rp-ink-3)] transition-colors duration-150 hover:text-[var(--rp-ink)]'
+        className='rp-focus shrink-0 rounded-[var(--rp-radius-btn)] text-sm font-medium text-[var(--rp-ink-3)] transition-colors duration-150 hover:text-[var(--rp-ink)]'
       >
         See all<span aria-hidden='true'>&rarr;</span>
       </Link>

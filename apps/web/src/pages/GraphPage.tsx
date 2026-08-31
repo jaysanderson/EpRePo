@@ -167,8 +167,14 @@ function EvidenceList({ slug, name }: { slug: string; name: string }) {
   if (isLoading) {
     return (
       <div className='space-y-2'>
-        <div className='rp-shimmer bg-surface-3 h-10 rounded-none' aria-hidden='true' />
-        <div className='rp-shimmer bg-surface-3 h-10 rounded-none' aria-hidden='true' />
+        <div
+          className='rp-shimmer bg-surface-3 h-10 rounded-[var(--rp-radius)]'
+          aria-hidden='true'
+        />
+        <div
+          className='rp-shimmer bg-surface-3 h-10 rounded-[var(--rp-radius)]'
+          aria-hidden='true'
+        />
       </div>
     )
   }
@@ -781,7 +787,7 @@ function ModeToggle({ mode, onChange }: { mode: Mode; onChange: (mode: Mode) => 
     <div
       role='group'
       aria-label='Graph mode'
-      className='inline-flex h-11 shrink-0 overflow-hidden border border-line bg-surface'
+      className='inline-flex h-11 shrink-0 overflow-hidden rounded-[var(--rp-radius-btn)] border border-line bg-surface'
     >
       {options.map((option) => (
         <button

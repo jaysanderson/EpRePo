@@ -220,7 +220,7 @@ function EvidenceRow({
           {judging
             ? (
               <span
-                className='rp-shimmer h-[18px] w-16 rounded-none bg-surface-3'
+                className='rp-shimmer h-[18px] w-16 rounded-[var(--rp-radius)] bg-surface-3'
                 aria-hidden='true'
               />
             )
@@ -266,7 +266,7 @@ function EvidenceRow({
                   aria-label={expanded
                     ? `Show less of the passage from ${source.title}`
                     : `Show more of the passage from ${source.title}`}
-                  className='rp-focus mt-1 rounded-none text-xs font-medium text-[var(--rp-accent-fg)] hover:underline'
+                  className='rp-focus mt-1 rounded-[var(--rp-radius)] text-xs font-medium text-[var(--rp-accent-fg)] hover:underline'
                 >
                   {expanded ? 'Show less' : 'Show more'}
                 </button>
@@ -279,7 +279,7 @@ function EvidenceRow({
       {judging
         ? (
           <div
-            className='mt-1.5 h-3 w-3/4 rounded-none rp-shimmer bg-surface-3'
+            className='mt-1.5 h-3 w-3/4 rounded-[var(--rp-radius)] rp-shimmer bg-surface-3'
             aria-hidden='true'
           />
         )

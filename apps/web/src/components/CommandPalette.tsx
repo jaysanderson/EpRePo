@@ -226,7 +226,7 @@ export function CommandPalette({
                 event.preventDefault()
                 activate(option)
               }}
-              className={`flex cursor-pointer items-center gap-2.5 rounded-none px-2.5 py-2.5 text-sm transition-colors duration-150 ${
+              className={`flex cursor-pointer items-center gap-2.5 rounded-[var(--rp-radius-btn)] px-2.5 py-2.5 text-sm transition-colors duration-150 ${
                 highlight === index ? 'bg-surface-2 text-ink' : 'text-ink-2'
               }`}
             >

@@ -97,7 +97,10 @@ function renderInline(text: string, keyPrefix: string): ReactNode[] {
       nodes.push(<strong key={k}>{token.slice(2, -2)}</strong>)
     } else if (token.startsWith('`')) {
       nodes.push(
-        <code key={k} className='rounded-none bg-surface-2 px-1 py-0.5 text-[0.85em]'>
+        <code
+          key={k}
+          className='rounded-[var(--rp-radius-chip)] bg-surface-2 px-1 py-0.5 text-[0.85em]'
+        >
           {token.slice(1, -1)}
         </code>,
       )
@@ -110,7 +113,7 @@ function renderInline(text: string, keyPrefix: string): ReactNode[] {
             href={link[2]}
             target='_blank'
             rel='noopener noreferrer'
-            className='rp-focus rounded-none underline decoration-dotted underline-offset-2'
+            className='rp-focus rounded-[var(--rp-radius)] underline decoration-dotted underline-offset-2'
             style={{ color: 'var(--rp-accent-fg)' }}
           >
             {link[1]}
@@ -149,7 +152,9 @@ function DocBlockView(
     setRef: ((el: HTMLElement | null) => void) | undefined
   },
 ) {
-  const emphasisClass = emphasised ? 'rounded-none border-l-2 py-1.5 pl-3 pr-2 text-ink' : ''
+  const emphasisClass = emphasised
+    ? 'rounded-[var(--rp-radius)] border-l-2 py-1.5 pl-3 pr-2 text-ink'
+    : ''
   const emphasisStyle = emphasised
     ? {
       borderColor: 'var(--rp-accent)',
@@ -236,7 +241,7 @@ function DocBlockView(
           id={id}
           ref={setRef}
           style={emphasisStyle}
-          className={`${base} overflow-x-auto rounded-none bg-surface-2 p-3 text-xs leading-relaxed text-ink-2`}
+          className={`${base} overflow-x-auto rounded-[var(--rp-radius)] bg-surface-2 p-3 text-xs leading-relaxed text-ink-2`}
         >
           <code>{block.text}</code>
         </pre>
@@ -382,7 +387,7 @@ function TranscriptPanel(
         className='rp-input mt-3'
       />
 
-      <div className='mt-3 max-h-96 overflow-y-auto rounded-none border border-line'>
+      <div className='mt-3 max-h-96 overflow-y-auto rounded-[var(--rp-radius)] border border-line'>
         {rows.length === 0
           ? <p className='p-4 text-sm text-ink-3'>No matching transcript segments.</p>
           : (
@@ -406,7 +411,7 @@ function TranscriptPanel(
                         }
                         : undefined}
                     >
-                      <span className='shrink-0 rounded-none bg-surface-2 px-1.5 py-0.5 text-xs font-medium tabular-nums text-ink-3'>
+                      <span className='shrink-0 rounded-[var(--rp-radius-chip)] bg-surface-2 px-1.5 py-0.5 text-xs font-medium tabular-nums text-ink-3'>
                         {segment.startSec !== undefined
                           ? formatTimestamp(segment.startSec)
                           : '--:--'}
@@ -498,8 +503,8 @@ function OfficeBody(
 
   return (
     <div className='space-y-4'>
-      <div className='flex flex-col gap-4 rounded-none border border-line bg-surface-2 p-5 sm:flex-row sm:items-center'>
-        <div className='h-28 w-40 shrink-0 overflow-hidden rounded-none border border-line'>
+      <div className='flex flex-col gap-4 rounded-[var(--rp-radius)] border border-line bg-surface-2 p-5 sm:flex-row sm:items-center'>
+        <div className='h-28 w-40 shrink-0 overflow-hidden rounded-[var(--rp-radius)] border border-line'>
           {previewUrl
             ? (
               <img
@@ -587,7 +592,7 @@ function ResourceViewer(
                 ref={(el) => (mediaRef.current = el)}
                 controls
                 preload='metadata'
-                className='w-full rounded-none border border-line bg-black'
+                className='w-full rounded-[var(--rp-radius)] border border-line bg-black'
                 src={fileUrl}
               />
             )
@@ -632,7 +637,7 @@ function ResourceViewer(
         ? (
           <img
             src={fileUrl}
-            className='max-h-[75vh] w-full rounded-none border border-line object-contain'
+            className='max-h-[75vh] w-full rounded-[var(--rp-radius)] border border-line object-contain'
             alt={content.title}
           />
         )
@@ -722,7 +727,7 @@ function ResourceHeader(
                     <Link
                       key={topicId}
                       to={`/t/${slug}/library?topics=${encodeURIComponent(topicId)}`}
-                      className='rp-focus rounded-none bg-surface-2 px-2 py-1 text-[11px] font-medium text-ink-2 transition-colors duration-150 hover:text-ink'
+                      className='rp-focus rounded-[var(--rp-radius-chip)] bg-surface-2 px-2 py-1 text-[11px] font-medium text-ink-2 transition-colors duration-150 hover:text-ink'
                     >
                       {label}
                     </Link>
@@ -749,7 +754,7 @@ function ResourceHeader(
                 href={originUrl}
                 target='_blank'
                 rel='noopener noreferrer'
-                className='rp-focus flex items-center gap-1.5 rounded-none text-sm font-medium underline decoration-dotted underline-offset-2'
+                className='rp-focus flex items-center gap-1.5 rounded-[var(--rp-radius-btn)] text-sm font-medium underline decoration-dotted underline-offset-2'
                 style={{ color: 'var(--rp-accent-fg)' }}
               >
                 View original source <span aria-hidden='true'>&rarr;</span>
@@ -896,7 +901,7 @@ function DocumentChat(
         <label htmlFor='ask-document' className='sr-only'>
           Ask a question about {resource.title}
         </label>
-        <div className='flex items-center gap-2 rounded-none border border-line bg-surface p-1.5 pl-3'>
+        <div className='flex items-center gap-2 rounded-[var(--rp-radius)] border border-line bg-surface p-1.5 pl-3'>
           <input
             id='ask-document'
             onFocus={onFocus}
@@ -929,7 +934,7 @@ function DocumentChat(
                 key={text}
                 type='button'
                 onClick={() => askStarter(text)}
-                className='rp-focus border border-line bg-surface-2 px-3 py-1.5 text-xs font-medium text-ink-2 transition-colors duration-150 hover:text-ink'
+                className='rp-focus rounded-[var(--rp-radius-chip)] border border-line bg-surface-2 px-3 py-1.5 text-xs font-medium text-ink-2 transition-colors duration-150 hover:text-ink'
               >
                 {text}
               </button>
@@ -948,9 +953,9 @@ function RecommendationCard(
     <li>
       <Link
         to={`/t/${slug}/library/${resource.id}`}
-        className='rp-focus group flex gap-3 rounded-none p-1.5 transition-colors duration-150 hover:bg-[var(--rp-surface-2)]'
+        className='rp-focus group flex gap-3 rounded-[var(--rp-radius-btn)] p-1.5 transition-colors duration-150 hover:bg-[var(--rp-surface-2)]'
       >
-        <div className='h-16 w-24 shrink-0 overflow-hidden rounded-none border border-line'>
+        <div className='h-16 w-24 shrink-0 overflow-hidden rounded-[var(--rp-radius)] border border-line'>
           <ResourceThumb slug={slug} id={resource.id} type={resource.type} />
         </div>
         <div className='min-w-0 flex-1'>
@@ -996,7 +1001,7 @@ function RecommendationsRail(
           <div className='mt-3 space-y-3' aria-hidden='true'>
             {[0, 1, 2, 3].map((i) => (
               <div key={i} className='flex gap-3'>
-                <Skeleton className='h-16 w-24 shrink-0 rounded-none' />
+                <Skeleton className='h-16 w-24 shrink-0 rounded-[var(--rp-radius)]' />
                 <div className='flex-1 space-y-1.5 py-1'>
                   <Skeleton className='h-3.5 w-full' />
                   <Skeleton className='h-3.5 w-2/3' />
@@ -1041,7 +1046,7 @@ function MatchesPanel(
             <button
               type='button'
               onClick={() => onJump(index)}
-              className='rp-focus block w-full rounded-none px-2 py-1.5 text-left text-xs leading-relaxed text-ink-2 transition-colors duration-150 hover:bg-[var(--rp-surface-2)]'
+              className='rp-focus block w-full rounded-[var(--rp-radius-btn)] px-2 py-1.5 text-left text-xs leading-relaxed text-ink-2 transition-colors duration-150 hover:bg-[var(--rp-surface-2)]'
             >
               <span className='rp-clamp-2'>{blockTexts[index]}</span>
             </button>
@@ -1092,7 +1097,7 @@ function SelectionSaveBar(
   return createPortal(
     <div
       ref={popoverRef}
-      className='rp-shadow-lg fixed z-[80] rounded-none border border-line bg-surface p-1'
+      className='rp-shadow-lg fixed z-[80] rounded-[var(--rp-radius)] border border-line bg-surface p-1'
       style={{ top, left }}
     >
       <SaveEvidenceButton
