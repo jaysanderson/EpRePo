@@ -45,7 +45,20 @@ startScheduler(provider, tenants, sources, watches)
 // Cache-bust the entry bundle so a deploy is never masked by a stale copy in the
 // browser: the versioned ?v=<sha> asset URLs change every release, and the HTML
 // itself is served no-cache so it always revalidates and hands out the new URLs.
-const buildSha = process.env.BUILD_SHA ?? 'dev'
+// In production CI sets BUILD_SHA, so every deploy gets a fresh asset URL.
+// Locally there is no SHA, and a constant literal meant `/app.js?v=dev` never
+// changed between rebuilds - the browser kept serving a cached bundle and local
+// changes looked like they had not landed. Fall back to the built bundle's
+// mtime so each `deno task build:web` busts the cache.
+function localBuildId(): string {
+  try {
+    return String(Deno.statSync('./apps/web/dist/app.js').mtime?.getTime() ?? Date.now())
+  } catch {
+    return String(Date.now())
+  }
+}
+
+const buildSha = process.env.BUILD_SHA ?? localBuildId()
 let indexHtml = ''
 try {
   indexHtml = readFileSync('./apps/web/dist/index.html', 'utf8')
