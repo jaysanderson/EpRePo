@@ -197,7 +197,7 @@ function QuickEntry({ slug }: { slug: string }) {
   ] as const
 
   return (
-    <div className='rp-shell rp-anim-rise rp-delay-2 grid grid-cols-1 gap-3 pt-10 sm:grid-cols-2'>
+    <div className='rp-shell rp-anim-rise rp-delay-2 grid grid-cols-1 gap-3 py-10 sm:grid-cols-2'>
       {tiles.map((tile) => (
         <Link key={tile.to} to={`/t/${slug}/${tile.to}`} className='rp-tile'>
           <TileIcon name={tile.icon} />
@@ -231,7 +231,7 @@ function QuickEntry({ slug }: { slug: string }) {
  */
 function RegionBand({ slug }: { slug: string }) {
   return (
-    <section className='mt-14' style={{ backgroundColor: 'var(--rp-primary)' }}>
+    <section style={{ backgroundColor: 'var(--rp-primary)' }}>
       <div className='rp-shell grid gap-10 py-12 md:grid-cols-2 md:items-center md:py-16'>
         <div className='min-w-0'>
           <p className='rp-eyebrow text-white/60'>Explore by region</p>
