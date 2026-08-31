@@ -13,6 +13,7 @@ import {
   buildDegrees,
   buildGroupStyles,
   type GroupStyle,
+  type Insets,
   KnowledgeMap,
   MapConstellation,
   type MapEdge,
@@ -118,6 +119,69 @@ function SearchGlyph() {
       <path d='M13.5 13.5 17 17' />
     </Glyph>
   )
+}
+
+// ---------------------------------------------------------------------------
+// How much of the canvas the floating panels are actually covering.
+//
+// The map needs this to know where the space it can still use is - to frame
+// the graph in it, and to move a selected node into it. It has to be MEASURED:
+// the detail sheet's height follows its content, which runs from an entity
+// with two connections to one with a long "mentioned in" list, and the same
+// panel is a bottom sheet on a phone and a side rail on a desktop.
+//
+// Which edge a panel eats is read from its own geometry rather than from a
+// breakpoint: a panel spanning nearly the whole stage is a sheet and takes
+// height off the bottom, anything narrower is a rail and takes width off the
+// side it sits on. Measuring down to the stage's bottom edge rather than
+// taking the panel's height also means a sheet held clear of an iOS home
+// indicator by a safe-area inset counts that strip as unusable too, which it
+// is.
+// ---------------------------------------------------------------------------
+
+const NO_INSETS: Insets = { left: 0, right: 0, bottom: 0 }
+
+function usePanelInsets(
+  stage: HTMLElement | null,
+  rail: HTMLElement | null,
+  dock: HTMLElement | null,
+): Insets {
+  const [insets, setInsets] = useState<Insets>(NO_INSETS)
+  useEffect(() => {
+    if (!stage) {
+      setInsets((prev) => (prev === NO_INSETS ? prev : NO_INSETS))
+      return
+    }
+    const measure = () => {
+      const box = stage.getBoundingClientRect()
+      if (box.width < 1 || box.height < 1) return
+      const next = { left: 0, right: 0, bottom: 0 }
+      for (const panel of [rail, dock]) {
+        if (!panel) continue
+        const rect = panel.getBoundingClientRect()
+        if (rect.width < 1 || rect.height < 1) continue
+        if (rect.width >= box.width * 0.8) {
+          next.bottom = Math.max(next.bottom, Math.round(box.bottom - rect.top))
+        } else if (rect.left + rect.width / 2 < box.left + box.width / 2) {
+          next.left = Math.max(next.left, Math.round(rect.right - box.left))
+        } else {
+          next.right = Math.max(next.right, Math.round(box.right - rect.left))
+        }
+      }
+      setInsets((prev) =>
+        prev.left === next.left && prev.right === next.right && prev.bottom === next.bottom
+          ? prev
+          : next
+      )
+    }
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(stage)
+    if (rail) observer.observe(rail)
+    if (dock) observer.observe(dock)
+    return () => observer.disconnect()
+  }, [stage, rail, dock])
+  return insets
 }
 
 // ---------------------------------------------------------------------------
@@ -306,9 +370,18 @@ function EvidenceList({ slug, name }: { slug: string; name: string }) {
 // when a node is selected. Holds the entity or concept evidence.
 // ---------------------------------------------------------------------------
 
-function DetailDock({ onClose, children }: { onClose: () => void; children: React.ReactNode }) {
+function DetailDock({
+  onClose,
+  panelRef,
+  children,
+}: {
+  onClose: () => void
+  panelRef: (el: HTMLElement | null) => void
+  children: React.ReactNode
+}) {
   return (
     <aside
+      ref={panelRef}
       aria-label='Selection details'
       className='rp-anim-fade absolute inset-x-0 bottom-0 z-30 flex max-h-[68%] flex-col overflow-hidden rounded-t-[var(--rp-radius)] border border-line bg-surface rp-shadow-xl rp-map-gutter-right md:inset-x-auto md:top-3 md:bottom-3 md:max-h-none md:w-[360px] md:rounded-[calc(var(--rp-radius)+4px)]'
     >
@@ -697,6 +770,7 @@ function NavigatorRail({
   unlinkedCount,
   hideUnlinked,
   onToggleUnlinked,
+  panelRef,
 }: {
   nodes: MapNode[]
   edges: MapEdge[]
@@ -713,6 +787,7 @@ function NavigatorRail({
   unlinkedCount: number
   hideUnlinked: boolean
   onToggleUnlinked: () => void
+  panelRef: (el: HTMLElement | null) => void
 }) {
   const isEntity = mode === 'entity'
   const top = useMemo(() => {
@@ -723,6 +798,7 @@ function NavigatorRail({
 
   return (
     <aside
+      ref={panelRef}
       aria-label='Map navigator'
       className='rp-anim-fade absolute inset-x-0 bottom-0 z-20 flex max-h-[60%] flex-col overflow-hidden rounded-t-[var(--rp-radius)] border border-line bg-surface rp-shadow-lg rp-map-gutter-left md:inset-x-auto md:bottom-auto md:top-1/2 md:max-h-[calc(100%-2rem)] md:w-[300px] md:-translate-y-1/2 md:rounded-[calc(var(--rp-radius)+4px)]'
     >
@@ -1115,6 +1191,12 @@ export function GraphPage() {
       ? globalThis.matchMedia('(min-width: 768px)').matches
       : true
   )
+  // Held as state rather than in refs so that a panel mounting or unmounting
+  // re-runs the measurement - a ref changing would not.
+  const [stageEl, setStageEl] = useState<HTMLDivElement | null>(null)
+  const [railEl, setRailEl] = useState<HTMLElement | null>(null)
+  const [dockEl, setDockEl] = useState<HTMLElement | null>(null)
+  const insets = usePanelInsets(stageEl, railEl, dockEl)
 
   const relationsQuery = useQuery({
     queryKey: ['relations-graph', slug, includeBuiltin],
@@ -1415,7 +1497,7 @@ export function GraphPage() {
       </div>
 
       {/* Canvas stage - the map fills it; panels float over it. */}
-      <div className='relative min-h-0 flex-1 bg-surface'>
+      <div ref={setStageEl} className='relative min-h-0 flex-1 bg-surface'>
         {loading ? <MapSkeleton message='Building the map…' /> : error
           ? (
             <CanvasNotice>
@@ -1458,8 +1540,7 @@ export function GraphPage() {
                 pathFrom={pathFrom}
                 onSelect={select}
                 focusId={focusId}
-                railOpen={railOpen}
-                dockOpen={selected !== null}
+                insets={insets}
                 hint='Drag to pan · scroll to zoom · click a node to explore it'
               />
 
@@ -1554,13 +1635,14 @@ export function GraphPage() {
                     unlinkedCount={unlinkedCount}
                     hideUnlinked={hideUnlinked}
                     onToggleUnlinked={() => setHideUnlinked((v) => !v)}
+                    panelRef={setRailEl}
                   />
                 )}
 
               {/* Detail dock - only when a node is selected. */}
               {selected
                 ? (
-                  <DetailDock onClose={() => select(null)}>
+                  <DetailDock onClose={() => select(null)} panelRef={setDockEl}>
                     {mode === 'entity'
                       ? (
                         <EntityPanel

@@ -47,6 +47,41 @@ import {
 const SIM_W = 960
 const SIM_H = 640
 
+/**
+ * The interactive zoom extent - one pair of bounds shared by the wheel, the
+ * zoom buttons and the pinch gesture, so the three can never disagree about
+ * how far in or out the map goes. Framing the WHOLE map is capped separately
+ * and more tightly (see computeFit): labels are drawn in simulation units and
+ * so grow with the zoom, which is a problem when fitting everything on a
+ * narrow canvas and not when a reader has deliberately zoomed in.
+ */
+const MIN_K = 0.35
+const MAX_K = 4
+
+/**
+ * The band the focus move lands in.
+ *
+ * k = 1 is the floor because it is the scale the canvas type was drawn at - a
+ * node label is 12px and a relation label 10.5px - and it clears the k >= 0.62
+ * threshold below which relation labels are suppressed altogether. Under it
+ * the selected node's edges stop reading as labelled relations, which is the
+ * whole point of moving to the node.
+ *
+ * 1.8 is the ceiling because past it a 390px-wide phone holds fewer than 220
+ * simulation units across, and a same-category link is 62 of them: three link
+ * lengths is about the least that still reads as a neighbourhood rather than
+ * as one node and some stubs.
+ */
+const FOCUS_MIN_K = 1
+const FOCUS_MAX_K = 1.8
+
+/**
+ * How long the view takes to move to a selection. The panels enter on a 400ms
+ * fade (.rp-anim-fade), so the map arrives fractionally before the panel
+ * finishes and the two read as one motion rather than as two events.
+ */
+const FOCUS_MS = 380
+
 export type MapNode = {
   id: string
   label: string
@@ -90,7 +125,13 @@ type SimLink = { source: string | SimNode; target: string | SimNode }
 
 type Transform = { x: number; y: number; k: number }
 type Size = { w: number; h: number; ready: boolean }
-type Insets = { left: number; right: number; bottom: number }
+/**
+ * How much of the canvas the floating panels are covering, in canvas pixels.
+ * Measured from the panels themselves by the page (see GraphPage), never
+ * assumed: the detail sheet's height follows its content, which runs from two
+ * connections to a long list of the resources an entity is mentioned in.
+ */
+export type Insets = { left: number; right: number; bottom: number }
 type Centre = { x: number; y: number; r: number }
 
 /**
@@ -476,7 +517,7 @@ function computeFit(nodes: SimNode[], w: number, h: number, insets: Insets): Tra
   // enough for the map's full layout is affected.
   const maxK = w >= 768 ? 1.75 : Math.max(1, (w / SIM_W) * 1.75)
   const k = Math.max(
-    0.35,
+    MIN_K,
     Math.min(maxK, Math.min((boxW - pad * 2) / spanX, (boxH - pad * 2) / spanY)),
   )
   const cx = (minX + maxX) / 2
@@ -555,8 +596,7 @@ export function KnowledgeMap({
   pathFrom,
   onSelect,
   focusId,
-  railOpen,
-  dockOpen,
+  insets,
   hint,
 }: {
   nodes: MapNode[]
@@ -572,8 +612,8 @@ export function KnowledgeMap({
   pathFrom: string | null
   onSelect: (id: string | null) => void
   focusId: string | null
-  railOpen: boolean
-  dockOpen: boolean
+  /** Measured, not assumed - see the type. */
+  insets: Insets
   hint: string
 }) {
   const visibleNodes = useMemo(
@@ -634,14 +674,35 @@ export function KnowledgeMap({
   const svgRef = useRef<SVGSVGElement | null>(null)
   const panRef = useRef<{ startX: number; startY: number; ox: number; oy: number } | null>(null)
   const dragRef = useRef<{ id: string; moved: boolean } | null>(null)
+  // Two-finger gesture in flight: the identifiers of the two fingers being
+  // tracked, how far apart and where they were when it started, and the graph
+  // point that was under their midpoint - the point the zoom is anchored on.
+  const pinchRef = useRef<
+    { a: number; b: number; gap: number; k: number; gx: number; gy: number } | null
+  >(null)
   // Set on pointer-up when a drag actually moved a node, so the click that
   // follows repositioning does not also fire a selection.
   const draggedRef = useRef(false)
+  // Same idea for a pinch: the click some browsers synthesise when the last
+  // finger leaves must not read as a tap on the background and clear the
+  // selection the reader was just looking at.
+  const gesturedRef = useRef(false)
   const fitSigRef = useRef<string>('')
   const lastSizeRef = useRef<{ w: number; h: number } | null>(null)
   // Once a reader has panned or zoomed, the view is theirs and a resize must
   // not throw it away.
   const viewMovedRef = useRef(false)
+  // True while the view is the one the focus move put there and the reader has
+  // not touched it since. It is what lets the map give the space back when the
+  // panel that caused the move goes away, without ever overriding a reader who
+  // has moved on.
+  const focusOwnsViewRef = useRef(false)
+  // The transform the animation loop and the gesture handlers read. State
+  // drives the render; this ref is the same value without making every
+  // callback that reads it change identity on every frame.
+  const transformRef = useRef(transform)
+  transformRef.current = transform
+  const animRef = useRef<number | null>(null)
 
   // One lookup table per paint instead of a linear scan per node and per edge:
   // at 120 nodes and 126 edges the scans were an O(n*e) pass on every frame of
@@ -651,26 +712,85 @@ export function KnowledgeMap({
     return new Map(nodesRef.current.map((n) => [n.id, n]))
   }, [nodesRef, frame, visibleNodes])
 
-  const insets = useMemo(
-    (): Insets =>
-      size.w >= 768
-        ? { left: railOpen ? 320 : 0, right: dockOpen ? 380 : 0, bottom: 0 }
-        : { left: 0, right: 0, bottom: railOpen || dockOpen ? size.h * 0.42 : 0 },
-    [
-      size.w,
-      size.h,
-      railOpen,
-      dockOpen,
-    ],
-  )
   const insetsRef = useRef(insets)
   insetsRef.current = insets
 
+  const stopAnimation = useCallback(() => {
+    if (animRef.current !== null) cancelAnimationFrame(animRef.current)
+    animRef.current = null
+  }, [])
+
+  /**
+   * Move the view to a transform over a short duration.
+   *
+   * The scale grows geometrically and the GRAPH point sitting under a fixed
+   * screen anchor is what travels linearly - interpolating the translation
+   * directly instead makes the map appear to swim sideways as the scale
+   * changes under it. Both ends are exact, so the move always finishes on the
+   * transform it was given.
+   *
+   * A reader who has asked for less motion gets the same destination without
+   * the journey.
+   */
+  const animateTo = useCallback(
+    (target: Transform, duration: number, anchor: { x: number; y: number }) => {
+      stopAnimation()
+      const from = transformRef.current
+      if (
+        Math.abs(target.x - from.x) < 0.5 && Math.abs(target.y - from.y) < 0.5 &&
+        Math.abs(target.k - from.k) < 0.002
+      ) return
+      const reduced = typeof globalThis.matchMedia === 'function' &&
+        globalThis.matchMedia('(prefers-reduced-motion: reduce)').matches
+      if (reduced || duration <= 0) {
+        setTransform(target)
+        return
+      }
+      const g0x = (anchor.x - from.x) / from.k
+      const g0y = (anchor.y - from.y) / from.k
+      const g1x = (anchor.x - target.x) / target.k
+      const g1y = (anchor.y - target.y) / target.k
+      const ratio = target.k / from.k
+      const started = performance.now()
+      const step = (now: number) => {
+        const t = Math.min(1, (now - started) / duration)
+        if (t >= 1) {
+          animRef.current = null
+          setTransform(target)
+          return
+        }
+        // Ease out: the view leaves promptly and settles, which is what reads
+        // as one motion with a panel arriving on the same curve.
+        const e = 1 - Math.pow(1 - t, 3)
+        const k = from.k * Math.pow(ratio, e)
+        setTransform({
+          x: anchor.x - (g0x + (g1x - g0x) * e) * k,
+          y: anchor.y - (g0y + (g1y - g0y) * e) * k,
+          k,
+        })
+        animRef.current = requestAnimationFrame(step)
+      }
+      animRef.current = requestAnimationFrame(step)
+    },
+    [stopAnimation],
+  )
+
+  useEffect(() => stopAnimation, [stopAnimation])
+
+  /** Any deliberate gesture takes the view back off the focus move. */
+  const claimView = useCallback(() => {
+    stopAnimation()
+    viewMovedRef.current = true
+    focusOwnsViewRef.current = false
+  }, [stopAnimation])
+
   const fitView = useCallback(() => {
+    stopAnimation()
+    focusOwnsViewRef.current = false
     const t = computeFit(nodesRef.current, size.w, size.h, insetsRef.current)
     if (t) setTransform(t)
     viewMovedRef.current = false
-  }, [nodesRef, size.w, size.h])
+  }, [nodesRef, size.w, size.h, stopAnimation])
 
   // Frame the graph whenever the visible set or the layout changes shape (first
   // load, mode switch, group toggle, expand), and keep it framed when the
@@ -697,6 +817,9 @@ export function KnowledgeMap({
       return
     }
     if (!previous || (previous.w === size.w && previous.h === size.h)) return
+    // A focus move already has the view in hand and is steering it to a point
+    // it computed from the new box; a half-delta shift on top would fight it.
+    if (animRef.current !== null) return
     if (!viewMovedRef.current) {
       const t = computeFit(nodesRef.current, size.w, size.h, insetsRef.current)
       if (t) setTransform(t)
@@ -736,49 +859,263 @@ export function KnowledgeMap({
     [pathEdges],
   )
 
-  // Centre a newly focused node (search or panel click) in the space the
-  // panels leave free, not in the middle of the whole canvas.
-  useEffect(() => {
-    if (!focusId) return
-    const node = nodesRef.current.find((n) => n.id === focusId)
-    if (!node || node.x === undefined || node.y === undefined) return
-    const k = Math.max(1.25, transform.k)
+  /**
+   * Move the view so the selected node sits in the middle of the space that is
+   * actually left - the canvas minus whatever the panels are measured to be
+   * covering - and zoom in far enough that the node and the relations leaving
+   * it read. Returns the scale it settled on, or null if it decided the node
+   * was already comfortably in view and left the reader alone.
+   *
+   * `keep` reuses the scale from an earlier pass at the same node, for the
+   * follow-up that runs when a panel finishes measuring or grows with its
+   * content: the move should re-centre without a second helping of zoom.
+   */
+  const focusOn = useCallback((id: string, keep: number | null): number | null => {
+    const points = new Map(nodesRef.current.map((n) => [n.id, n]))
+    const node = points.get(id)
+    if (!node || node.x === undefined || node.y === undefined) return null
     const box = insetsRef.current
-    const cx = box.left + (size.w - box.left - box.right) / 2
-    const cy = (size.h - box.bottom) / 2
-    setTransform({ x: cx - node.x * k, y: cy - node.y * k, k })
-    // transform.k is read once to keep any user zoom level - not a dependency.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const boxW = Math.max(1, size.w - box.left - box.right)
+    const boxH = Math.max(1, size.h - box.bottom)
+    const cx = box.left + boxW / 2
+    const cy = boxH / 2
+    const current = transformRef.current
+
+    // Is it already where a reader would want it? A node in the middle of the
+    // free box needs nothing done to it, and moving the map under someone who
+    // can already see what they clicked is worse than doing nothing. A bottom
+    // sheet is the exception: it covers the canvas rather than sitting beside
+    // it, so a selection made under one is always re-framed.
+    const marginX = Math.min(90, boxW * 0.18)
+    const marginY = Math.min(90, boxH * 0.18)
+    const screenX = current.x + node.x * current.k
+    const screenY = current.y + node.y * current.k
+    const settled = screenX > box.left + marginX && screenX < box.left + boxW - marginX &&
+      screenY > marginY && screenY < boxH - marginY
+    if (settled && box.bottom <= 0) return null
+
+    let k = keep
+    if (k === null) {
+      // How much of the map the node's own neighbourhood needs. Measured as a
+      // half-extent from the node, because the node is what ends up centred.
+      let spanX = radiusOf(node) + 18
+      let spanY = radiusOf(node) + 26
+      for (const edge of visibleEdges) {
+        const otherId = edge.source === id ? edge.target : edge.target === id ? edge.source : null
+        if (otherId === null) continue
+        const other = points.get(otherId)
+        if (!other || other.x === undefined || other.y === undefined) continue
+        spanX = Math.max(spanX, Math.abs(other.x - node.x) + radiusOf(other))
+        spanY = Math.max(spanY, Math.abs(other.y - node.y) + radiusOf(other) + 18)
+      }
+      const fits = Math.min((boxW * 0.9) / (2 * spanX), (boxH * 0.9) / (2 * spanY))
+      // A hub whose neighbours are scattered would need to zoom OUT to hold
+      // them all, and a lone entity would let the zoom run away, so the fit is
+      // only ever consulted inside the legible band - and never at the cost of
+      // a zoom the reader chose for themselves.
+      k = Math.max(current.k, Math.min(FOCUS_MAX_K, Math.max(FOCUS_MIN_K, fits)))
+    }
+    k = Math.min(MAX_K, Math.max(MIN_K, k))
+
+    animateTo({ x: cx - node.x * k, y: cy - node.y * k, k }, FOCUS_MS, { x: cx, y: cy })
+    // The view is no longer the fit, so a later resize preserves it rather
+    // than re-framing the whole map over the top of it.
+    viewMovedRef.current = true
+    focusOwnsViewRef.current = true
+    return k
+  }, [nodesRef, size.w, size.h, visibleEdges, radiusOf, animateTo])
+
+  // An explicit request to bring a node into view - the find field, or the
+  // navigator picking the entity that is already selected. Counted rather than
+  // read directly, so asking twice for the same node moves the view twice.
+  const [focusPulse, setFocusPulse] = useState(0)
+  useEffect(() => {
+    if (focusId) setFocusPulse((n) => n + 1)
   }, [focusId])
 
-  const toGraphPoint = (clientX: number, clientY: number) => {
+  const focusServicedRef = useRef<
+    { id: string; pulse: number; box: Insets; k: number | null } | null
+  >(null)
+  const lastInsetsRef = useRef<Insets | null>(null)
+
+  // Bring the selection into the space the panels leave free, and hand the
+  // space back when they go.
+  useEffect(() => {
+    if (!size.ready) return
+    const previous = lastInsetsRef.current
+    lastInsetsRef.current = insets
+    const id = focusId ?? selectedId
+    if (id) {
+      const done = focusServicedRef.current
+      // The panels are measured after they mount, so the first pass at a new
+      // selection can run against a stale box; the second pass re-centres in
+      // the real one, keeping the scale the first pass chose. Both animate
+      // from wherever the view currently is, so the correction is a redirected
+      // glide rather than a second move.
+      const following = done !== null && done.id === id && done.pulse === focusPulse
+      if (
+        following && done.box.left === insets.left && done.box.right === insets.right &&
+        done.box.bottom === insets.bottom
+      ) return
+      const k = focusOn(id, following ? done.k : null)
+      focusServicedRef.current = { id, pulse: focusPulse, box: insets, k }
+      return
+    }
+    focusServicedRef.current = null
+    // Nothing is selected any more and the panel that was covering the canvas
+    // has gone. Rather than snapping back to some earlier transform - which
+    // would throw away the neighbourhood the reader just went to the trouble
+    // of opening - the view slides by half the change, so whatever was centred
+    // in the old free box is centred in the new one at the same scale. It is
+    // the same rule the resize path uses, and "Fit to view" is one tap away
+    // for a reader who wants the whole map back.
+    if (!previous || !focusOwnsViewRef.current) return
+    const dx = ((insets.left - previous.left) - (insets.right - previous.right)) / 2
+    const dy = -(insets.bottom - previous.bottom) / 2
+    if (dx === 0 && dy === 0) return
+    const t = transformRef.current
+    animateTo({ ...t, x: t.x + dx, y: t.y + dy }, FOCUS_MS, { x: size.w / 2, y: size.h / 2 })
+  }, [focusId, selectedId, focusPulse, insets, size.ready, size.w, size.h, focusOn, animateTo])
+
+  /** Client coordinates to canvas coordinates. The viewBox is 1:1 with the
+   * element's own pixels, but the element may itself be scaled by CSS, so the
+   * conversion goes through the measured rect rather than assuming it. */
+  const toCanvasPoint = useCallback((clientX: number, clientY: number) => {
     const svg = svgRef.current
     if (!svg) return { x: 0, y: 0 }
     const rect = svg.getBoundingClientRect()
-    const px = ((clientX - rect.left) / rect.width) * size.w
-    const py = ((clientY - rect.top) / rect.height) * size.h
-    return { x: (px - transform.x) / transform.k, y: (py - transform.y) / transform.k }
+    return {
+      x: rect.width > 0 ? ((clientX - rect.left) / rect.width) * size.w : 0,
+      y: rect.height > 0 ? ((clientY - rect.top) / rect.height) * size.h : 0,
+    }
+  }, [size.w, size.h])
+
+  const toGraphPoint = (clientX: number, clientY: number) => {
+    const point = toCanvasPoint(clientX, clientY)
+    return { x: (point.x - transform.x) / transform.k, y: (point.y - transform.y) / transform.k }
   }
+
+  const releaseDrag = useCallback(() => {
+    const drag = dragRef.current
+    if (!drag) return
+    const node = nodesRef.current.find((n) => n.id === drag.id)
+    if (node) {
+      node.fx = null
+      node.fy = null
+    }
+    draggedRef.current = drag.moved
+    dragRef.current = null
+    cool()
+  }, [nodesRef, cool])
 
   const onWheel = (event: ReactWheelEvent<SVGSVGElement>) => {
     event.preventDefault()
-    viewMovedRef.current = true
+    claimView()
     const factor = event.deltaY < 0 ? 1.12 : 1 / 1.12
+    const point = toCanvasPoint(event.clientX, event.clientY)
     setTransform((t) => {
-      const k = Math.min(4, Math.max(0.35, t.k * factor))
+      const k = Math.min(MAX_K, Math.max(MIN_K, t.k * factor))
       if (k === t.k) return t
-      const svg = svgRef.current
-      if (!svg) return { ...t, k }
-      const rect = svg.getBoundingClientRect()
-      const px = ((event.clientX - rect.left) / rect.width) * size.w
-      const py = ((event.clientY - rect.top) / rect.height) * size.h
       // Zoom towards the cursor: keep the point under it stationary.
-      return { x: px - ((px - t.x) / t.k) * k, y: py - ((py - t.y) / t.k) * k, k }
+      return {
+        x: point.x - ((point.x - t.x) / t.k) * k,
+        y: point.y - ((point.y - t.y) / t.k) * k,
+        k,
+      }
     })
   }
 
+  // ---------------------------------------------------------------------
+  // Pinch to zoom.
+  //
+  // Bound natively rather than through React, because React attaches its
+  // touch listeners passively at the root and a passive listener cannot call
+  // preventDefault - which is what stops iOS Safari zooming the whole page
+  // out from under a two-finger gesture on the canvas. The listeners are on
+  // the SVG alone, as is the touch-action that suppresses scrolling, so
+  // nothing outside this one element changes behaviour.
+  //
+  // The gesture extends the same transform the wheel and the buttons write.
+  // The zoom is anchored on the midpoint between the fingers: the graph point
+  // that was under the midpoint when the gesture began stays under it, which
+  // also gives two-finger panning for nothing, because the midpoint moves
+  // when both fingers do.
+  // ---------------------------------------------------------------------
+  useEffect(() => {
+    const svg = svgRef.current
+    if (!svg) return
+
+    const track = (touches: TouchList, id: number): Touch | null => {
+      for (let i = 0; i < touches.length; i++) {
+        const touch = touches.item(i)
+        if (touch && touch.identifier === id) return touch
+      }
+      return null
+    }
+
+    const onTouchStart = (event: TouchEvent) => {
+      if (event.touches.length < 2) return
+      const first = event.touches.item(0)
+      const second = event.touches.item(1)
+      if (!first || !second) return
+      event.preventDefault()
+      claimView()
+      // A second finger ends whatever one finger had started.
+      panRef.current = null
+      releaseDrag()
+      const t = transformRef.current
+      const mid = toCanvasPoint(
+        (first.clientX + second.clientX) / 2,
+        (first.clientY + second.clientY) / 2,
+      )
+      pinchRef.current = {
+        a: first.identifier,
+        b: second.identifier,
+        gap: Math.hypot(first.clientX - second.clientX, first.clientY - second.clientY),
+        k: t.k,
+        gx: (mid.x - t.x) / t.k,
+        gy: (mid.y - t.y) / t.k,
+      }
+    }
+
+    const onTouchMove = (event: TouchEvent) => {
+      const pinch = pinchRef.current
+      if (!pinch) return
+      const first = track(event.touches, pinch.a)
+      const second = track(event.touches, pinch.b)
+      if (!first || !second) return
+      event.preventDefault()
+      const gap = Math.hypot(first.clientX - second.clientX, first.clientY - second.clientY)
+      if (gap <= 0 || pinch.gap <= 0) return
+      const k = Math.min(MAX_K, Math.max(MIN_K, pinch.k * (gap / pinch.gap)))
+      const mid = toCanvasPoint(
+        (first.clientX + second.clientX) / 2,
+        (first.clientY + second.clientY) / 2,
+      )
+      setTransform({ x: mid.x - pinch.gx * k, y: mid.y - pinch.gy * k, k })
+    }
+
+    const onTouchEnd = () => {
+      if (!pinchRef.current) return
+      pinchRef.current = null
+      gesturedRef.current = true
+    }
+
+    svg.addEventListener('touchstart', onTouchStart, { passive: false })
+    svg.addEventListener('touchmove', onTouchMove, { passive: false })
+    svg.addEventListener('touchend', onTouchEnd)
+    svg.addEventListener('touchcancel', onTouchEnd)
+    return () => {
+      svg.removeEventListener('touchstart', onTouchStart)
+      svg.removeEventListener('touchmove', onTouchMove)
+      svg.removeEventListener('touchend', onTouchEnd)
+      svg.removeEventListener('touchcancel', onTouchEnd)
+    }
+  }, [toCanvasPoint, claimView, releaseDrag])
+
   const onPointerDownBackground = (event: ReactPointerEvent<SVGSVGElement>) => {
-    if (dragRef.current) return
+    if (dragRef.current || pinchRef.current) return
+    stopAnimation()
     panRef.current = {
       startX: event.clientX,
       startY: event.clientY,
@@ -789,6 +1126,8 @@ export function KnowledgeMap({
   }
 
   const onPointerMove = (event: ReactPointerEvent<SVGSVGElement>) => {
+    // The pinch handler owns the transform while two fingers are down.
+    if (pinchRef.current) return
     const drag = dragRef.current
     if (drag) {
       drag.moved = true
@@ -804,7 +1143,7 @@ export function KnowledgeMap({
     if (pan) {
       const svg = svgRef.current
       if (!svg) return
-      viewMovedRef.current = true
+      claimView()
       const rect = svg.getBoundingClientRect()
       const dx = ((event.clientX - pan.startX) / rect.width) * size.w
       const dy = ((event.clientY - pan.startY) / rect.height) * size.h
@@ -813,21 +1152,14 @@ export function KnowledgeMap({
   }
 
   const endPointer = () => {
-    if (dragRef.current) {
-      const node = positions.get(dragRef.current.id)
-      if (node) {
-        node.fx = null
-        node.fy = null
-      }
-      draggedRef.current = dragRef.current.moved
-      dragRef.current = null
-      cool()
-    }
+    releaseDrag()
     panRef.current = null
   }
 
   const startNodeDrag = (event: ReactPointerEvent, id: string) => {
     event.stopPropagation()
+    if (pinchRef.current) return
+    stopAnimation()
     dragRef.current = { id, moved: false }
     const point = toGraphPoint(event.clientX, event.clientY)
     const node = positions.get(id)
@@ -921,11 +1253,13 @@ export function KnowledgeMap({
   }, [layout, visibleStyles, visibleNodes, positions, radiusOf, frame])
 
   const zoomBy = (factor: number) => {
-    viewMovedRef.current = true
+    claimView()
     setTransform((t) => {
-      const k = Math.min(4, Math.max(0.35, t.k * factor))
-      const cx = size.w / 2
-      const cy = size.h / 2
+      const k = Math.min(MAX_K, Math.max(MIN_K, t.k * factor))
+      // About the middle of the space the panels leave free, so pressing + with
+      // the detail sheet up magnifies what the reader can actually see.
+      const cx = insets.left + (size.w - insets.left - insets.right) / 2
+      const cy = (size.h - insets.bottom) / 2
       return { x: cx - ((cx - t.x) / t.k) * k, y: cy - ((cy - t.y) / t.k) * k, k }
     })
   }
@@ -939,7 +1273,7 @@ export function KnowledgeMap({
         viewBox={`0 0 ${size.w} ${size.h}`}
         preserveAspectRatio='xMidYMid meet'
         role='application'
-        aria-label='Knowledge map - drag to pan, scroll to zoom, click a node to explore it'
+        aria-label='Knowledge map - drag to pan, pinch or scroll to zoom, select a node to explore it'
         tabIndex={0}
         className='rp-focus rp-map block h-full w-full cursor-grab touch-none select-none active:cursor-grabbing'
         onWheel={onWheel}
@@ -947,7 +1281,15 @@ export function KnowledgeMap({
         onPointerMove={onPointerMove}
         onPointerUp={endPointer}
         onPointerLeave={endPointer}
-        onClick={() => onSelect(null)}
+        onClick={() => {
+          // The click a browser synthesises at the end of a pinch is not a tap
+          // on the background and must not clear the selection.
+          if (gesturedRef.current) {
+            gesturedRef.current = false
+            return
+          }
+          onSelect(null)
+        }}
       >
         <MapDefs />
         <rect
@@ -1215,7 +1557,18 @@ export function KnowledgeMap({
         {hint}
       </p>
 
-      <div className='absolute bottom-4 right-4 flex flex-col gap-1'>
+      {
+        /* Zoom controls. A panel that covers the bottom of the canvas would
+          bury them, so they ride above it - and lie down into a row while they
+          are there, because a 116px column would take half of the strip of map
+          the sheet leaves visible. */
+      }
+      <div
+        className={`absolute right-4 flex gap-1 ${
+          insets.bottom > 0 ? 'flex-row-reverse' : 'flex-col'
+        }`}
+        style={{ bottom: insets.bottom + 16 }}
+      >
         <button
           type='button'
           aria-label='Zoom in'
