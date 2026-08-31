@@ -1,4 +1,4 @@
-app = "arag-research-portal"
+app = "noice-fisheries-demo"
 primary_region = "syd"
 
 [build]

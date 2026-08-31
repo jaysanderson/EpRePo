@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: deploy-arag-research-portal
+  group: deploy-noice-fisheries-demo
   cancel-in-progress: false
 
 jobs:

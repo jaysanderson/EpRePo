@@ -167,19 +167,19 @@ function useLiveSimulation(nodes: MapNode[], edges: MapEdge[]) {
     nodesRef.current = simNodes
     const simEdges = edges.map((e) => ({ ...e }))
     const simulation = forceSimulation<SimNode>(simNodes)
-      .force('charge', forceManyBody().strength(-85).distanceMax(420))
+      .force('charge', forceManyBody().strength(-150).distanceMax(520))
       .force(
         'link',
         forceLink<SimNode, { source: string; target: string }>(simEdges)
           .id((d) => d.id)
-          .distance(52)
-          .strength(0.75),
+          .distance(76)
+          .strength(0.6),
       )
       .force('center', forceCenter(SIM_W / 2, SIM_H / 2))
       // Without a positional pull, weakly connected and isolated entities drift
       // to the far edges and the map reads as scattered dust.
-      .force('x', forceX<SimNode>(SIM_W / 2).strength(0.09))
-      .force('y', forceY<SimNode>(SIM_H / 2).strength(0.09))
+      .force('x', forceX<SimNode>(SIM_W / 2).strength(0.055))
+      .force('y', forceY<SimNode>(SIM_H / 2).strength(0.055))
       .force('collide', forceCollide<SimNode>().radius((d) => radiusFor(d.weight) + 6))
     simRef.current = simulation
 
@@ -459,12 +459,38 @@ function GraphCanvas({
   }
 
   const labelledIds = useMemo(() => {
-    // Labels for the most connected nodes; everything gets one when zoomed in
-    // or when it is part of the current focus.
+    // Labels are placed greedily, most-connected first, and any label whose box
+    // would collide with one already placed is dropped. Boxes are measured in
+    // simulation units divided by the zoom, so a label occupies less of the
+    // model the further you zoom in - which is what makes zooming reveal more
+    // labels rather than piling them on top of each other.
+    const k = Math.max(transform.k, 0.35)
     const byWeight = [...visibleNodes].sort((a, b) => b.weight - a.weight)
-    return new Set(
-      byWeight.slice(0, transform.k >= 1.3 ? visibleNodes.length : 26).map((n) => n.id),
-    )
+    const placed: { x1: number; y1: number; x2: number; y2: number }[] = []
+    const kept = new Set<string>()
+    const budget = Math.min(visibleNodes.length, Math.round(26 * k))
+    for (const node of byWeight) {
+      if (kept.size >= budget) break
+      const sim = nodesRef.current.find((n) => n.id === node.id)
+      if (sim?.x === undefined || sim.y === undefined) continue
+      const text = shortLabel(node.label)
+      const halfW = (text.length * 13 * 0.5) / 2 / k
+      const h = 15 / k
+      const r = radiusFor(node.weight)
+      const box = {
+        x1: sim.x - halfW,
+        x2: sim.x + halfW,
+        y1: sim.y - r - 6 - h,
+        y2: sim.y - r - 6,
+      }
+      const hits = placed.some((p) =>
+        box.x1 < p.x2 && box.x2 > p.x1 && box.y1 < p.y2 && box.y2 > p.y1
+      )
+      if (hits) continue
+      placed.push(box)
+      kept.add(node.id)
+    }
+    return kept
   }, [visibleNodes, transform.k])
 
   const zoomBy = (factor: number) =>
