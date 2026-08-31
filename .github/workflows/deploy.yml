@@ -1,10 +1,11 @@
 name: Gate and deploy
 
-# The only path to production: local -> repo -> fly.io. Nothing deploys from a
-# developer machine; a push that fails the gate never reaches the app.
+# The only path to production: PR -> main -> fly.io. Nothing deploys from a
+# developer machine, and nothing reaches main except through a pull request that
+# passed CI. A push that fails the gate never reaches the app.
 on:
   push:
-    branches: [scaffold]
+    branches: [main]
   workflow_dispatch:
 
 concurrency:

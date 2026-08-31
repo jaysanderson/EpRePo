@@ -52,11 +52,23 @@ Capture the answers in `docs/VISION.md` as they're decided.
 - Real content over placeholders; real empty/error/loading states, not blank divs.
 - Australian English, no em dashes (spaced hyphen) in any user-facing copy - this becomes a
   Progress asset.
-- Work on a branch; don't commit to main without asking. Secrets live in `.env` only (gitignored).
-- **Deployment order is local -> repo -> fly.io, always.** Never run `fly deploy`
-  from a developer machine. Commit, push to `origin/scaffold`, and the GitHub
-  Actions pipeline gates (typecheck, lint, format, tests, build) then deploys.
-  A push that fails the gate never reaches production.
+- Secrets live in `.env` only (gitignored).
+- **Branching and delivery - this is the process, not a suggestion.**
+  - `main` is production. A push to `main` deploys to fly.io. Nothing else deploys.
+  - **Never commit or push directly to `main`.** Never run `fly deploy` from a
+    developer machine.
+  - Work on a short-lived branch off `main`, one branch per piece of work, then
+    **open a pull request**. CI (typecheck, lint, format, tests, web build) runs
+    on every PR; a red PR is not merge-ready.
+  - An **orchestration agent drains merge-ready PRs into `main`**. It is the only
+    thing that merges. Its job is to check CI is green, resolve conflicts against
+    current `main`, merge in a sensible order when PRs touch the same files, and
+    stop and escalate rather than force anything through.
+  - So the order is: **branch -> PR -> CI green -> orchestrator merges to main ->
+    main deploys to fly.io.** A change that fails the gate never reaches
+    production, and no single agent both writes and ships its own work.
+  - Parallel agents must take disjoint file sets and their own branches. Two
+    agents editing the same file in one working tree is how you lose work.
 
 ## Operating rules (locked with Jay, 2026-08-28) - these are HARD rules
 See `docs/VISION.md` decisions log and `docs/BACKLOG.md` for the running detail. The essentials:
