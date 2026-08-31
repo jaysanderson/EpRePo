@@ -1408,55 +1408,84 @@ export function GraphPage() {
       <div className='relative z-30 shrink-0 md:hidden'>
         <div className='relative overflow-hidden border-b border-line'>
           <HeroGround bannerImageUrl={config.branding.bannerImageUrl} />
-          <div className='relative flex items-center gap-1.5 px-3 py-2'>
-            <div className='min-w-0 flex-1'>
-              <h1
-                className='rp-display truncate text-[15px] leading-tight text-[var(--rp-on-primary)]'
-                // .rp-display carries text-wrap: balance, which outranks the
-                // nowrap inside `truncate` and would let the title take a
-                // second line - and the strip's height with it - under about
-                // 340px. Inline, so the strip stays one line at any width.
-                style={{ whiteSpace: 'nowrap' }}
+          {
+            /* A literal 1.5rem, not px-6. Tailwind emits every spacing utility
+              as calc(var(--spacing) * n) and this app derives --spacing from
+              the per-tenant density dial, while the header's own gutter
+              (.rp-shell) is a fixed 1.5rem. On a spacious portal px-6 would
+              resolve to 33.6px against the header's 24px and the map's title
+              would sit visibly off the logo directly above it. */
+          }
+          <div className='relative py-2' style={{ paddingInline: '1.5rem' }}>
+            {
+              /* At the house heading size the title cannot share a row with the
+                five glyph controls on any phone, so it takes the row above
+                them. That also retires the nowrap this title used to carry: it
+                was there because the title had about 144px beside the controls
+                and .rp-display's `text-wrap: balance` outranks the nowrap
+                inside `truncate`, so it would have taken a second line and the
+                strip's height with it. With the row to itself it has 92px of
+                slack at 320px and 162px at 390px, so it cannot wrap at the
+                default font - and where it genuinely cannot fit, at 320px with
+                a scaled-up root font, balance taking a second line is the right
+                answer for a two-word page title where nowrap would have clipped
+                it to "Knowledge ma…". `truncate` stays for its overflow guard,
+                which still catches a single unbreakable word. */
+            }
+            <h1 className='rp-display truncate text-2xl leading-tight text-[var(--rp-on-primary)]'>
+              Knowledge map
+            </h1>
+            <div className='mt-1.5 flex items-center gap-1.5'>
+              <div className='min-w-0 flex-1'>
+                {hasGraph
+                  ? (
+                    <p className='truncate text-[11px] leading-tight text-[var(--rp-on-primary)]/75'>
+                      {
+                        /* Demoted, and demoted again on the narrowest phones:
+                          the category count the wide hero carries is dropped
+                          here (the navigator's legend names every category
+                          anyway), and the relation count follows it on a narrow
+                          screen rather than being cut off mid-word. The
+                          threshold is 390 rather than the 380 it was: this row
+                          now carries the header's 24px gutter instead of 12px,
+                          which takes 24px off the caption, and the full text
+                          measures 132px against the 131.8px a 380px screen
+                          leaves it. */
+                      }
+                      {nodeCount}
+                      <span className='hidden min-[390px]:inline'>{` · ${edgeCount}`}</span>
+                    </p>
+                  )
+                  : null}
+              </div>
+              <button
+                type='button'
+                aria-label='Find in the map'
+                aria-expanded={searchOpen}
+                title='Find in the map'
+                onClick={() => setSearchOpen((open) => !open)}
+                className={`rp-focus flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--rp-radius-btn)] border transition-colors duration-150 ${
+                  searchOpen
+                    ? 'border-transparent bg-[var(--rp-on-primary)] text-[var(--rp-primary)]'
+                    : 'border-[var(--rp-on-primary)]/45 text-[var(--rp-on-primary)]/80'
+                }`}
               >
-                Knowledge map
-              </h1>
-              {hasGraph
-                ? (
-                  <p className='truncate text-[11px] leading-tight text-[var(--rp-on-primary)]/75'>
-                    {
-                      /* Demoted, and demoted again on the narrowest phones: the
-                        category count the wide hero carries is dropped here
-                        (the navigator's legend names every category anyway),
-                        and the relation count follows it below 380px rather
-                        than being cut off mid-word. */
-                    }
-                    {nodeCount}
-                    <span className='hidden min-[380px]:inline'>{` · ${edgeCount}`}</span>
-                  </p>
-                )
-                : null}
+                <SearchGlyph />
+              </button>
+              <ModeToggle mode={mode} onChange={switchMode} compact />
+              {hasGraph ? <LayoutToggle layout={layout} onChange={setLayout} compact /> : null}
             </div>
-            <button
-              type='button'
-              aria-label='Find in the map'
-              aria-expanded={searchOpen}
-              title='Find in the map'
-              onClick={() => setSearchOpen((open) => !open)}
-              className={`rp-focus flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--rp-radius-btn)] border transition-colors duration-150 ${
-                searchOpen
-                  ? 'border-transparent bg-[var(--rp-on-primary)] text-[var(--rp-primary)]'
-                  : 'border-[var(--rp-on-primary)]/45 text-[var(--rp-on-primary)]/80'
-              }`}
-            >
-              <SearchGlyph />
-            </button>
-            <ModeToggle mode={mode} onChange={switchMode} compact />
-            {hasGraph ? <LayoutToggle layout={layout} onChange={setLayout} compact /> : null}
           </div>
         </div>
         {searchOpen
           ? (
-            <div className='rp-anim-fade absolute inset-x-0 top-full border-b border-line bg-surface px-3 py-2 rp-shadow-md'>
+            <div
+              className='rp-anim-fade absolute inset-x-0 top-full border-b border-line bg-surface py-2 rp-shadow-md'
+              // The same literal gutter as the strip it drops out of, so the
+              // field's edges continue the title's rather than sitting inside
+              // them.
+              style={{ paddingInline: '1.5rem' }}
+            >
               <NodeSearch
                 nodes={nodes}
                 groupStyles={groupStyles}
