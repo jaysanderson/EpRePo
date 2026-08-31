@@ -1,11 +1,12 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import type { AskEvent, Citation, ScoredResource } from '@research-portal/core'
+import type { AskEvent, AskStage, Citation, ScoredResource } from '@research-portal/core'
 import { ApiError, streamAsk } from '../api/client.ts'
 import { citationHref } from './AnswerStream.tsx'
 import { CurrencyNote } from './CurrencyNote.tsx'
 import { ConfidenceIndicator, type QualityScores } from './QualityGauge.tsx'
-import { ErrorCard, LiveStatus, Skeleton } from './ui.tsx'
+import { ErrorCard, LiveStatus } from './ui.tsx'
+import { StageTimeline, statusesFor } from './StageTimeline.tsx'
 
 /**
  * Matches `RATE_LIMIT_MESSAGE` in apps/api/src/rate-limit.ts word for word.
@@ -137,17 +138,6 @@ function renderAnswer(
   )
 }
 
-/** Three shimmering lines while the answer is forming and no text has arrived yet. */
-function AnswerSkeleton() {
-  return (
-    <div className='space-y-2' aria-hidden='true'>
-      <Skeleton className='h-4 w-full' />
-      <Skeleton className='h-4 w-full' />
-      <Skeleton className='h-4 w-2/3' />
-    </div>
-  )
-}
-
 /**
  * The AI Answer panel on the search results page: a streamed, cited answer for
  * the same query the results below are for. This is the DEFAULT state of a
@@ -175,6 +165,8 @@ export function SearchAnswer({ slug, query, onResult }: SearchAnswerProps) {
   const [quality, setQuality] = useState<QualityScores | undefined>(undefined)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [stageLabel, setStageLabel] = useState<string | null>(null)
+  const [activeStage, setActiveStage] = useState<AskStage | null>(null)
+  const [seenStages, setSeenStages] = useState<Set<AskStage>>(() => new Set())
   const [collapsed, setCollapsed] = useState(false)
   const [retryToken, setRetryToken] = useState(0)
   const abortRef = useRef<AbortController | null>(null)
@@ -208,12 +200,19 @@ export function SearchAnswer({ slug, query, onResult }: SearchAnswerProps) {
     setRefused(false)
     setQuality(undefined)
     setErrorMessage(null)
-    setStageLabel('Retrieving sources…')
+    setStageLabel(null)
+    setActiveStage(null)
+    setSeenStages(new Set())
 
     streamAsk(slug, { query: trimmed }, (event: AskEvent) => {
       switch (event.type) {
         case 'stage':
           setStageLabel(event.status === 'started' ? STAGE_LABELS[event.stage] ?? null : null)
+          if (event.status === 'started') {
+            setActiveStage(event.stage)
+          } else {
+            setSeenStages((prev) => new Set(prev).add(event.stage))
+          }
           break
         case 'sources':
           setSources(event.resources)
@@ -347,7 +346,7 @@ export function SearchAnswer({ slug, query, onResult }: SearchAnswerProps) {
                 />
               )
               : status === 'streaming' && text.length === 0
-              ? <AnswerSkeleton />
+              ? <StageTimeline statuses={statusesFor(activeStage, seenStages)} />
               : (
                 <>
                   {refused

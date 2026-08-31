@@ -8,7 +8,7 @@ import {
 } from 'react'
 import { Link, useOutletContext, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import type { AskEvent, Citation, ScoredResource } from '@research-portal/core'
+import type { AskEvent, AskStage, Citation, ScoredResource } from '@research-portal/core'
 import {
   addWatch,
   deleteServerSession,
@@ -38,6 +38,7 @@ import {
 import { LiveStatus } from '../components/ui.tsx'
 import { isThinlyGrounded } from '../lib/confidence.ts'
 import type { TenantOutletContext } from './TenantLayout.tsx'
+import { type StageStatuses, StageTimeline, statusesFor } from '../components/StageTimeline.tsx'
 
 // ---------------------------------------------------------------------------
 // Local types + localStorage persistence
@@ -325,13 +326,6 @@ function renderMarkdown(
   )
 }
 
-const STAGE_LABELS: Record<string, string> = {
-  preprocessing: 'Preparing your question…',
-  retrieval: 'Retrieving sources…',
-  generating: 'Generating…',
-  validating: 'Checking the answer…',
-}
-
 // ---------------------------------------------------------------------------
 // Sidebar
 // ---------------------------------------------------------------------------
@@ -580,29 +574,93 @@ function FeedbackControl({
   }
 
   return (
-    <div className='flex items-center gap-1'>
-      <button
-        type='button'
+    <div className='flex items-center gap-0.5'>
+      <ActionIcon
+        label='Helpful answer'
         onClick={() => handleRate(true)}
         disabled={busy}
-        aria-label='Helpful answer'
-        title='Helpful answer'
-        className='rp-btn rp-btn-ghost h-7 px-2 text-xs'
-      >
-        Helpful
-      </button>
-      <button
-        type='button'
+        path={ICON_THUMB_UP}
+      />
+      <ActionIcon
+        label='Not a helpful answer'
         onClick={() => handleRate(false)}
         disabled={busy}
-        aria-label='Not a helpful answer'
-        title='Not a helpful answer'
-        className='rp-btn rp-btn-ghost h-7 px-2 text-xs'
-      >
-        Not helpful
-      </button>
+        path={ICON_THUMB_DOWN}
+      />
       {error ? <p className='text-xs text-[var(--rp-bad-ink)]'>{error}</p> : null}
     </div>
+  )
+}
+
+/** Icon-only action used across the answer footer row. */
+function ActionIcon(
+  { label, onClick, disabled, active, path, filled }: {
+    label: string
+    onClick: () => void
+    disabled?: boolean
+    active?: boolean
+    path: string
+    filled?: boolean
+  },
+) {
+  return (
+    <button
+      type='button'
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={label}
+      aria-pressed={active}
+      title={label}
+      className='rp-focus flex h-9 w-9 items-center justify-center rounded-none transition-colors duration-150 disabled:opacity-40'
+      style={{ color: active ? 'var(--rp-accent)' : 'var(--rp-ink-3)' }}
+    >
+      <svg
+        viewBox='0 0 24 24'
+        fill={filled ? 'currentColor' : 'none'}
+        stroke='currentColor'
+        strokeWidth='1.7'
+        strokeLinecap='round'
+        strokeLinejoin='round'
+        className='h-[1.15rem] w-[1.15rem]'
+        aria-hidden='true'
+      >
+        <path d={path} />
+      </svg>
+    </button>
+  )
+}
+
+const ICON_THUMB_UP =
+  'M7 10.5v9H4.5a1 1 0 01-1-1v-7a1 1 0 011-1H7zm0 0l4-7a2 2 0 012 2v3h4.6a2 2 0 011.96 2.44l-1.3 6A2 2 0 0116.3 19.5H7'
+const ICON_THUMB_DOWN =
+  'M17 13.5v-9h2.5a1 1 0 011 1v7a1 1 0 01-1 1H17zm0 0l-4 7a2 2 0 01-2-2v-3H6.4a2 2 0 01-1.96-2.44l1.3-6A2 2 0 017.7 4.5H17'
+const ICON_RETRY = 'M4.5 9.5a8 8 0 1113 8M4.5 4.5v5h5'
+const ICON_COPY = 'M9 9h9.5v9.5H9zM6 15H4.5V4.5H15V6'
+const ICON_WATCH =
+  'M12 5c-5 0-8 4.6-8.6 6.4a1.8 1.8 0 000 1.2C4 14.4 7 19 12 19s8-4.6 8.6-6.4a1.8 1.8 0 000-1.2C20 9.6 17 5 12 5z M12 14.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5z'
+
+/** Copies the answer text, confirming in place rather than with a toast. */
+function CopyAnswer({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false)
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1600)
+    } catch {
+      // Clipboard access can be refused; the button simply does not confirm.
+    }
+  }
+
+  if (text.trim().length === 0) return null
+  return (
+    <ActionIcon
+      label={copied ? 'Answer copied' : 'Copy the answer'}
+      onClick={() => void copy()}
+      active={copied}
+      path={copied ? 'M5 12.5l4.5 4.5L19 7.5' : ICON_COPY}
+    />
   )
 }
 
@@ -636,14 +694,12 @@ function WatchControl({ question, slug }: { question: string; slug: string }) {
 
   return (
     <div className='flex items-center gap-1.5'>
-      <button
-        type='button'
+      <ActionIcon
+        label={status === 'busy' ? 'Saving the watch' : 'Watch this question'}
         onClick={handleWatch}
         disabled={status === 'busy'}
-        className='rp-btn rp-btn-ghost h-7 px-2 text-xs'
-      >
-        {status === 'busy' ? 'Watching…' : 'Watch this question'}
-      </button>
+        path={ICON_WATCH}
+      />
       {status === 'error'
         ? <p className='text-xs text-[var(--rp-bad-ink)]'>Could not save the watch - try again.</p>
         : null}
@@ -659,7 +715,7 @@ function AssistantCard({
   slug,
   question,
   subqueries,
-  activeStage,
+  stageStatuses,
   onRetry,
   onFeedback,
   onReanswerDeeply,
@@ -670,7 +726,7 @@ function AssistantCard({
   slug: string
   question: string
   subqueries: string[]
-  activeStage: string | null
+  stageStatuses?: StageStatuses
   onRetry: () => void
   onFeedback: (good: boolean, text?: string) => Promise<boolean>
   onReanswerDeeply: () => void
@@ -774,14 +830,6 @@ function AssistantCard({
   if (!message.pending && message.refused) {
     return (
       <div className='rounded-[calc(var(--rp-radius)+4px)] border border-line bg-surface p-5 shadow-sm'>
-        {message.interpretedQuery
-          ? (
-            <p className='mb-2 text-xs text-ink-3'>
-              Interpreted as &ldquo;{message.interpretedQuery}&rdquo;
-            </p>
-          )
-          : null}
-
         <div className='mb-2'>
           <span className='rp-badge rp-badge-quiet'>No direct evidence found</span>
         </div>
@@ -829,50 +877,25 @@ function AssistantCard({
   }
 
   return (
-    <div className='rounded-[calc(var(--rp-radius)+4px)] border border-line bg-surface p-5 shadow-sm'>
+    <div
+      className={message.pending
+        ? 'rounded-none p-5'
+        : 'rounded-[calc(var(--rp-radius)+4px)] border border-line bg-surface p-5 shadow-sm'}
+    >
       {message.deepBadge || message.interpretedQuery
         ? (
           <div className='mb-2 flex flex-wrap items-center gap-2'>
             {message.deepBadge
               ? <span className='rp-badge rp-badge-quiet'>Deep re-answer</span>
               : null}
-            {message.interpretedQuery
-              ? (
-                <p className='text-xs text-ink-3'>
-                  Interpreted as &ldquo;{message.interpretedQuery}&rdquo;
-                </p>
-              )
-              : null}
           </div>
-        )
-        : null}
-
-      {message.pending && activeStage
-        ? (
-          <p className='mb-2 flex items-center gap-2 text-xs font-medium text-ink-3'>
-            <span
-              className='h-1.5 w-1.5 animate-pulse rounded-full'
-              style={{ backgroundColor: 'var(--rp-accent)' }}
-              aria-hidden='true'
-            />
-            {activeStage}
-          </p>
         )
         : null}
 
       {message.text.length > 0
         ? renderMarkdown(message.text, message.citations, message.sources, slug)
         : message.pending
-        ? (
-          <p className='flex items-center gap-2 text-sm text-ink-3'>
-            <span className='rp-dots' aria-hidden='true'>
-              <span />
-              <span />
-              <span />
-            </span>
-            <span className='sr-only'>Working</span>
-          </p>
-        )
+        ? <StageTimeline statuses={stageStatuses ?? {}} />
         : null}
 
       {message.pending && message.text.length > 0
@@ -958,9 +981,17 @@ function AssistantCard({
       {/* Answer-level actions stay visible next to the quality signal. */}
       {!message.pending && (message.learningId || question.trim().length > 0)
         ? (
-          <div className='mt-3 flex flex-wrap items-center gap-3'>
+          <div className='mt-3 flex flex-wrap items-center justify-between gap-3'>
             <FeedbackControl message={message} onFeedback={onFeedback} />
-            <WatchControl question={question} slug={slug} />
+            <div className='flex items-center gap-0.5'>
+              <CopyAnswer text={message.text} />
+              <ActionIcon
+                label='Ask this again'
+                onClick={() => onAskSubquery?.(question)}
+                path={ICON_RETRY}
+              />
+              <WatchControl question={question} slug={slug} />
+            </div>
           </div>
         )
         : null}
@@ -1221,7 +1252,9 @@ export function AssistantPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [draft, setDraft] = useState('')
   const [isStreaming, setIsStreaming] = useState(false)
-  const [activeStageLabel, setActiveStageLabel] = useState<string | null>(null)
+  const [activeStage, setActiveStage] = useState<AskStage | null>(null)
+  const [seenStages, setSeenStages] = useState<Set<AskStage>>(() => new Set())
+  const stageStatuses = statusesFor(activeStage, seenStages)
   const [showSidebar, setShowSidebar] = useState(false)
   const [deepResearch, setDeepResearch] = useState(false)
 
@@ -1459,7 +1492,8 @@ export function AssistantPage() {
     ]
     setMessages(working)
     setIsStreaming(true)
-    setActiveStageLabel(null)
+    setActiveStage(null)
+    setSeenStages(new Set())
 
     const controller = new AbortController()
     abortRef.current = controller
@@ -1476,9 +1510,11 @@ export function AssistantPage() {
         (event: AskEvent) => {
           switch (event.type) {
             case 'stage':
-              setActiveStageLabel(
-                event.status === 'started' ? STAGE_LABELS[event.stage] ?? null : null,
-              )
+              if (event.status === 'started') {
+                setActiveStage(event.stage)
+              } else {
+                setSeenStages((prev) => new Set(prev).add(event.stage))
+              }
               break
             case 'sources':
               update((message) => ({ ...message, sources: event.resources }))
@@ -1575,7 +1611,8 @@ export function AssistantPage() {
       }
     } finally {
       setIsStreaming(false)
-      setActiveStageLabel(null)
+      setActiveStage(null)
+      setSeenStages(new Set())
       abortRef.current = null
       persist(working, sessionId)
     }
@@ -1605,7 +1642,7 @@ export function AssistantPage() {
       // An empty result or a failed call just falls through to a normal deep
       // ask (depth only, no prequeries) - deep research never blocks on this.
       setIsStreaming(true)
-      setActiveStageLabel('Mapping the research space…')
+      setActiveStage('retrieval')
       // Stop must work during this phase too - give it a controller before
       // the sub-question call, and bail out if the user aborted meanwhile.
       const mappingController = new AbortController()
@@ -1619,7 +1656,8 @@ export function AssistantPage() {
       }
       if (mappingController.signal.aborted) {
         setIsStreaming(false)
-        setActiveStageLabel(null)
+        setActiveStage(null)
+        setSeenStages(new Set())
         return
       }
       if (subqueries.length > 0) {
@@ -1888,7 +1926,7 @@ export function AssistantPage() {
                       subqueries={messages[index - 1]?.author === 'USER'
                         ? messages[index - 1]?.subqueries ?? []
                         : []}
-                      activeStage={index === messages.length - 1 ? activeStageLabel : null}
+                      stageStatuses={index === messages.length - 1 ? stageStatuses : undefined}
                       onRetry={() => retry(message.id)}
                       onFeedback={(good, text) => sendFeedback(message.id, good, text)}
                       onReanswerDeeply={() =>
@@ -1904,18 +1942,6 @@ export function AssistantPage() {
                   )
               )
             )}
-          {isStreaming && activeStageLabel && messages[messages.length - 1]?.author === 'USER'
-            ? (
-              <div className='flex items-center gap-2 rounded-[calc(var(--rp-radius)+4px)] border border-line bg-surface px-4 py-3 text-xs font-medium text-ink-3 shadow-sm'>
-                <span
-                  className='h-1.5 w-1.5 animate-pulse rounded-full'
-                  style={{ backgroundColor: 'var(--rp-accent)' }}
-                  aria-hidden='true'
-                />
-                {activeStageLabel}
-              </div>
-            )
-            : null}
           <div ref={threadEndRef} />
         </section>
 

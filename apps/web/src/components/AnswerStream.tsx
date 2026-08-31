@@ -1,10 +1,11 @@
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import type { AskEvent, Citation, ScoredResource } from '@research-portal/core'
+import type { AskEvent, AskStage, Citation, ScoredResource } from '@research-portal/core'
 import { type AskRequest, streamAsk } from '../api/client.ts'
 import { AnswerJourney } from './AnswerJourney.tsx'
 import { CurrencyNote } from './CurrencyNote.tsx'
 import { type QualityScores, TrustSignals } from './QualityGauge.tsx'
+import { StageTimeline, statusesFor } from './StageTimeline.tsx'
 
 type Status = 'idle' | 'streaming' | 'done' | 'error'
 type UsageEvent = Extract<AskEvent, { type: 'usage' }>
@@ -304,6 +305,8 @@ export function AnswerStream({ slug, request, onSources, onRetry }: AnswerStream
   const [quality, setQuality] = useState<QualityScores | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [retryToken, setRetryToken] = useState(0)
+  const [activeStage, setActiveStage] = useState<AskStage | null>(null)
+  const [seenStages, setSeenStages] = useState<Set<AskStage>>(() => new Set())
   const abortRef = useRef<AbortController | null>(null)
 
   const key = `${slug}|${request.query}|${request.resourceId ?? ''}|${
@@ -311,6 +314,8 @@ export function AnswerStream({ slug, request, onSources, onRetry }: AnswerStream
   }|${retryToken}`
 
   function retry() {
+    setActiveStage(null)
+    setSeenStages(new Set())
     setRetryToken((prev) => prev + 1)
     onRetry?.()
   }
@@ -370,6 +375,11 @@ export function AnswerStream({ slug, request, onSources, onRetry }: AnswerStream
           setStatus('error')
           break
         case 'stage':
+          if (event.status === 'started') {
+            setActiveStage(event.stage)
+          } else {
+            setSeenStages((prev) => new Set(prev).add(event.stage))
+          }
           break
       }
     }, controller.signal).catch((err: unknown) => {
@@ -424,16 +434,7 @@ export function AnswerStream({ slug, request, onSources, onRetry }: AnswerStream
         {text.length > 0
           ? renderAnswerText(text)
           : status === 'streaming'
-          ? (
-            <p className='flex items-center gap-2 text-ink-3'>
-              <span className='rp-dots' aria-hidden='true'>
-                <span />
-                <span />
-                <span />
-              </span>
-              <span className='sr-only'>Writing the answer</span>
-            </p>
-          )
+          ? <StageTimeline statuses={statusesFor(activeStage, seenStages)} />
           : null}
         {status === 'streaming' && text.length > 0
           ? (

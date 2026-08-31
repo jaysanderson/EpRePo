@@ -883,3 +883,88 @@ label.rp-btn:has(input:focus-visible) {
     opacity: 0.6;
   }
 }
+
+/* ---------------------------------------------------------------------------
+ * Answer stage timeline - the waiting state for an ask. A vertical run of
+ * marks joined by a connector, driven by the pipeline's own stage events.
+ * ------------------------------------------------------------------------- */
+.rp-stage-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 9999px;
+  background-color: var(--rp-surface-2);
+  color: var(--rp-ink-3);
+  transition: background-color 260ms var(--rp-ease), color 260ms var(--rp-ease);
+}
+
+.rp-stage-mark-active {
+  background-color: color-mix(in srgb, var(--rp-accent) 18%, var(--rp-surface));
+  color: var(--rp-accent);
+}
+
+.rp-stage-mark-done {
+  background-color: var(--rp-accent);
+  color: #ffffff;
+}
+
+.rp-stage-line {
+  width: 2px;
+  flex: 1;
+  min-height: 0.85rem;
+  margin-block: 0.15rem;
+  border-radius: 1px;
+  background-color: var(--rp-surface-3);
+  transition: background-color 260ms var(--rp-ease);
+}
+
+.rp-stage-line-done {
+  background-color: color-mix(in srgb, var(--rp-accent) 55%, transparent);
+}
+
+.rp-stage-pill {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  margin-block: 0.15rem;
+  padding: 0.45rem 0.9rem;
+  border-radius: 9999px;
+  background-color: var(--rp-surface-2);
+  color: var(--rp-ink);
+  font-size: 0.875rem;
+  font-weight: 500;
+  /* Each row eases in as the pipeline reaches it. */
+  animation: rp-stage-in 320ms var(--rp-ease) both;
+}
+
+.rp-stage-pill-idle {
+  background-color: transparent;
+  color: var(--rp-ink-3);
+}
+
+.rp-stage-spin {
+  animation: rp-stage-spin 900ms linear infinite;
+  transform-origin: 50% 50%;
+}
+
+@keyframes rp-stage-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes rp-stage-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rp-stage-spin,
+  .rp-stage-pill {
+    animation: none;
+  }
+}
