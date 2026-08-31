@@ -162,7 +162,7 @@ function AgentCard(
           <button
             type='button'
             onClick={() => setShowSchema((v) => !v)}
-            className='rp-focus rounded-[4px] text-xs font-medium text-ink-3 hover:text-ink'
+            className='rp-focus rounded-none text-xs font-medium text-ink-3 hover:text-ink'
           >
             {showSchema ? 'Hide raw schema' : 'Show raw schema'}
           </button>
@@ -183,7 +183,7 @@ function AgentCard(
 
       <div className='mt-4 flex flex-wrap items-center gap-3 border-t border-line pt-4'>
         <div
-          className='flex overflow-hidden rounded-[6px] border border-line'
+          className='flex overflow-hidden rounded-none border border-line'
           role='group'
           aria-label='Run scope'
         >

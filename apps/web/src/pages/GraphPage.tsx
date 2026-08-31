@@ -669,10 +669,10 @@ function NodeSearch({
   }, [query, nodes])
 
   return (
-    <div className='relative w-full sm:w-64'>
+    <div className='relative w-full sm:w-80'>
       <span
         aria-hidden='true'
-        className='pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-3'
+        className='pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-3'
       >
         <svg
           viewBox='0 0 20 20'
@@ -691,7 +691,7 @@ function NodeSearch({
         onChange={(event) => setQuery(event.target.value)}
         placeholder='Find in the map…'
         aria-label='Find an entity in the map'
-        className='rp-input h-9 w-full pl-9 text-sm'
+        className='rp-input rp-input-icon h-11 w-full text-sm'
       />
       {matches.length > 0
         ? (
@@ -731,8 +731,8 @@ function EvidenceList({ slug, name }: { slug: string; name: string }) {
   if (isLoading) {
     return (
       <div className='space-y-2'>
-        <div className='rp-shimmer bg-surface-3 h-10 rounded-[6px]' aria-hidden='true' />
-        <div className='rp-shimmer bg-surface-3 h-10 rounded-[6px]' aria-hidden='true' />
+        <div className='rp-shimmer bg-surface-3 h-10 rounded-none' aria-hidden='true' />
+        <div className='rp-shimmer bg-surface-3 h-10 rounded-none' aria-hidden='true' />
       </div>
     )
   }
@@ -1219,7 +1219,7 @@ function ModeToggle({ mode, onChange }: { mode: Mode; onChange: (mode: Mode) => 
     <div
       role='group'
       aria-label='Graph mode'
-      className='inline-flex shrink-0 rounded-[calc(var(--rp-radius)+2px)] border border-line bg-surface-2 p-1'
+      className='inline-flex h-11 shrink-0 overflow-hidden border border-line bg-surface'
     >
       {options.map((option) => (
         <button
@@ -1227,11 +1227,12 @@ function ModeToggle({ mode, onChange }: { mode: Mode; onChange: (mode: Mode) => 
           type='button'
           aria-pressed={mode === option.value}
           onClick={() => onChange(option.value)}
-          className={`rp-focus rounded-[var(--rp-radius)] px-3 py-1.5 text-sm font-medium transition-colors duration-150 ${
+          className={`rp-focus px-4 text-sm font-medium transition-colors duration-150 ${
             mode === option.value
-              ? 'bg-surface text-ink rp-shadow-sm'
-              : 'text-ink-3 hover:bg-[var(--rp-surface-3)] hover:text-[var(--rp-ink)]'
+              ? 'text-white'
+              : 'text-ink-3 hover:bg-[var(--rp-surface-2)] hover:text-[var(--rp-ink)]'
           }`}
+          style={mode === option.value ? { backgroundColor: 'var(--rp-primary)' } : undefined}
         >
           {option.label}
         </button>
@@ -1452,22 +1453,39 @@ export function GraphPage() {
     : `${nodes.length} ${nodes.length === 1 ? 'category' : 'categories'}`
 
   return (
-    <div className='flex h-[calc(100dvh-65px)] flex-col overflow-hidden bg-app'>
+    <div className='flex h-[calc(100dvh-var(--rp-header-h,126px))] flex-col overflow-hidden bg-app'>
       {
         /* Chrome - title, find and the lens toggle. Kept slim so the map owns
           the height below it. */
       }
-      <div className='shrink-0 border-b border-line bg-surface px-4 py-2.5 sm:px-6'>
-        <div className='flex flex-wrap items-center justify-between gap-x-4 gap-y-2'>
-          <div className='min-w-0'>
-            <h1 className='font-display text-xl leading-none text-ink sm:text-2xl'>
+      <div className='relative shrink-0 overflow-hidden border-b border-line'>
+        {config.branding.bannerImageUrl
+          ? (
+            <img
+              src={config.branding.bannerImageUrl}
+              alt=''
+              aria-hidden='true'
+              className='absolute inset-0 h-full w-full object-cover'
+            />
+          )
+          : null}
+        {/* Scrim - the banner is bright, so the type needs a guaranteed ground. */}
+        <div
+          className='absolute inset-0'
+          style={{
+            background:
+              'linear-gradient(180deg, color-mix(in srgb, var(--rp-primary) 78%, transparent), color-mix(in srgb, var(--rp-primary) 92%, transparent))',
+          }}
+          aria-hidden='true'
+        />
+        <div className='relative px-4 py-10 sm:px-6 sm:py-14'>
+          <div className='mx-auto max-w-3xl text-center'>
+            <h1 className='rp-display text-3xl text-white sm:text-4xl'>
               Knowledge map
             </h1>
-            {hasGraph
-              ? <p className='mt-1 hidden text-xs text-ink-2 sm:block'>{subtitle}</p>
-              : null}
+            {hasGraph ? <p className='mt-3 text-sm text-white/75'>{subtitle}</p> : null}
           </div>
-          <div className='flex min-w-0 flex-1 items-center justify-end gap-2 sm:flex-none'>
+          <div className='mt-7 flex flex-wrap items-center justify-center gap-2.5'>
             <NodeSearch nodes={nodes} onPick={focusAndSelect} />
             <ModeToggle mode={mode} onChange={switchMode} />
           </div>

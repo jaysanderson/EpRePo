@@ -7,7 +7,7 @@ import type { ResourceType } from '@research-portal/core'
  * surface token rides over the shimmer's own fill so it holds up in dark mode.
  */
 export function Skeleton({ className = '' }: { className?: string }) {
-  return <div className={`rp-shimmer bg-surface-3 rounded-[6px] ${className}`} aria-hidden='true' />
+  return <div className={`rp-shimmer bg-surface-3 rounded-none ${className}`} aria-hidden='true' />
 }
 
 const TYPE_LABELS: Record<ResourceType, string> = {
@@ -15,6 +15,17 @@ const TYPE_LABELS: Record<ResourceType, string> = {
   pdf: 'PDF',
   video: 'Video',
   web: 'Web',
+}
+
+/** The human label for a resource type, for de-duplicating against kind chips. */
+export function typeLabel(type: ResourceType): string {
+  return TYPE_LABELS[type]
+}
+
+/** Whether two chip labels say the same thing, ignoring case and separators. */
+export function sameLabel(a: string, b: string): boolean {
+  const norm = (value: string) => value.toLowerCase().replace(/[_\-\s]+/g, ' ').trim()
+  return norm(a) === norm(b)
 }
 
 /**
@@ -43,7 +54,7 @@ export function ErrorCard({
       <div className='flex items-start gap-3'>
         <span
           aria-hidden='true'
-          className='flex h-8 w-8 shrink-0 items-center justify-center rounded-[6px] bg-[var(--rp-bad-bg)] text-[var(--rp-bad-ink)]'
+          className='flex h-8 w-8 shrink-0 items-center justify-center rounded-none bg-[var(--rp-bad-bg)] text-[var(--rp-bad-ink)]'
         >
           <svg viewBox='0 0 20 20' fill='currentColor' className='h-4 w-4'>
             <path
@@ -70,7 +81,7 @@ export function EmptyState(
   { title, description, children }: { title: string; description?: string; children?: ReactNode },
 ) {
   return (
-    <div className='rounded-[10px] border border-dashed border-line bg-surface-2 p-6'>
+    <div className='rounded-none border border-dashed border-line bg-surface-2 p-6'>
       <p className='text-sm font-semibold text-ink'>{title}</p>
       {description
         ? <p className='mt-1 max-w-xl text-sm leading-relaxed text-ink-2'>{description}</p>

@@ -3,62 +3,11 @@ import { type TenantConfig, TenantConfigSchema, type TenantSummary } from '@rese
 import { readJsonSafe, writeJsonAtomic } from './persist.ts'
 
 // ---------------------------------------------------------------------------
-// Seed tenant configs - the single source of truth for tenant-driven theming
+// Seed tenant config - the single source of truth for tenant-driven theming
 // and copy, validated at module load so a bad seed fails fast on boot.
 // Persistence is deliberately plain JSON files on the volume (project rule:
 // no SQLite or embedded databases unless absolutely unavoidable).
 // ---------------------------------------------------------------------------
-
-const grdc: TenantConfig = TenantConfigSchema.parse({
-  slug: 'grdc',
-  branding: {
-    productName: 'GRDC Research Portal',
-    organisation: 'Grains Research and Development Corporation',
-    tagline: 'Grains research, discovery and development',
-    colours: {
-      primary: '#1a5632',
-      accent: '#d4a72c',
-      heroFrom: '#0d2b18',
-      heroTo: '#1a5632',
-    },
-  },
-  searchPlaceholder: 'Search crop protection, soils, farm business, climate…',
-  topics: [
-    { id: 'crop-protection', label: 'Crop protection' },
-    { id: 'soils-nutrition', label: 'Soils and nutrition' },
-    { id: 'farm-business', label: 'Farm business' },
-    { id: 'climate-environment', label: 'Climate and environment' },
-    { id: 'harvest-storage', label: 'Harvest and storage' },
-  ],
-  suggestedQuestions: [
-    {
-      id: 'grdc-q1',
-      text: 'What are the best rotation strategies for managing herbicide-resistant ryegrass?',
-    },
-    { id: 'grdc-q2', text: 'How does nitrogen timing affect grain protein in dryland wheat?' },
-    { id: 'grdc-q3', text: 'What is the latest guidance on managing net blotch in barley?' },
-    {
-      id: 'grdc-q4',
-      text: 'Which farm business tools help benchmark input costs against regional yields?',
-    },
-    {
-      id: 'grdc-q5',
-      text: 'What storage conditions reduce the risk of grain quality loss after harvest?',
-    },
-    {
-      id: 'grdc-q6',
-      text: 'How is climate variability changing sowing windows across the southern region?',
-    },
-  ],
-  entityTypes: [
-    { id: 'crop', label: 'Crop', colour: '#7cb342' },
-    { id: 'pest', label: 'Pest or disease', colour: '#e53935' },
-    { id: 'researcher', label: 'Researcher', colour: '#5e97f6' },
-    { id: 'project', label: 'GRDC project', colour: '#d4a72c' },
-    { id: 'region', label: 'Growing region', colour: '#26a69a' },
-  ],
-  relationTypes: ['studies', 'affects', 'conducted-in', 'funded-by', 'collaborates-with'],
-})
 
 const frdc: TenantConfig = TenantConfigSchema.parse({
   slug: 'frdc',
@@ -67,19 +16,28 @@ const frdc: TenantConfig = TenantConfigSchema.parse({
     organisation: 'Fisheries Research and Development Corporation',
     tagline: 'Fisheries and aquaculture research and development',
     colours: {
-      primary: '#123a5c',
-      accent: '#2c9c91',
-      heroFrom: '#0b2438',
-      heroTo: '#14503f',
+      // Sampled from frdc.com.au: the navy carries the nav band and headings,
+      // the teal is their call-to-action colour.
+      primary: '#143669',
+      accent: '#00b8a5',
+      heroFrom: '#0b2247',
+      heroTo: '#0e5f6b',
     },
+    logoUrl: '/brand/frdc-logo.png',
+    heroImageUrl: '/brand/hero/frdc-fuelheader.jpg',
+    bannerImageUrl: '/brand/hero/frdc-frdcconnectbanner.jpg',
   },
   searchPlaceholder: 'Search fisheries, aquaculture, stock assessment, marine ecology…',
+  // These ids must match the `topic` labelset actually on the bound knowledge
+  // box - Explore intersects them with the box's classification facet counts,
+  // so an id that is not a real label silently yields an empty portal.
   topics: [
-    { id: 'stock-assessment', label: 'Fisheries stock assessment' },
-    { id: 'aquaculture-biosecurity', label: 'Aquaculture biosecurity' },
-    { id: 'post-harvest', label: 'Post-harvest innovation' },
-    { id: 'marine-sustainability', label: 'Marine sustainability' },
-    { id: 'fisheries-policy', label: 'Fisheries management policy' },
+    { id: 'research-development', label: 'Research and development' },
+    { id: 'carp-control', label: 'Carp control' },
+    { id: 'stakeholder-engagement', label: 'Stakeholder engagement' },
+    { id: 'governance-reporting', label: 'Governance and reporting' },
+    { id: 'standards', label: 'Standards' },
+    { id: 'international-connections', label: 'International connections' },
   ],
   suggestedQuestions: [
     {
@@ -115,7 +73,6 @@ const frdc: TenantConfig = TenantConfigSchema.parse({
 })
 
 const tenantsBySlug: Record<string, TenantConfig> = {
-  grdc,
   frdc,
 }
 
@@ -133,8 +90,8 @@ export function tenantSummaries(): TenantSummary[] {
 }
 
 // ---------------------------------------------------------------------------
-// Dynamic tenant store: the two seeds above plus knowledge box portals added
-// in the app, persisted as JSON (TENANTS_PATH, default ./data/tenants.json).
+// Dynamic tenant store: the seed above plus knowledge box portals added in the
+// app, persisted as JSON (TENANTS_PATH, default ./data/tenants.json).
 // ---------------------------------------------------------------------------
 
 /** Neutral dark palette for portals added in-app (until a theming pass). */

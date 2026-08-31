@@ -51,7 +51,7 @@ function SelectionMark({ selected }: { selected: boolean }) {
   return (
     <span
       aria-hidden='true'
-      className='absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-[6px] border'
+      className='absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-none border'
       style={selected
         ? { backgroundColor: 'var(--rp-accent)', borderColor: 'var(--rp-accent)' }
         : { backgroundColor: 'rgba(0, 0, 0, 0.28)', borderColor: 'rgba(255, 255, 255, 0.75)' }}
@@ -95,7 +95,10 @@ function LibraryCard(
 
   const body = (
     <>
-      <div className='relative h-24 w-full overflow-hidden bg-surface-2' aria-hidden='true'>
+      <div
+        className='relative aspect-[210/297] w-full overflow-hidden bg-surface-2'
+        aria-hidden='true'
+      >
         <ResourceThumb slug={slug} id={item.id} type='document' />
         {statusInfo
           ? (
@@ -126,7 +129,7 @@ function LibraryCard(
               {topicLabels.slice(0, 3).map((label) => (
                 <span
                   key={label}
-                  className='rounded-[4px] bg-surface-2 px-1.5 py-0.5 text-[11px] text-ink-2'
+                  className='rounded-none bg-surface-2 px-1.5 py-0.5 text-[11px] text-ink-2'
                 >
                   {label}
                 </span>
@@ -281,9 +284,9 @@ function SummaryModal({
                   Reading {titles.length} {titles.length === 1 ? 'document' : 'documents'}…
                 </p>
                 <div className='mt-3 space-y-2' aria-hidden='true'>
-                  <div className='rp-shimmer bg-surface-3 h-3.5 w-full rounded-[4px]' />
-                  <div className='rp-shimmer bg-surface-3 h-3.5 w-full rounded-[4px]' />
-                  <div className='rp-shimmer bg-surface-3 h-3.5 w-5/6 rounded-[4px]' />
+                  <div className='rp-shimmer bg-surface-3 h-3.5 w-full rounded-none' />
+                  <div className='rp-shimmer bg-surface-3 h-3.5 w-full rounded-none' />
+                  <div className='rp-shimmer bg-surface-3 h-3.5 w-5/6 rounded-none' />
                 </div>
               </div>
             )
@@ -375,7 +378,11 @@ function LibraryCardSkeleton() {
   )
 }
 
-export function LibraryPage() {
+/**
+ * The library browser. Exported separately so the Library route (which is the
+ * search page) can render it as its own no-query state.
+ */
+export function LibraryBrowser({ bare = false }: { bare?: boolean } = {}) {
   const { config } = useOutletContext<TenantOutletContext>()
 
   const [queryDraft, setQueryDraft] = useState('')
@@ -489,92 +496,96 @@ export function LibraryPage() {
   const isInitialLoading = isLoading && page === 0
 
   return (
-    <main className='rp-shell py-8'>
-      <div className='flex flex-wrap items-baseline justify-between gap-2'>
-        <h1 className='rp-display text-2xl text-ink'>Library</h1>
-        {!isInitialLoading && !isError
-          ? (
-            <p className='text-sm font-medium tabular-nums text-ink-3'>
-              {total.toLocaleString()} {total === 1 ? 'resource' : 'resources'}
-            </p>
-          )
-          : null}
-      </div>
-
-      <div className='mt-4 flex flex-wrap items-center gap-2'>
-        <div className='flex min-w-[16rem] flex-1 items-center gap-2 rounded-[6px] border border-line bg-surface px-3 py-1.5'>
-          <label htmlFor='library-search' className='sr-only'>
-            Search the library
-          </label>
-          <svg
-            viewBox='0 0 20 20'
-            fill='none'
-            stroke='currentColor'
-            strokeWidth='1.8'
-            strokeLinecap='round'
-            aria-hidden='true'
-            className='h-4 w-4 shrink-0 text-ink-3'
-          >
-            <circle cx='9' cy='9' r='5.5' />
-            <path d='M13.2 13.2L17 17' />
-          </svg>
-          <input
-            id='library-search'
-            type='text'
-            autoComplete='off'
-            value={queryDraft}
-            onChange={(event: ChangeEvent<HTMLInputElement>) => setQueryDraft(event.target.value)}
-            placeholder='Search within the library'
-            className='min-w-0 flex-1 border-0 bg-transparent py-1 text-sm text-ink placeholder:text-[var(--rp-ink-3)] focus:outline-none'
-          />
+    <main className={bare ? '' : 'rp-shell py-8'}>
+      {!bare && (
+        <div className='flex flex-wrap items-baseline justify-between gap-2'>
+          <h1 className='rp-display text-2xl text-ink'>Library</h1>
+          {!isInitialLoading && !isError
+            ? (
+              <p className='text-sm font-medium tabular-nums text-ink-3'>
+                {total.toLocaleString()} {total === 1 ? 'resource' : 'resources'}
+              </p>
+            )
+            : null}
         </div>
+      )}
 
-        <label htmlFor='library-sort' className='sr-only'>
-          Sort by
-        </label>
-        <select
-          id='library-sort'
-          value={sort}
-          onChange={(event) => setSort(event.target.value as SortValue)}
-          className='rp-focus rounded-[6px] border border-line bg-surface px-3 py-2 text-sm text-ink'
-        >
-          {SORT_VALUES.map((value) => (
-            <option key={value} value={value}>
-              {SORT_OPTIONS[value].label}
-            </option>
-          ))}
-        </select>
-
-        {config.topics.length > 0
-          ? (
-            <button
-              type='button'
-              onClick={() => setFiltersOpen((open) => !open)}
-              className='rp-chip h-9 sm:h-7 lg:hidden'
-              aria-expanded={filtersOpen}
+      {!bare && (
+        <div className='mt-4 flex flex-wrap items-center gap-2'>
+          <div className='flex min-w-[16rem] flex-1 items-center gap-2 rounded-none border border-line bg-surface px-3 py-1.5'>
+            <label htmlFor='library-search' className='sr-only'>
+              Search the library
+            </label>
+            <svg
+              viewBox='0 0 20 20'
+              fill='none'
+              stroke='currentColor'
+              strokeWidth='1.8'
+              strokeLinecap='round'
+              aria-hidden='true'
+              className='h-4 w-4 shrink-0 text-ink-3'
             >
-              Filters{(selectedTopics.length + selectedKinds.length) > 0
-                ? ` (${selectedTopics.length + selectedKinds.length})`
-                : ''}
-            </button>
-          )
-          : null}
+              <circle cx='9' cy='9' r='5.5' />
+              <path d='M13.2 13.2L17 17' />
+            </svg>
+            <input
+              id='library-search'
+              type='text'
+              autoComplete='off'
+              value={queryDraft}
+              onChange={(event: ChangeEvent<HTMLInputElement>) => setQueryDraft(event.target.value)}
+              placeholder='Search within the library'
+              className='min-w-0 flex-1 border-0 bg-transparent py-1 text-sm text-ink placeholder:text-[var(--rp-ink-3)] focus:outline-none'
+            />
+          </div>
 
-        {accumulated.length > 0
-          ? (
-            <button
-              type='button'
-              onClick={() => selecting ? exitSelection() : setSelecting(true)}
-              aria-pressed={selecting}
-              className='rp-chip h-9 sm:h-7'
-            >
-              {selecting ? 'Done selecting' : 'Select'}
-            </button>
-          )
-          : null}
-      </div>
+          <label htmlFor='library-sort' className='sr-only'>
+            Sort by
+          </label>
+          <select
+            id='library-sort'
+            value={sort}
+            onChange={(event) => setSort(event.target.value as SortValue)}
+            className='rp-focus rounded-none border border-line bg-surface px-3 py-2 text-sm text-ink'
+          >
+            {SORT_VALUES.map((value) => (
+              <option key={value} value={value}>
+                {SORT_OPTIONS[value].label}
+              </option>
+            ))}
+          </select>
 
-      {selectedKinds.length > 0
+          {config.topics.length > 0
+            ? (
+              <button
+                type='button'
+                onClick={() => setFiltersOpen((open) => !open)}
+                className='rp-chip h-9 sm:h-7 lg:hidden'
+                aria-expanded={filtersOpen}
+              >
+                Filters{(selectedTopics.length + selectedKinds.length) > 0
+                  ? ` (${selectedTopics.length + selectedKinds.length})`
+                  : ''}
+              </button>
+            )
+            : null}
+
+          {accumulated.length > 0
+            ? (
+              <button
+                type='button'
+                onClick={() => selecting ? exitSelection() : setSelecting(true)}
+                aria-pressed={selecting}
+                className='rp-chip h-9 sm:h-7'
+              >
+                {selecting ? 'Done selecting' : 'Select'}
+              </button>
+            )
+            : null}
+        </div>
+      )}
+
+      {!bare && selectedKinds.length > 0
         ? (
           <div className='mt-4 flex flex-wrap items-center gap-2'>
             <span className='text-xs uppercase tracking-wide text-ink-3'>Filtered to kind</span>
@@ -594,8 +605,10 @@ export function LibraryPage() {
         )
         : null}
 
-      <div className='mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[230px_1fr]'>
-        {config.topics.length > 0
+      <div
+        className={bare ? '' : 'mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[230px_1fr]'}
+      >
+        {!bare && config.topics.length > 0
           ? (
             <aside className={`${filtersOpen ? 'block' : 'hidden'} lg:block`}>
               <div className='rp-card p-4 lg:sticky lg:top-20'>
@@ -621,7 +634,7 @@ export function LibraryPage() {
                     return (
                       <label
                         key={topic.id}
-                        className={`flex cursor-pointer items-center gap-2.5 rounded-[6px] px-1 py-1 text-sm ${
+                        className={`flex cursor-pointer items-center gap-2.5 rounded-none px-1 py-1 text-sm ${
                           muted ? 'text-ink-3' : 'text-ink-2'
                         }`}
                       >
@@ -629,7 +642,7 @@ export function LibraryPage() {
                           type='checkbox'
                           checked={checked}
                           onChange={() => toggleTopic(topic.id)}
-                          className='h-4 w-4 shrink-0 rounded-[3px] border-line'
+                          className='h-4 w-4 shrink-0 rounded-none border-line'
                           style={{ accentColor: 'var(--rp-accent)' }}
                         />
                         <span className='min-w-0 flex-1'>{topic.label}</span>
@@ -719,7 +732,7 @@ export function LibraryPage() {
             aria-label='Selection actions'
             className='fixed inset-x-0 bottom-4 z-40 flex justify-center px-4'
           >
-            <div className='rp-shadow-lg flex items-center gap-3 rounded-[10px] border border-line bg-surface px-4 py-2.5'>
+            <div className='rp-shadow-lg flex items-center gap-3 rounded-none border border-line bg-surface px-4 py-2.5'>
               <span className='text-sm font-medium tabular-nums text-ink'>
                 {selectedIds.size} selected
               </span>
@@ -753,4 +766,9 @@ export function LibraryPage() {
         : null}
     </main>
   )
+}
+
+/** The standalone /library route, kept for direct links and the mobile sheet. */
+export function LibraryPage() {
+  return <LibraryBrowser />
 }

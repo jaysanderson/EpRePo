@@ -216,8 +216,8 @@ export function TypeaheadDropdown({ state }: { state: TypeaheadState }) {
       {items.length === 0 && loading
         ? (
           <div className='space-y-2 px-1 py-1'>
-            <div className='rp-shimmer bg-surface-3 h-4 w-2/5 rounded-[4px]' aria-hidden='true' />
-            <div className='rp-shimmer bg-surface-3 h-4 w-3/5 rounded-[4px]' aria-hidden='true' />
+            <div className='rp-shimmer bg-surface-3 h-4 w-2/5 rounded-none' aria-hidden='true' />
+            <div className='rp-shimmer bg-surface-3 h-4 w-3/5 rounded-none' aria-hidden='true' />
           </div>
         )
         : null}
@@ -270,7 +270,7 @@ export function TypeaheadDropdown({ state }: { state: TypeaheadState }) {
                       event.preventDefault()
                       pick({ kind: 'title', text })
                     }}
-                    className={`flex cursor-pointer items-center gap-2.5 rounded-[6px] px-1.5 py-2 text-left text-sm transition-colors duration-150 ${
+                    className={`flex cursor-pointer items-center gap-2.5 rounded-none px-1.5 py-2 text-left text-sm transition-colors duration-150 ${
                       highlight === flatIndex ? 'bg-surface-2 text-ink' : 'text-ink-2'
                     }`}
                   >

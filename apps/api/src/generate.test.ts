@@ -80,7 +80,7 @@ function ndjsonResponse(lines: unknown[]): Response {
 function buildManagement(askLines: unknown[]): AragProvider {
   return new AragProvider({
     resolveBinding: (slug) =>
-      slug === 'grdc' ? { baseUrl: KB_BASE_URL, token: 'test-token' } : undefined,
+      slug === 'frdc' ? { baseUrl: KB_BASE_URL, token: 'test-token' } : undefined,
     fetchImpl: (input: string | URL | Request) => {
       const url = typeof input === 'string' ? input : input.toString()
       if (url.includes('/catalog')) {
@@ -131,7 +131,7 @@ describe('POST /api/t/:slug/generate', () => {
         },
       },
     ])
-    const response = await app.request('/api/t/grdc/generate', {
+    const response = await app.request('/api/t/frdc/generate', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ kind: 'briefing', query: 'soil carbon measurement' }),
@@ -160,7 +160,7 @@ describe('POST /api/t/:slug/generate', () => {
         summary: 'A practical guide to direct and indirect soil-carbon measurement.',
       },
     }
-    store.put('grdc', 'res-1', enrichment)
+    store.put('frdc', 'res-1', enrichment)
     const app = makeApp([
       {
         item: {
@@ -180,7 +180,7 @@ describe('POST /api/t/:slug/generate', () => {
         },
       },
     ], store)
-    const response = await app.request('/api/t/grdc/generate', {
+    const response = await app.request('/api/t/frdc/generate', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ kind: 'briefing', query: 'soil carbon measurement' }),
@@ -207,7 +207,7 @@ describe('POST /api/t/:slug/generate', () => {
         },
       },
     ])
-    const response = await app.request('/api/t/grdc/generate', {
+    const response = await app.request('/api/t/frdc/generate', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ kind: 'briefing', query: 'a topic with no corpus coverage' }),
@@ -252,7 +252,7 @@ describe('POST /api/t/:slug/generate', () => {
         },
       },
     ])
-    const response = await app.request('/api/t/grdc/generate', {
+    const response = await app.request('/api/t/frdc/generate', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ kind: 'briefing', query: 'a topic the junk page happens to mention' }),
@@ -298,7 +298,7 @@ describe('POST /api/t/:slug/generate', () => {
         },
       },
     ])
-    const response = await app.request('/api/t/grdc/generate', {
+    const response = await app.request('/api/t/frdc/generate', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({

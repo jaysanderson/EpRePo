@@ -1,6 +1,6 @@
 import { type CSSProperties, type FormEvent, useMemo, useRef, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
-import { useOutletContext } from 'react-router-dom'
+import { useOutletContext, useSearchParams } from 'react-router-dom'
 import type { GenerateKind, ResourceSummary } from '@research-portal/core'
 import { generateArtifact } from '../api/client.ts'
 import { CurrencyNote } from '../components/CurrencyNote.tsx'
@@ -879,7 +879,12 @@ function SuggestedTopicChips({
  */
 export function GeneratePage() {
   const { config } = useOutletContext<TenantOutletContext>()
-  const [kind, setKind] = useState<GenerateKind>('comparison')
+  // The Generate menu links straight at a kind (?kind=briefing).
+  const [searchParams] = useSearchParams()
+  const requestedKind = searchParams.get('kind')
+  const [kind, setKind] = useState<GenerateKind>(
+    KIND_BY_ID.has(requestedKind as GenerateKind) ? (requestedKind as GenerateKind) : 'comparison',
+  )
   const [drafts, setDrafts] = useState<Record<GenerateKind, string>>(EMPTY_DRAFTS)
   const [resultVersion, setResultVersion] = useState(0)
   const textareaRef = useRef<HTMLTextAreaElement>(null)

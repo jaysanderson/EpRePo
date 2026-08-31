@@ -20,6 +20,8 @@ export const BrandingSchema = z.object({
   logoUrl: z.string().optional(),
   /** Served when an administrator uploaded a hero image for this portal. */
   heroImageUrl: z.string().optional(),
+  /** Wide image behind slim page headers (e.g. the knowledge map). */
+  bannerImageUrl: z.string().optional(),
 })
 
 export const TopicSchema = z.object({

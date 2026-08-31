@@ -14,6 +14,8 @@ import {
   summarizeResources,
 } from '../api/client.ts'
 import { ResourceThumb } from '../components/ResourceThumb.tsx'
+import { LibraryBrowser } from './LibraryPage.tsx'
+import { sameLabel, typeLabel } from '../components/ui.tsx'
 import { SaveEvidenceButton } from '../components/SaveEvidence.tsx'
 import { SearchAnswer, type SearchAnswerResult } from '../components/SearchAnswer.tsx'
 import { TypeaheadDropdown, type TypeaheadItem, useTypeahead } from '../components/Typeahead.tsx'
@@ -56,7 +58,7 @@ function RelevanceMeter(
       {referenceChunk ? <span className='text-[11px] text-ink-3'>reference list</span> : null}
       {weak ? <span className='text-[11px] text-ink-3'>weak match</span> : null}
       <div
-        className='h-1 w-20 overflow-hidden rounded-[2px] bg-surface-3'
+        className='h-1 w-20 overflow-hidden rounded-none bg-surface-3'
         role='progressbar'
         aria-valuenow={percent}
         aria-valuemin={0}
@@ -102,7 +104,7 @@ function ResultCard(
   return (
     <article id={`result-${resource.id}`} className='rp-card scroll-mt-6 p-4 sm:p-5'>
       <div className='flex gap-4'>
-        <div className='hidden h-16 w-24 shrink-0 overflow-hidden rounded-[6px] border border-line sm:block'>
+        <div className='hidden aspect-[210/297] w-[4.5rem] shrink-0 self-start overflow-hidden rounded-[2px] border border-line sm:block'>
           <ResourceThumb slug={slug} id={resource.id} type={resource.type} />
         </div>
 
@@ -110,7 +112,11 @@ function ResultCard(
           <div className='flex flex-wrap items-center justify-between gap-2'>
             <div className='flex flex-wrap items-center gap-1.5'>
               <TypeBadge type={resource.type} />
-              {resource.kind
+              {
+                /* The kind chip is dropped when it only restates the type badge
+                * (a `document` typed "Report" filed under kind "report"). */
+              }
+              {resource.kind && !sameLabel(kindLabel(resource.kind), typeLabel(resource.type))
                 ? <span className='rp-badge rp-badge-quiet'>{kindLabel(resource.kind)}</span>
                 : null}
               {citedIndex !== undefined
@@ -134,7 +140,7 @@ function ResultCard(
           </div>
 
           <h3 className='mt-2.5 text-base font-semibold tracking-[-0.01em] text-ink'>
-            <Link to={resourceLink(slug, resource)} className='rp-focus rounded-[4px]'>
+            <Link to={resourceLink(slug, resource)} className='rp-focus rounded-none'>
               {resource.title}
             </Link>
           </h3>
@@ -151,10 +157,7 @@ function ResultCard(
 
           {resource.matchedPassage
             ? (
-              <blockquote
-                className='mt-3 border-l-2 bg-surface-2 py-2 pl-3 pr-2 text-sm italic leading-relaxed text-ink-2'
-                style={{ borderColor: 'var(--rp-accent)' }}
-              >
+              <blockquote className='mt-3 text-sm leading-relaxed text-ink-2'>
                 &ldquo;{resource.matchedPassage.length > 340
                   ? `${resource.matchedPassage.slice(0, 340).replace(/\s\S*$/, '')}…`
                   : resource.matchedPassage}&rdquo;
@@ -307,9 +310,9 @@ function SummaryModal({
                   Reading {titles.length} {titles.length === 1 ? 'document' : 'documents'}…
                 </p>
                 <div className='mt-3 space-y-2' aria-hidden='true'>
-                  <div className='rp-shimmer bg-surface-3 h-3.5 w-full rounded-[4px]' />
-                  <div className='rp-shimmer bg-surface-3 h-3.5 w-full rounded-[4px]' />
-                  <div className='rp-shimmer bg-surface-3 h-3.5 w-5/6 rounded-[4px]' />
+                  <div className='rp-shimmer bg-surface-3 h-3.5 w-full rounded-none' />
+                  <div className='rp-shimmer bg-surface-3 h-3.5 w-full rounded-none' />
+                  <div className='rp-shimmer bg-surface-3 h-3.5 w-5/6 rounded-none' />
                 </div>
               </div>
             )
@@ -404,12 +407,12 @@ function WatchStrip(
       {watches.map((watch) => (
         <div
           key={watch.id}
-          className='inline-flex items-center gap-0.5 rounded-[6px] border border-line bg-surface py-0.5 pl-1 pr-0.5'
+          className='inline-flex items-center gap-0.5 rounded-none border border-line bg-surface py-0.5 pl-1 pr-0.5'
         >
           <button
             type='button'
             onClick={() => onRun(watch)}
-            className='rp-focus flex items-center gap-1.5 rounded-[3px] px-1.5 py-1 text-xs text-ink-2 transition-colors duration-150 hover:text-[var(--rp-ink)]'
+            className='rp-focus flex items-center gap-1.5 rounded-none px-1.5 py-1 text-xs text-ink-2 transition-colors duration-150 hover:text-[var(--rp-ink)]'
           >
             {watch.changed
               ? (
@@ -433,7 +436,7 @@ function WatchStrip(
               onDelete(watch.id)
             }}
             aria-label={`Remove saved search "${watch.query}"`}
-            className='rp-focus flex h-6 w-6 shrink-0 items-center justify-center rounded-[3px] text-ink-3 transition-colors duration-150 hover:bg-[var(--rp-surface-2)] hover:text-[var(--rp-ink)]'
+            className='rp-focus flex h-6 w-6 shrink-0 items-center justify-center rounded-none text-ink-3 transition-colors duration-150 hover:bg-[var(--rp-surface-2)] hover:text-[var(--rp-ink)]'
           >
             <svg viewBox='0 0 20 20' fill='currentColor' aria-hidden='true' className='h-3 w-3'>
               <path d='M5.3 4.3l4.7 4.7 4.7-4.7 1 1L11 10l4.7 4.7-1 1L10 11l-4.7 4.7-1-1L9 10 4.3 5.3z' />
@@ -744,7 +747,7 @@ export function SearchPage() {
           Search {config.branding.productName}
         </label>
         <div ref={typeahead.wrapRef} className='relative'>
-          <div className='rp-shadow-sm flex items-center gap-2 rounded-[8px] border border-line bg-surface p-1.5 pl-3'>
+          <div className='rp-shadow-sm flex items-center gap-2 rounded-none border border-line bg-surface p-1.5 pl-3'>
             <svg
               viewBox='0 0 20 20'
               fill='none'
@@ -797,7 +800,7 @@ export function SearchPage() {
 
       <div className='mt-4 flex flex-wrap items-center gap-2.5'>
         <div
-          className='inline-flex overflow-hidden rounded-[6px] border border-line bg-surface'
+          className='inline-flex overflow-hidden rounded-none border border-line bg-surface'
           role='radiogroup'
           aria-label='Retrieval mode'
         >
@@ -901,7 +904,7 @@ export function SearchPage() {
                       return (
                         <label
                           key={topic.id}
-                          className={`flex cursor-pointer items-center gap-2.5 rounded-[6px] px-1 py-1 text-sm ${
+                          className={`flex cursor-pointer items-center gap-2.5 rounded-none px-1 py-1 text-sm ${
                             muted ? 'text-ink-3' : 'text-ink-2'
                           }`}
                         >
@@ -909,7 +912,7 @@ export function SearchPage() {
                             type='checkbox'
                             checked={checked}
                             onChange={() => toggleTopic(topic.id)}
-                            className='h-4 w-4 shrink-0 rounded-[3px] border-line'
+                            className='h-4 w-4 shrink-0 rounded-none border-line'
                             style={{ accentColor: 'var(--rp-accent)' }}
                           />
                           <span className='min-w-0 flex-1'>{topic.label}</span>
@@ -947,7 +950,7 @@ export function SearchPage() {
                       return (
                         <label
                           key={id}
-                          className={`flex cursor-pointer items-center gap-2.5 rounded-[6px] px-1 py-1 text-sm ${
+                          className={`flex cursor-pointer items-center gap-2.5 rounded-none px-1 py-1 text-sm ${
                             muted ? 'text-ink-3' : 'text-ink-2'
                           }`}
                         >
@@ -955,7 +958,7 @@ export function SearchPage() {
                             type='checkbox'
                             checked={checked}
                             onChange={() => toggleKind(id)}
-                            className='h-4 w-4 shrink-0 rounded-[3px] border-line'
+                            className='h-4 w-4 shrink-0 rounded-none border-line'
                             style={{ accentColor: 'var(--rp-accent)' }}
                           />
                           <span className='min-w-0 flex-1'>{kindLabel(id)}</span>
@@ -975,7 +978,7 @@ export function SearchPage() {
             >
               <p className='rp-eyebrow text-ink-3'>Match strength</p>
               <div
-                className='mt-2.5 inline-flex overflow-hidden rounded-[6px] border border-line bg-surface'
+                className='mt-2.5 inline-flex overflow-hidden rounded-none border border-line bg-surface'
                 role='radiogroup'
                 aria-label='Match strength'
               >
@@ -1040,44 +1043,11 @@ export function SearchPage() {
             )
             : null}
 
-          {!hasQuery
-            ? (
-              <div className='rp-card rp-measure p-5'>
-                <p className='rp-eyebrow text-ink-3'>Start here</p>
-                <p className='mt-2 text-base font-semibold text-ink'>
-                  Search {config.branding.productName}
-                </p>
-                <p className='mt-1 text-sm leading-relaxed text-ink-2'>
-                  Results carry the passage that matched, so you can judge a source before you open
-                  it. <span className='font-medium text-ink-2'>Search</span>{' '}
-                  returns results only, fast and answer-free.{' '}
-                  <span className='font-medium text-ink-2'>Ask AI</span>{' '}
-                  adds a short, cited answer synthesised over them.
-                </p>
-                {config.suggestedQuestions.length > 0
-                  ? (
-                    <>
-                      <p className='mt-4 text-xs font-medium text-ink-3'>
-                        Try a question - these run Ask:
-                      </p>
-                      <div className='mt-2 flex flex-wrap gap-1.5'>
-                        {config.suggestedQuestions.slice(0, 6).map((question) => (
-                          <button
-                            key={question.id}
-                            type='button'
-                            onClick={() => askQuestion(question.text)}
-                            className='rp-chip h-9 sm:h-7'
-                          >
-                            {question.text}
-                          </button>
-                        ))}
-                      </div>
-                    </>
-                  )
-                  : null}
-              </div>
-            )
-            : null}
+          {
+            /* No query yet: show the library itself rather than a panel of copy -
+            * this route is the Library entry in the nav. */
+          }
+          {!hasQuery ? <LibraryBrowser bare /> : null}
 
           {hasQuery && isLoading
             ? (
@@ -1147,7 +1117,7 @@ export function SearchPage() {
                         {answerMode
                           ? (
                             <div
-                              className='inline-flex overflow-hidden rounded-[6px] border border-line bg-surface'
+                              className='inline-flex overflow-hidden rounded-none border border-line bg-surface'
                               role='radiogroup'
                               aria-label='Results view'
                             >
@@ -1248,7 +1218,7 @@ export function SearchPage() {
                             key={question.id}
                             type='button'
                             onClick={() => askQuestion(question.text)}
-                            className='rp-focus flex items-center justify-between gap-3 rounded-[6px] border border-line bg-[var(--rp-surface)] px-3.5 py-2.5 text-left text-sm text-[var(--rp-ink-2)] transition-colors duration-150 hover:bg-[var(--rp-surface-2)] hover:text-[var(--rp-ink)]'
+                            className='rp-focus flex items-center justify-between gap-3 rounded-none border border-line bg-[var(--rp-surface)] px-3.5 py-2.5 text-left text-sm text-[var(--rp-ink-2)] transition-colors duration-150 hover:bg-[var(--rp-surface-2)] hover:text-[var(--rp-ink)]'
                           >
                             <span>{question.text}</span>
                             <span aria-hidden='true' className='shrink-0 text-ink-3'>&rarr;</span>

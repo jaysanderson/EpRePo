@@ -53,6 +53,30 @@ export function fallbackTitle(rawTitle: string): string {
   return tidied || rawTitle.trim() || 'Untitled resource'
 }
 
+/**
+ * Whether a generated title is actually a title. The DA generator answers with
+ * a refusal in the title field when a resource has too little extracted text
+ * ("Not enough data to answer this."), and shipping that as a document title is
+ * worse than the filename-derived fallback it would replace.
+ */
+function usableEnrichedTitle(title: string): boolean {
+  const t = title.trim()
+  if (t.length < 3) return false
+  return !/^(not enough|insufficient|no (data|information|content|text|context)\b|unable to|cannot |can't |could not |unknown$|n\/?a$|untitled)/i
+    .test(t)
+}
+
+/** Loose equality for display de-duplication: case, separators and spacing. */
+function normaliseForCompare(value: string): string {
+  return value.toLowerCase().replace(/[_\-\s]+/g, ' ').replace(/[^a-z0-9 ]/g, '').trim()
+}
+
+/** Whether a source name says nothing the title does not already say. */
+function restatesTitle(sourceName: string, title: string): boolean {
+  const withoutExtension = sourceName.replace(/\.[a-z0-9]{2,5}$/i, '')
+  return normaliseForCompare(withoutExtension) === normaliseForCompare(title)
+}
+
 /** The merchandised display fields produced by the two-stage pipeline. */
 export interface Merchandised {
   title: string
@@ -78,10 +102,14 @@ export function baselineMerchandising(
   const rawSum = (rawSummary ?? '').trim()
   // A raw summary equal to the filename (or to the raw title) carries nothing.
   const usableRawSum = rawSum && rawSum !== raw && rawSum !== (src ?? '') ? rawSum : ''
+  // Nor does a source name that is just the title with a file extension on it
+  // (e.g. "The Seafood of the Eyre Peninsula.pdf" under the same title) - that
+  // renders as the same string twice on a card.
+  const usableSrc = src && !restatesTitle(src, title) ? src : undefined
   return {
     title,
     summary: usableRawSum || title,
-    ...(src ? { sourceName: src } : {}),
+    ...(usableSrc ? { sourceName: usableSrc } : {}),
     enriched: false,
   }
 }
@@ -103,13 +131,16 @@ export function overlayEnrichment(
   const summary = enrichmentString(agent, enrichment.data, 'summary')
   const keyTakeaways = enrichmentList(agent, enrichment.data, 'list')
   const quotesOfInterest = enrichmentList(agent, enrichment.data, 'quotes')
+  // A refused title falls back to the baseline, but its summary and takeaways
+  // are still worth showing - the two fields fail independently.
+  const goodTitle = title && usableEnrichedTitle(title) ? title : ''
   return {
-    title: title || base.title,
+    title: goodTitle || base.title,
     summary: summary || base.summary,
     ...(base.sourceName ? { sourceName: base.sourceName } : {}),
     ...(keyTakeaways.length ? { keyTakeaways } : {}),
     ...(quotesOfInterest.length ? { quotesOfInterest } : {}),
-    enriched: Boolean(title),
+    enriched: Boolean(goodTitle || summary),
   }
 }
 

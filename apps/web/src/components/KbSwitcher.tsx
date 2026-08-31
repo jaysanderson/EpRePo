@@ -36,7 +36,7 @@ function TenantMark({ src, alt }: { src: string; alt: string }) {
       src={src}
       alt={alt}
       onError={() => setFailed(true)}
-      className='h-7 w-auto max-w-[7rem] rounded-[4px] object-contain'
+      className='h-7 w-auto max-w-[7rem] rounded-none object-contain'
     />
   )
 }
@@ -130,7 +130,7 @@ export function KbSwitcher({ config }: { config: TenantConfig }) {
         onClick={() => setOpen((prev) => !prev)}
         aria-haspopup='menu'
         aria-expanded={open}
-        className='rp-focus flex max-w-[15rem] items-center gap-2.5 rounded-[6px] px-2 py-1 text-left transition-colors duration-150 hover:bg-[var(--rp-surface-2)] sm:max-w-none'
+        className='rp-focus flex max-w-[15rem] items-center gap-2.5 rounded-none px-2 py-1 text-left transition-colors duration-150 hover:bg-[var(--rp-surface-2)] sm:max-w-none'
       >
         {logoUrl
           ? (
@@ -168,7 +168,7 @@ export function KbSwitcher({ config }: { config: TenantConfig }) {
           ref={panelRef}
           role='menu'
           onKeyDown={onMenuKeyDown}
-          className='rp-glass rp-shadow-lg rp-anim-fade absolute left-0 top-full z-50 mt-2 w-[calc(100vw-2rem)] max-w-72 rounded-[10px] border border-line p-1.5 sm:w-[18.5rem] sm:max-w-none'
+          className='rp-glass rp-shadow-lg rp-anim-fade absolute left-0 top-full z-50 mt-2 w-[calc(100vw-2rem)] max-w-72 rounded-none border border-line p-1.5 sm:w-[18.5rem] sm:max-w-none'
         >
           <p className='rp-eyebrow px-2.5 pb-1.5 pt-2 text-ink-3'>
             Knowledge boxes
@@ -183,7 +183,7 @@ export function KbSwitcher({ config }: { config: TenantConfig }) {
                   role='menuitem'
                   tabIndex={-1}
                   onClick={() => switchTo(t.slug)}
-                  className={`rp-focus flex w-full items-center gap-3 rounded-[6px] px-2.5 py-2 text-left transition-colors duration-150 hover:bg-[var(--rp-surface-2)] ${
+                  className={`rp-focus flex w-full items-center gap-3 rounded-none px-2.5 py-2 text-left transition-colors duration-150 hover:bg-[var(--rp-surface-2)] ${
                     current ? 'bg-surface-2' : ''
                   }`}
                 >
@@ -221,7 +221,7 @@ export function KbSwitcher({ config }: { config: TenantConfig }) {
             role='menuitem'
             tabIndex={-1}
             onClick={() => setOpen(false)}
-            className='rp-focus flex w-full items-center gap-2.5 rounded-[6px] px-2.5 py-2 text-sm font-medium text-ink-2 transition-colors duration-150 hover:bg-[var(--rp-surface-2)]'
+            className='rp-focus flex w-full items-center gap-2.5 rounded-none px-2.5 py-2 text-sm font-medium text-ink-2 transition-colors duration-150 hover:bg-[var(--rp-surface-2)]'
           >
             <svg
               viewBox='0 0 20 20'
@@ -238,7 +238,7 @@ export function KbSwitcher({ config }: { config: TenantConfig }) {
             role='menuitem'
             tabIndex={-1}
             onClick={() => setOpen(false)}
-            className='rp-focus flex w-full items-center gap-2.5 rounded-[6px] px-2.5 py-2 text-sm font-medium text-ink-2 transition-colors duration-150 hover:bg-[var(--rp-surface-2)]'
+            className='rp-focus flex w-full items-center gap-2.5 rounded-none px-2.5 py-2 text-sm font-medium text-ink-2 transition-colors duration-150 hover:bg-[var(--rp-surface-2)]'
           >
             <svg
               viewBox='0 0 20 20'

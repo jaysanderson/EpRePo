@@ -1,13 +1,12 @@
-import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { type FormEvent, useCallback, useMemo, useRef, useState } from 'react'
 import { useQueries, useQuery } from '@tanstack/react-query'
 import { Link, useNavigate, useOutletContext } from 'react-router-dom'
-import type { KbCounters, Question, ResourceSummary, TenantConfig } from '@research-portal/core'
-import { getCounters, getFacets, getTopicResources } from '../api/client.ts'
+import type { ResourceSummary, TenantConfig } from '@research-portal/core'
+import { getFacets, getTopicResources } from '../api/client.ts'
 import { topicsWithFacetCounts } from '../lib/topic-rows.ts'
-import { prettyLabel } from '../components/ui.tsx'
 import { EmptyState, ErrorCard, Skeleton, TypeBadge } from '../components/ui.tsx'
 import { ResourceThumb } from '../components/ResourceThumb.tsx'
-import { TypeaheadDropdown, type TypeaheadItem, useTypeahead } from '../components/Typeahead.tsx'
+import { RegionMap, REGIONS } from '../components/RegionMap.tsx'
 import type { TenantOutletContext } from './TenantLayout.tsx'
 
 /* -------------------------------------------------------------------------
@@ -32,92 +31,6 @@ function askPlaceholder(searchPlaceholder: string): string {
  * the gradient, lifted by a radial bloom and a faint dot grid so it reads as a
  * designed surface rather than a flat colour field.
  */
-function usePrefersReducedMotion(): boolean {
-  const [reduced, setReduced] = useState(false)
-
-  useEffect(() => {
-    const query = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')
-    if (!query) return
-    setReduced(query.matches)
-    const onChange = () => setReduced(query.matches)
-    query.addEventListener('change', onChange)
-    return () => query.removeEventListener('change', onChange)
-  }, [])
-
-  return reduced
-}
-
-const SUGGESTED_WINDOW = 4
-const SUGGESTED_ROTATE_MS = 8000
-
-/**
- * The hero's suggested-question chips, rotating a window of four through the
- * tenant's full list every ~8 seconds with a gentle crossfade. Rotation pauses
- * on hover/focus of the group, on pointerover of a chip (so a click never has
- * its target swapped out from under it), and entirely under
- * prefers-reduced-motion. The chips stay clickable throughout - pausing never
- * disables them, it only stops the timer.
- */
-function SuggestedQuestions({
-  questions,
-  onAsk,
-}: {
-  questions: Question[]
-  onAsk: (text: string) => void
-}) {
-  const [start, setStart] = useState(0)
-  const [paused, setPaused] = useState(false)
-  const reducedMotion = usePrefersReducedMotion()
-  const rotates = questions.length > SUGGESTED_WINDOW
-
-  useEffect(() => {
-    if (!rotates || paused || reducedMotion) return
-    const timer = setInterval(() => {
-      setStart((prev) => (prev + SUGGESTED_WINDOW) % questions.length)
-    }, SUGGESTED_ROTATE_MS)
-    return () => clearInterval(timer)
-  }, [rotates, paused, reducedMotion, questions.length])
-
-  const visible = useMemo(() => {
-    if (!rotates) return questions
-    return Array.from(
-      { length: SUGGESTED_WINDOW },
-      (_, index) => questions[(start + index) % questions.length],
-    ).filter((question): question is Question => Boolean(question))
-  }, [questions, rotates, start])
-
-  if (visible.length === 0) return null
-
-  const pause = () => setPaused(true)
-  const resume = () => setPaused(false)
-
-  return (
-    <div
-      className='rp-anim-rise rp-delay-4 mt-5'
-      onMouseEnter={pause}
-      onMouseLeave={resume}
-      onFocus={pause}
-      onBlur={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) resume()
-      }}
-    >
-      <div key={start} className='rp-anim-fade flex flex-wrap justify-center gap-2'>
-        {visible.map((question) => (
-          <button
-            key={question.id}
-            type='button'
-            onClick={() => onAsk(question.text)}
-            onPointerOver={pause}
-            className='rp-focus-inverse rounded-[6px] bg-white/12 px-3 py-1.5 text-sm text-white ring-1 ring-inset ring-white/25 backdrop-blur-sm transition-colors duration-150 hover:bg-white/25'
-          >
-            {question.text}
-          </button>
-        ))}
-      </div>
-    </div>
-  )
-}
-
 function HeroBackdrop({ imageUrl }: { imageUrl?: string }) {
   const [imageFailed, setImageFailed] = useState(false)
   const showImage = Boolean(imageUrl) && !imageFailed
@@ -154,35 +67,18 @@ function HeroBackdrop({ imageUrl }: { imageUrl?: string }) {
 function Hero({
   config,
   onAsk,
-  onSearch,
 }: {
   config: TenantConfig
   /** The hero's own question path: submitting or picking a suggestion. */
   onAsk: (text: string) => void
-  /** Resource-title picks only - those are a destination, not a question. */
-  onSearch: (text: string) => void
 }) {
   const [query, setQuery] = useState('')
   const inputRef = useRef<HTMLInputElement | null>(null)
-
-  // An entity folds back into the question being written; a resource title is
-  // a destination, so it goes straight to the results for that title.
-  const onPick = useCallback((item: TypeaheadItem) => {
-    if (item.kind === 'title') {
-      onSearch(item.text)
-      return
-    }
-    setQuery((prev) => `${prev.trim()} ${item.text} `.trimStart())
-    inputRef.current?.focus()
-  }, [onSearch])
-
-  const typeahead = useTypeahead(config.slug, query, onPick)
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const trimmed = query.trim()
     if (trimmed.length === 0) return
-    typeahead.close()
     onAsk(trimmed)
   }
 
@@ -191,22 +87,16 @@ function Hero({
       <HeroBackdrop imageUrl={config.branding.heroImageUrl} />
 
       <div className='mx-auto max-w-3xl text-center'>
-        <p className='rp-eyebrow rp-anim-rise text-white/70'>{config.branding.organisation}</p>
-
-        <h1 className='rp-display rp-anim-rise rp-delay-1 mt-3 text-4xl text-white sm:text-5xl lg:text-6xl'>
+        <h1 className='rp-display rp-anim-rise text-4xl text-white sm:text-5xl lg:text-6xl'>
           What would you like to explore?
         </h1>
 
-        <p className='rp-anim-rise rp-delay-2 mx-auto mt-3 max-w-xl text-base leading-relaxed text-white/75'>
-          {config.branding.tagline}
-        </p>
-
-        <form onSubmit={handleSubmit} className='rp-anim-rise rp-delay-3 mt-7' role='search'>
+        <form onSubmit={handleSubmit} className='rp-anim-rise rp-delay-1 mt-8' role='search'>
           <label htmlFor='explore-search' className='sr-only'>
             Ask {config.branding.productName}
           </label>
-          <div ref={typeahead.wrapRef} className='relative mx-auto max-w-2xl'>
-            <div className='rp-shadow-xl flex items-center gap-2 rounded-[10px] bg-surface p-1.5 pl-3.5 ring-1 ring-white/40 focus-within:ring-2 focus-within:ring-white'>
+          <div className='relative mx-auto max-w-2xl'>
+            <div className='rp-shadow-xl flex items-center gap-2 rounded-none bg-surface p-1.5 pl-3.5 ring-1 ring-white/40 focus-within:ring-2 focus-within:ring-white'>
               <svg
                 viewBox='0 0 20 20'
                 fill='none'
@@ -226,104 +116,150 @@ function Hero({
                 autoComplete='off'
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                onKeyDown={typeahead.onKeyDown}
                 placeholder={askPlaceholder(config.searchPlaceholder)}
-                role='combobox'
-                aria-autocomplete='list'
-                aria-expanded={typeahead.open}
-                aria-controls={typeahead.listboxId}
-                aria-activedescendant={typeahead.activeDescendant}
                 className='min-w-0 flex-1 border-0 bg-transparent px-2 py-2 text-[0.95rem] text-ink placeholder:text-[var(--rp-ink-3)] focus:outline-none'
               />
               <button type='submit' className='rp-btn rp-btn-primary shrink-0 font-semibold'>
                 Ask
               </button>
             </div>
-            <TypeaheadDropdown state={typeahead} />
           </div>
         </form>
 
-        <SuggestedQuestions questions={config.suggestedQuestions} onAsk={onAsk} />
+        {config.suggestedQuestions.length > 0
+          ? (
+            <div className='rp-anim-rise rp-delay-2 mt-4 flex flex-wrap justify-center gap-2'>
+              {config.suggestedQuestions.slice(0, 3).map((question) => (
+                <button
+                  key={question.id}
+                  type='button'
+                  onClick={() => onAsk(question.text)}
+                  className='rp-focus-inverse border border-white/30 bg-white/12 px-3 py-1.5 text-sm text-white backdrop-blur-sm transition-colors duration-150 hover:bg-white/25'
+                >
+                  {question.text}
+                </button>
+              ))}
+            </div>
+          )
+          : null}
       </div>
     </section>
   )
 }
 
 /* -------------------------------------------------------------------------
- * Stats
+ * Quick entry
  * ---------------------------------------------------------------------- */
 
-function StatTile({ label, value }: { label: string; value: string }) {
+const TILE_ICONS = {
+  library: <path d='M4 4.5h7v6H4zM4 13.5h7v6H4zM15 4.5h5v15h-5z' />,
+  assistant: <path d='M4 5.5h16v11H9l-5 4z' />,
+  graph: (
+    <>
+      <circle cx='6' cy='6.5' r='2.5' />
+      <circle cx='18' cy='9.5' r='2.5' />
+      <circle cx='10' cy='17.5' r='2.5' />
+      <path d='M8.2 7.7l7.6 1.4M16.4 11.6l-4.7 4.2M8.4 15.4l-1.6-6.5' />
+    </>
+  ),
+  investigations: (
+    <>
+      <circle cx='10.5' cy='10.5' r='5.5' />
+      <path d='M14.6 14.6L20 20' />
+    </>
+  ),
+} as const
+
+function TileIcon({ name }: { name: keyof typeof TILE_ICONS }) {
   return (
-    <div className='rp-shadow-md flex flex-col gap-0.5 rounded-[10px] border border-line bg-surface px-4 py-3'>
-      <span className='rp-display text-2xl text-ink'>{value}</span>
-      <span className='rp-eyebrow text-ink-3'>{label}</span>
-    </div>
+    <svg
+      viewBox='0 0 24 24'
+      fill='none'
+      stroke='currentColor'
+      strokeWidth='1.5'
+      strokeLinecap='round'
+      strokeLinejoin='round'
+      className='h-9 w-9 shrink-0'
+      aria-hidden='true'
+    >
+      {TILE_ICONS[name]}
+    </svg>
   )
 }
 
-/** Floating glass tiles that overlap the hero's bottom edge. */
-/**
- * Coverage statement: what KINDS of content the hub holds, so a researcher
- * knows the boundaries before investing time - counts alone say nothing.
- */
-function CoverageStrip({ slug, organisation }: { slug: string; organisation: string }) {
-  const { data } = useQuery({
-    queryKey: ['coverage', slug],
-    queryFn: () => getFacets(slug, ['kind']),
-    staleTime: 5 * 60 * 1000,
-  })
-  const kinds = Object.entries(data?.kind ?? {})
-    .filter(([, count]) => count > 0)
-    .sort((a, b) => b[1] - a[1])
-  if (kinds.length === 0) return null
-  return (
-    <p className='mx-auto mt-4 max-w-5xl px-6 text-center text-sm text-ink-2'>
-      Holding {kinds.map(([label, count], index) => (
-        <span key={label}>
-          {index > 0 ? (index === kinds.length - 1 ? ' and ' : ', ') : ''}
-          <span className='font-medium text-ink'>
-            {count} {((l) => (count === 1 || l.endsWith('s') ? l : `${l}s`))(
-              prettyLabel(label, organisation).toLowerCase(),
-            )}
-          </span>
-        </span>
-      ))}.
-    </p>
-  )
-}
-
-function StatsStrip({ counters }: { counters: KbCounters }) {
-  const stats = [
-    { label: 'Resources', value: counters.resources.toLocaleString() },
-    { label: 'Paragraphs', value: counters.paragraphs.toLocaleString() },
-    { label: 'Sentences', value: counters.sentences.toLocaleString() },
-    {
-      label: 'Index MB',
-      value: counters.indexMb.toLocaleString(undefined, { maximumFractionDigits: 1 }),
-    },
-  ]
+/** The four ways into the corpus, as brand-washed blocks under the hero. */
+function QuickEntry({ slug }: { slug: string }) {
+  const tiles = [
+    { to: 'library', label: 'Browse the library', icon: 'library' },
+    { to: 'assistant', label: 'Ask the assistant', icon: 'assistant' },
+    { to: 'graph', label: 'Explore the graph', icon: 'graph' },
+    { to: 'investigations', label: 'Run an investigation', icon: 'investigations' },
+  ] as const
 
   return (
-    <div className='rp-anim-rise rp-delay-4 relative z-10 mx-auto -mt-12 grid max-w-5xl grid-cols-2 gap-2.5 px-6 sm:grid-cols-4'>
-      {stats.map((stat) => <StatTile key={stat.label} label={stat.label} value={stat.value} />)}
-    </div>
-  )
-}
-
-function StatsStripSkeleton() {
-  return (
-    <div className='relative z-10 mx-auto -mt-12 grid max-w-5xl grid-cols-2 gap-2.5 px-6 sm:grid-cols-4'>
-      {Array.from({ length: 4 }).map((_, index) => (
-        <div
-          key={index}
-          className='rp-glass rp-shadow-md flex flex-col gap-2 rounded-[10px] border border-line px-4 py-4'
-        >
-          <Skeleton className='h-6 w-16' />
-          <Skeleton className='h-2.5 w-20' />
-        </div>
+    <div className='rp-shell rp-anim-rise rp-delay-2 grid grid-cols-1 gap-3 pt-10 sm:grid-cols-2'>
+      {tiles.map((tile) => (
+        <Link key={tile.to} to={`/t/${slug}/${tile.to}`} className='rp-tile'>
+          <TileIcon name={tile.icon} />
+          <span className='rp-tile-label'>{tile.label}</span>
+          <svg
+            viewBox='0 0 24 24'
+            fill='none'
+            stroke='currentColor'
+            strokeWidth='1.5'
+            strokeLinecap='round'
+            strokeLinejoin='round'
+            className='rp-tile-arrow h-5 w-5 shrink-0'
+            aria-hidden='true'
+          >
+            <path d='M4 12h15M13 6l6 6-6 6' />
+          </svg>
+        </Link>
       ))}
     </div>
+  )
+}
+
+/* -------------------------------------------------------------------------
+ * Regional discovery
+ * ---------------------------------------------------------------------- */
+
+/**
+ * A featured band: the corpus is national, so the map is a way in by place.
+ * Each region runs the search for its own name. The list beside the map is not
+ * decoration - it is the keyboard and screen-reader path to the same searches.
+ */
+function RegionBand({ slug }: { slug: string }) {
+  return (
+    <section className='mt-14' style={{ backgroundColor: 'var(--rp-primary)' }}>
+      <div className='rp-shell grid gap-10 py-12 md:grid-cols-2 md:items-center md:py-16'>
+        <div className='min-w-0'>
+          <p className='rp-eyebrow text-white/60'>Explore by region</p>
+          <h2 className='rp-display mt-2 text-3xl text-white sm:text-4xl'>
+            Research from every corner of the country
+          </h2>
+          <p className='mt-4 max-w-md text-base leading-relaxed text-white/75'>
+            Fisheries and aquaculture research is deeply regional. Pick a state or territory to see
+            what the corpus holds for those waters.
+          </p>
+          <ul className='mt-6 flex flex-wrap gap-2'>
+            {REGIONS.map((region) => (
+              <li key={region.id}>
+                <Link
+                  to={`/t/${slug}/search?q=${encodeURIComponent(region.query)}`}
+                  className='rp-focus-inverse inline-flex border border-white/30 bg-white/10 px-3 py-1.5 text-sm text-white transition-colors duration-150 hover:bg-white/20'
+                >
+                  {region.label}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </div>
+        <div className='min-w-0'>
+          <RegionMap slug={slug} />
+        </div>
+      </div>
+    </section>
   )
 }
 
@@ -337,13 +273,21 @@ function ResourceCard({ slug, resource }: { slug: string; resource: ResourceSumm
       to={`/t/${slug}/library/${resource.id}`}
       className='rp-card rp-lift rp-focus group flex w-64 shrink-0 flex-col overflow-hidden sm:w-72'
     >
-      <div className='relative aspect-[16/10] w-full overflow-hidden bg-surface-2'>
-        <ResourceThumb
-          slug={slug}
-          id={resource.id}
-          type={resource.type}
-          className='rp-zoom'
-        />
+      {
+        /* A 4:3 grey ground with the document peeking up from behind it: inset at
+        * the sides, dropped from the top, and running past the bottom edge so the
+        * page reads as a real document tucked into the card. */
+      }
+      <div className='relative aspect-[4/3] w-full overflow-hidden bg-surface-2'>
+        <div className='rp-shadow-sm absolute inset-x-6 bottom-0 top-6 overflow-hidden bg-surface'>
+          <ResourceThumb
+            slug={slug}
+            id={resource.id}
+            type={resource.type}
+            className='rp-zoom'
+            imgClassName='object-top'
+          />
+        </div>
         <span className='absolute left-2 top-2'>
           <TypeBadge type={resource.type} />
         </span>
@@ -377,7 +321,7 @@ function SectionHeading(
       <span className='h-px flex-1 bg-[var(--rp-line)]' aria-hidden='true' />
       <Link
         to={`/t/${slug}/library?topic=${encodeURIComponent(topicId)}`}
-        className='rp-focus shrink-0 rounded-[4px] text-sm font-medium text-[var(--rp-ink-3)] transition-colors duration-150 hover:text-[var(--rp-ink)]'
+        className='rp-focus shrink-0 rounded-none text-sm font-medium text-[var(--rp-ink-3)] transition-colors duration-150 hover:text-[var(--rp-ink)]'
       >
         See all<span aria-hidden='true'>&rarr;</span>
       </Link>
@@ -395,7 +339,7 @@ function TopicRowSkeleton() {
             key={index}
             className='rp-card w-64 shrink-0 overflow-hidden sm:w-72'
           >
-            <div className='rp-shimmer bg-surface-3 aspect-[16/10] w-full' aria-hidden='true' />
+            <div className='rp-shimmer bg-surface-3 aspect-[4/3] w-full' aria-hidden='true' />
             <div className='space-y-2 border-t border-line p-3.5'>
               <Skeleton className='h-4 w-4/5' />
               <Skeleton className='h-3 w-full' />
@@ -448,20 +392,6 @@ export function ExplorePage() {
     })),
   })
 
-  const {
-    data: counters,
-    isLoading: isCountersLoading,
-    isError: isCountersError,
-  } = useQuery({
-    queryKey: ['counters', config.slug],
-    queryFn: () => getCounters(config.slug),
-  })
-
-  const search = useCallback(
-    (text: string) => navigate(`search?q=${encodeURIComponent(text)}`),
-    [navigate],
-  )
-
   // The hero asks rather than searches - Search no longer answers questions,
   // so a question the reader types (or picks from the suggestions) goes
   // straight to the assistant with the question pre-filled and auto-sent.
@@ -476,14 +406,11 @@ export function ExplorePage() {
 
   return (
     <main>
-      <Hero config={config} onAsk={ask} onSearch={search} />
+      <Hero config={config} onAsk={ask} />
 
-      {isCountersLoading
-        ? <StatsStripSkeleton />
-        : !isCountersError && counters
-        ? <StatsStrip counters={counters} />
-        : null}
-      <CoverageStrip slug={config.slug} organisation={config.branding.organisation} />
+      <QuickEntry slug={config.slug} />
+
+      <RegionBand slug={config.slug} />
 
       <section className='rp-shell space-y-10 pb-16 pt-12'>
         {isError
@@ -535,7 +462,7 @@ export function ExplorePage() {
                   label={topic.label}
                   count={count}
                 />
-                <div className='rp-scroll-row rp-no-scrollbar -mx-6 mt-3.5 flex gap-3 overflow-x-auto px-6 pb-4 pt-1 lg:-mx-8 lg:px-8 2xl:-mx-10 2xl:px-10'>
+                <div className='rp-scroll-row rp-no-scrollbar mt-3.5 flex gap-3 overflow-x-auto pb-4 pt-1'>
                   {items.map((resource) => (
                     <ResourceCard key={resource.id} slug={config.slug} resource={resource} />
                   ))}

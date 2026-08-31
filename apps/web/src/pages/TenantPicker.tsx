@@ -2,7 +2,6 @@ import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { getTenants } from '../api/client.ts'
 import { EmptyState, ErrorCard, Skeleton } from '../components/ui.tsx'
-import { ThemeToggle } from '../components/ThemeToggle.tsx'
 
 export function TenantPicker() {
   const { data: tenants, isLoading, isError, error, refetch } = useQuery({
@@ -24,7 +23,6 @@ export function TenantPicker() {
               branding.
             </p>
           </header>
-          <ThemeToggle />
         </div>
 
         <div className='mt-8 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3'>

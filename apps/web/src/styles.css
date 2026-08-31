@@ -19,12 +19,12 @@
 
   /* Warm neutral ramp. Slightly yellow-shifted so it sits on the paper base
    * without the blue cast of a stock grey scale. */
-  --rp-paper: #f7f7f5;
+  --rp-paper: #ffffff;
   --rp-n-0: #ffffff;
   --rp-n-25: #fcfcfa;
   --rp-n-50: #f7f7f5;
-  --rp-n-100: #f0efec;
-  --rp-n-200: #e4e3de;
+  --rp-n-100: #f8fafc;
+  --rp-n-200: #e6ebf0;
   --rp-n-300: #d2d0c9;
   --rp-n-400: #a8a59d;
   --rp-n-500: #7d7a72;
@@ -47,9 +47,11 @@
 }
 
 @theme {
+  /* Matches frdc.com.au: Manrope for body and navigation, Inter for headings. */
   --font-sans:
+    'Manrope', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-display:
     'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-  --font-display: 'Fraunces', 'Iowan Old Style', Georgia, ui-serif, serif;
 }
 
 html {
@@ -63,8 +65,7 @@ body {
   -moz-osx-font-smoothing: grayscale;
   background-color: var(--rp-paper);
   color: var(--rp-n-900);
-  /* Inter's optical niceties - real quotes, contextual alternates. */
-  font-feature-settings: 'cv02', 'cv03', 'cv04', 'calt';
+  font-feature-settings: 'calt';
 }
 
 /* ---------------------------------------------------------------------------
@@ -427,14 +428,14 @@ body {
 }
 
 /* ---------------------------------------------------------------------------
- * Semantic theme layer - light and dark. Components use ONLY these semantic
- * classes (plus the tenant hooks); html[data-theme='dark'] flips the values.
- * Shape language: square with slightly rounded edges (--rp-radius).
+ * Semantic theme layer. Components use ONLY these semantic classes (plus the
+ * tenant hooks). The portal is light-only: there is no dark variant to flip.
+ * Shape language: square. --rp-radius is the single dial.
  * ------------------------------------------------------------------------- */
 
 :root {
-  --rp-radius: 6px;
-  --rp-app: var(--rp-n-50);
+  --rp-radius: 0px;
+  --rp-app: var(--rp-n-0);
   --rp-surface: var(--rp-n-0);
   --rp-surface-2: var(--rp-n-100);
   --rp-surface-3: var(--rp-n-200);
@@ -488,57 +489,6 @@ label.rp-btn:has(input:focus-visible) {
   outline-offset: 2px;
 }
 
-html[data-theme='dark'] {
-  --rp-thumb-l: 22%;
-  /* Flip the paper base and the whole neutral ramp - body background uses
-   * --rp-paper and body text uses --rp-n-900, so without these the page
-   * itself never darkened even though the semantic tokens below did. */
-  --rp-paper: #0e1013;
-  --rp-n-0: #16181d;
-  --rp-n-25: #1a1d23;
-  --rp-n-50: #1d2026;
-  --rp-n-100: #262a32;
-  --rp-n-200: #2f333c;
-  --rp-n-300: #3a3f49;
-  --rp-n-400: #565c68;
-  --rp-n-500: #7c828e;
-  --rp-n-600: #969ba7;
-  --rp-n-700: #a2a8b4;
-  --rp-n-800: #cbcfd6;
-  --rp-n-900: #eceef2;
-  --rp-app: #0e1013;
-  --rp-surface: #16181d;
-  --rp-surface-2: #1d2026;
-  --rp-surface-3: #262a32;
-  --rp-ink: #eceef2;
-  --rp-ink-2: #a2a8b4;
-  --rp-ink-3: #7c828e;
-  --rp-line: #272b33;
-  --rp-line-2: #1e2228;
-  --rp-glass-bg: rgba(18, 20, 24, 0.94);
-  --rp-ok-bg: rgba(16, 185, 129, 0.12);
-  --rp-ok-ink: #34d399;
-  --rp-ok-line: rgba(16, 185, 129, 0.35);
-  --rp-warn-bg: rgba(245, 158, 11, 0.12);
-  --rp-warn-ink: #fbbf24;
-  --rp-warn-line: rgba(245, 158, 11, 0.35);
-  --rp-bad-bg: rgba(244, 63, 94, 0.12);
-  --rp-bad-ink: #fb7185;
-  --rp-bad-line: rgba(244, 63, 94, 0.35);
-  --rp-cat-1: #3987e5;
-  --rp-cat-2: #d95926;
-  --rp-cat-3: #199e70;
-  --rp-cat-4: #c98500;
-  --rp-cat-5: #d55181;
-  --rp-cat-6: #9085e9;
-  --rp-ring: 0 0 0 2px var(--rp-surface), 0 0 0 4px var(--rp-accent);
-  --rp-shadow-sm: 0 1px 1px rgba(0, 0, 0, 0.3), 0 2px 6px -2px rgba(0, 0, 0, 0.4);
-  --rp-shadow-md: 0 1px 2px rgba(0, 0, 0, 0.35), 0 10px 26px -14px rgba(0, 0, 0, 0.6);
-  --rp-shadow-lg: 0 2px 4px rgba(0, 0, 0, 0.4), 0 22px 48px -20px rgba(0, 0, 0, 0.7);
-  --rp-shadow-xl: 0 4px 10px rgba(0, 0, 0, 0.45), 0 40px 80px -28px rgba(0, 0, 0, 0.8);
-  color-scheme: dark;
-}
-
 /* Semantic utilities. */
 .bg-app {
   background-color: var(--rp-app);
@@ -579,11 +529,110 @@ html[data-theme='dark'] {
   }
 }
 
+/* ---------------------------------------------------------------------------
+ * Primary navigation band. Mirrors the frdc.com.au header: a white brand strip
+ * carrying the logo, above a solid brand-colour bar carrying the navigation in
+ * the light UI face. The bar paints the tenant's own primary colour rather
+ * than one portal's navy, so every portal keeps its identity. Each seeded
+ * primary is a dark shade, so white link text clears contrast on all of them.
+ * ------------------------------------------------------------------------- */
+.rp-navband {
+  background-color: var(--rp-primary);
+}
+
+/* ---------------------------------------------------------------------------
+ * Quick-entry tiles, after the frdc.com.au "See all research projects" blocks:
+ * a square-cornered wash of the brand accent, a line icon, a brand-navy label
+ * and a trailing arrow. Mixed from the tenant accent rather than hard-coded to
+ * FRDC's mint, so the tile follows whichever portal it renders in.
+ * ------------------------------------------------------------------------- */
+.rp-tile {
+  display: flex;
+  align-items: center;
+  gap: 1.1rem;
+  padding: 1.6rem 1.75rem;
+  background-color: color-mix(in srgb, var(--rp-accent) 14%, #ffffff);
+  color: var(--rp-primary);
+  transition: background-color 150ms var(--rp-ease);
+}
+
+.rp-tile:hover {
+  background-color: color-mix(in srgb, var(--rp-accent) 24%, #ffffff);
+}
+
+.rp-tile:focus-visible {
+  outline: 2px solid var(--rp-primary);
+  outline-offset: -3px;
+}
+
+.rp-tile-label {
+  font-size: 1.05rem;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+/* Nudges toward the label on hover - the arrow is the affordance. */
+.rp-tile-arrow {
+  margin-inline-start: auto;
+  transition: transform 200ms var(--rp-ease);
+}
+
+.rp-tile:hover .rp-tile-arrow {
+  transform: translateX(3px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rp-tile:hover .rp-tile-arrow {
+    transform: none;
+  }
+}
+
+.rp-navlink {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  padding: 0.7rem 0.85rem;
+  font-size: 1rem;
+  font-weight: 300;
+  line-height: 1.35;
+  color: rgba(255, 255, 255, 0.86);
+  white-space: nowrap;
+  transition: color 150ms var(--rp-ease), background-color 150ms var(--rp-ease);
+}
+
+.rp-navlink:hover {
+  color: #ffffff;
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.rp-navlink:focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: -3px;
+}
+
+/* Active state has to read against the brand bar, so it is a full-strength
+ * white label over an accent underline rather than the accent wash the old
+ * light header used. */
+.rp-navlink-active {
+  color: #ffffff;
+  font-weight: 500;
+}
+
+.rp-navlink-active::after {
+  content: '';
+  position: absolute;
+  inset-inline: 0.55rem;
+  bottom: 0;
+  height: 3px;
+  border-radius: 0;
+  background-color: var(--rp-accent);
+}
+
 /* Component classes - the single source of shape. */
 .rp-card {
   background: var(--rp-surface);
   border: 1px solid var(--rp-line);
-  border-radius: calc(var(--rp-radius) + 4px);
+  border-radius: var(--rp-radius);
   box-shadow: var(--rp-shadow-sm);
 }
 .rp-btn {
@@ -673,8 +722,15 @@ html[data-theme='dark'] {
   border-radius: var(--rp-radius);
   background: var(--rp-surface);
   color: var(--rp-ink);
-  padding: 0.5625rem 0.875rem;
+  padding-block: 0.5625rem;
+  padding-inline: 0.875rem;
   font-size: 0.875rem;
+}
+/* Leading-icon variant. The shorthand above would beat a `pl-*` utility on the
+ * element (same specificity, later in the cascade), which is what used to sit
+ * the magnifier on top of the placeholder text. */
+.rp-input-icon {
+  padding-inline-start: 2.25rem;
 }
 .rp-input::placeholder {
   color: var(--rp-ink-3);

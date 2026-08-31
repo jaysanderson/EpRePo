@@ -67,7 +67,7 @@ function MiniMeter(
         {Array.from({ length: SEGMENTS }).map((_, index) => (
           <span
             key={index}
-            className='h-2 w-1 rounded-[1px]'
+            className='h-2 w-1 rounded-none'
             style={{ backgroundColor: index < filled ? colour : 'var(--rp-surface-3)' }}
           />
         ))}

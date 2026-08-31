@@ -153,7 +153,7 @@ function EvidenceRow({
           {judging
             ? (
               <span
-                className='rp-shimmer h-[18px] w-16 rounded-[4px] bg-surface-3'
+                className='rp-shimmer h-[18px] w-16 rounded-none bg-surface-3'
                 aria-hidden='true'
               />
             )
@@ -203,7 +203,7 @@ function EvidenceRow({
       {judging
         ? (
           <div
-            className='mt-1.5 h-3 w-3/4 rounded-[4px] rp-shimmer bg-surface-3'
+            className='mt-1.5 h-3 w-3/4 rounded-none rp-shimmer bg-surface-3'
             aria-hidden='true'
           />
         )

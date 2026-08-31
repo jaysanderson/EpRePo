@@ -24,11 +24,14 @@ export function ResourceThumb({
   id,
   type,
   className = '',
+  imgClassName = '',
 }: {
   slug: string
   id: string
   type: ResourceType | string
   className?: string
+  /** Extra classes for the image itself, e.g. `object-top` to anchor the crop. */
+  imgClassName?: string
 }) {
   const [failed, setFailed] = useState(false)
   const [loaded, setLoaded] = useState(false)
@@ -60,7 +63,7 @@ export function ResourceThumb({
           onLoad={() => setLoaded(true)}
           onError={() => setFailed(true)}
           // Invisible until it genuinely loads - never a broken-image glyph.
-          className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-200 ${
+          className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-200 ${imgClassName} ${
             loaded ? 'opacity-100' : 'opacity-0'
           }`}
         />

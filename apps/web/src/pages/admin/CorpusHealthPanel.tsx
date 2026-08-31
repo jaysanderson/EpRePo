@@ -175,7 +175,7 @@ export function CorpusHealthPanel({ slug, passcode }: { slug: string; passcode: 
                     type='button'
                     onClick={() => setHealthyOpen((open) => !open)}
                     aria-expanded={healthyOpen}
-                    className='rp-focus flex items-center gap-1.5 rounded-[4px] text-sm font-medium text-ink-2 transition-colors duration-150 hover:text-[var(--rp-ink)]'
+                    className='rp-focus flex items-center gap-1.5 rounded-none text-sm font-medium text-ink-2 transition-colors duration-150 hover:text-[var(--rp-ink)]'
                   >
                     <span aria-hidden='true'>{healthyOpen ? '▾' : '▸'}</span>
                     {healthy.length} healthy {healthy.length === 1 ? 'resource' : 'resources'}

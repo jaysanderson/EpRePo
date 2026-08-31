@@ -171,7 +171,7 @@ export function ContextJourney({ slug, sources, query = '', onOpen }: ContextJou
           <path d='M15.2 8.8l-1.6 4.4-4.4 1.6 1.6-4.4z' />
         </svg>
         Journey through the context
-        <span className='rounded-[4px] bg-surface-2 px-1.5 py-0.5 text-[10px] tabular-nums text-ink-3'>
+        <span className='rounded-none bg-surface-2 px-1.5 py-0.5 text-[10px] tabular-nums text-ink-3'>
           {Math.min(sources.length, 8)}
         </span>
       </button>
@@ -349,10 +349,10 @@ export function AnswerStream({ slug, request, onSources, onRetry }: AnswerStream
                   <div key={citation.index} className='inline-flex items-center gap-1'>
                     <Link
                       to={citationHref(slug, citation.resourceId, matchedPassage)}
-                      className='rp-focus inline-flex items-center gap-1.5 rounded-[6px] border border-line bg-[var(--rp-surface-2)] px-2 py-1 text-xs font-medium text-[var(--rp-ink-2)] transition-colors duration-150 hover:bg-[var(--rp-surface-3)] hover:text-[var(--rp-ink)]'
+                      className='rp-focus inline-flex items-center gap-1.5 rounded-none border border-line bg-[var(--rp-surface-2)] px-2 py-1 text-xs font-medium text-[var(--rp-ink-2)] transition-colors duration-150 hover:bg-[var(--rp-surface-3)] hover:text-[var(--rp-ink)]'
                     >
                       <span
-                        className='flex h-4 w-4 shrink-0 items-center justify-center rounded-[3px] text-[10px] font-semibold tabular-nums text-white'
+                        className='flex h-4 w-4 shrink-0 items-center justify-center rounded-none text-[10px] font-semibold tabular-nums text-white'
                         style={{ backgroundColor: 'var(--rp-primary)' }}
                       >
                         {citation.index}
@@ -366,7 +366,7 @@ export function AnswerStream({ slug, request, onSources, onRetry }: AnswerStream
                           onClick={() => scrollToResource(citation.resourceId)}
                           aria-label={`Scroll to ${citation.title} in the results below`}
                           title='Scroll to this result'
-                          className='rp-focus flex h-6 w-6 shrink-0 items-center justify-center rounded-[6px] text-xs text-[var(--rp-ink-3)] transition-colors duration-150 hover:bg-[var(--rp-surface-2)] hover:text-[var(--rp-ink)]'
+                          className='rp-focus flex h-6 w-6 shrink-0 items-center justify-center rounded-none text-xs text-[var(--rp-ink-3)] transition-colors duration-150 hover:bg-[var(--rp-surface-2)] hover:text-[var(--rp-ink)]'
                         >
                           &darr;
                         </button>

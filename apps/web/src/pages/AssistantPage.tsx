@@ -438,7 +438,7 @@ function SessionList({
                       }}
                       aria-label={`Rename "${sessionTitle(session)}"`}
                       title='Rename session'
-                      className='rp-focus absolute right-8 top-1.5 flex h-6 w-6 items-center justify-center rounded-[6px] text-ink-3 opacity-0 transition-opacity duration-150 hover:bg-[var(--rp-surface-2)] hover:text-ink group-hover:opacity-100 focus-visible:opacity-100'
+                      className='rp-focus absolute right-8 top-1.5 flex h-6 w-6 items-center justify-center rounded-none text-ink-3 opacity-0 transition-opacity duration-150 hover:bg-[var(--rp-surface-2)] hover:text-ink group-hover:opacity-100 focus-visible:opacity-100'
                     >
                       ✎
                     </button>
@@ -452,7 +452,7 @@ function SessionList({
                   }}
                   aria-label={`Delete "${sessionTitle(session)}"`}
                   title='Delete session'
-                  className='rp-focus absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-[6px] text-ink-3 opacity-0 transition-opacity duration-150 hover:bg-[var(--rp-surface-2)] hover:text-[var(--rp-bad-ink)] group-hover:opacity-100 focus-visible:opacity-100'
+                  className='rp-focus absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-none text-ink-3 opacity-0 transition-opacity duration-150 hover:bg-[var(--rp-surface-2)] hover:text-[var(--rp-bad-ink)] group-hover:opacity-100 focus-visible:opacity-100'
                 >
                   &times;
                 </button>
@@ -971,7 +971,7 @@ function AssistantCard({
                 <path d='M7 4l6 6-6 6' />
               </svg>
               {showEvidence ? 'Hide sources and evidence' : 'Show sources and evidence'}
-              <span className='rounded-[4px] bg-surface-2 px-1.5 py-0.5 text-[10px] tabular-nums text-ink-3'>
+              <span className='rounded-none bg-surface-2 px-1.5 py-0.5 text-[10px] tabular-nums text-ink-3'>
                 {message.sources.length || message.citations.length}
               </span>
             </button>
@@ -1756,7 +1756,7 @@ export function AssistantPage() {
   return (
     <main
       aria-label='Research assistant'
-      className='mx-auto flex h-[calc(100dvh-65px)] max-w-[100rem] flex-col gap-3 px-4 py-4 sm:px-6 sm:py-6 lg:flex-row lg:gap-6 2xl:gap-8'
+      className='mx-auto flex h-[calc(100dvh-var(--rp-header-h,126px))] max-w-[100rem] flex-col gap-3 px-4 py-4 sm:px-6 sm:py-6 lg:flex-row lg:gap-6 2xl:gap-8'
     >
       <div className='flex shrink-0 items-center justify-between lg:hidden'>
         <button
@@ -1841,24 +1841,15 @@ export function AssistantPage() {
           {isEmpty
             ? (
               <div className='space-y-4'>
-                <div className='rounded-[calc(var(--rp-radius)+4px)] border border-line bg-surface p-6 shadow-sm'>
-                  <h1 className='text-lg font-semibold tracking-tight text-ink'>
-                    Ask {config.branding.productName}
-                  </h1>
-                  <p className='mt-1 text-sm text-ink-3'>
-                    Ask a question in plain language and get a grounded, cited answer drawn from the
-                    corpus.
-                  </p>
-                </div>
                 {suggestions && suggestions.length > 0
                   ? (
-                    <div className='flex flex-wrap gap-2'>
+                    <div className='flex flex-wrap justify-center gap-2.5 pt-10'>
                       {suggestions.slice(0, 6).map((question) => (
                         <button
                           key={question.id}
                           type='button'
                           onClick={() => void send(question.text)}
-                          className='rp-chip h-9 sm:h-7'
+                          className='rp-chip h-auto px-4 py-2.5 text-sm leading-snug'
                         >
                           {question.text}
                         </button>
