@@ -10,7 +10,15 @@ import {
 } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link, useNavigate, useOutletContext } from 'react-router-dom'
-import { forceCenter, forceCollide, forceLink, forceManyBody, forceSimulation } from 'd3-force'
+import {
+  forceCenter,
+  forceCollide,
+  forceLink,
+  forceManyBody,
+  forceSimulation,
+  forceX,
+  forceY,
+} from 'd3-force'
 import {
   getGraph,
   getLabelsets,
@@ -159,16 +167,20 @@ function useLiveSimulation(nodes: MapNode[], edges: MapEdge[]) {
     nodesRef.current = simNodes
     const simEdges = edges.map((e) => ({ ...e }))
     const simulation = forceSimulation<SimNode>(simNodes)
-      .force('charge', forceManyBody().strength(-170))
+      .force('charge', forceManyBody().strength(-85).distanceMax(420))
       .force(
         'link',
         forceLink<SimNode, { source: string; target: string }>(simEdges)
           .id((d) => d.id)
-          .distance(95)
-          .strength(0.4),
+          .distance(52)
+          .strength(0.75),
       )
       .force('center', forceCenter(SIM_W / 2, SIM_H / 2))
-      .force('collide', forceCollide<SimNode>().radius((d) => radiusFor(d.weight) + 8))
+      // Without a positional pull, weakly connected and isolated entities drift
+      // to the far edges and the map reads as scattered dust.
+      .force('x', forceX<SimNode>(SIM_W / 2).strength(0.09))
+      .force('y', forceY<SimNode>(SIM_H / 2).strength(0.09))
+      .force('collide', forceCollide<SimNode>().radius((d) => radiusFor(d.weight) + 6))
     simRef.current = simulation
 
     // Settle the layout synchronously - instant, and immune to background-tab
@@ -473,7 +485,7 @@ function GraphCanvas({
         aria-label='Knowledge map - drag to pan, scroll to zoom, click a node to explore it'
         tabIndex={0}
         className='rp-focus block h-full w-full cursor-grab touch-none select-none active:cursor-grabbing'
-        style={{ background: 'var(--rp-surface-2)' }}
+        style={{ background: 'var(--rp-surface)' }}
         onWheel={onWheel}
         onPointerDown={onPointerDownBackground}
         onPointerMove={onPointerMove}
@@ -1081,7 +1093,7 @@ function NavigatorRail({
   return (
     <aside
       aria-label='Map navigator'
-      className='rp-anim-fade absolute inset-x-0 bottom-0 z-20 flex max-h-[60%] flex-col overflow-hidden rounded-t-[16px] border border-line bg-surface rp-shadow-lg md:inset-x-auto md:left-3 md:top-3 md:bottom-auto md:max-h-[calc(100%-1.5rem)] md:w-[300px] md:rounded-[calc(var(--rp-radius)+4px)]'
+      className='rp-anim-fade absolute inset-x-0 bottom-0 z-20 flex max-h-[60%] flex-col overflow-hidden rounded-t-[16px] border border-line bg-surface rp-shadow-lg md:inset-x-auto md:bottom-auto md:left-4 md:top-1/2 md:max-h-[calc(100%-2rem)] md:w-[300px] md:-translate-y-1/2 md:rounded-[calc(var(--rp-radius)+4px)]'
     >
       <div className='flex items-start justify-between gap-2 border-b border-line px-4 py-3'>
         <div className='min-w-0'>
@@ -1493,7 +1505,7 @@ export function GraphPage() {
       </div>
 
       {/* Canvas stage - the map fills it; panels float over it. */}
-      <div className='relative min-h-0 flex-1'>
+      <div className='relative min-h-0 flex-1 bg-surface'>
         {loading
           ? <CanvasLoading />
           : error
