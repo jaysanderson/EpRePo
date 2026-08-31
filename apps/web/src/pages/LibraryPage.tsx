@@ -510,6 +510,30 @@ export function LibraryBrowser({ bare = false }: { bare?: boolean } = {}) {
         </div>
       )}
 
+      {
+        /* Bare mode drops the library's own heading, search and facet rail, but
+        * the listing still needs its sort. */
+      }
+      {bare && (
+        <div className='mb-4 flex flex-wrap items-center justify-end gap-2'>
+          <label htmlFor='library-sort-bare' className='text-xs font-medium text-ink-3'>
+            Sort
+          </label>
+          <select
+            id='library-sort-bare'
+            value={sort}
+            onChange={(event) => setSort(event.target.value as SortValue)}
+            className='rp-focus rounded-none border border-line bg-surface px-3 py-2 text-sm text-ink'
+          >
+            {SORT_VALUES.map((value) => (
+              <option key={value} value={value}>
+                {SORT_OPTIONS[value].label}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
       {!bare && (
         <div className='mt-4 flex flex-wrap items-center gap-2'>
           <div className='flex min-w-[16rem] flex-1 items-center gap-2 rounded-none border border-line bg-surface px-3 py-1.5'>

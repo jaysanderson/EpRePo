@@ -512,7 +512,8 @@ export function SearchPage() {
   const answerMode = readAnswerMode(searchParams)
 
   const [draft, setDraft] = useState(q)
-  const [filtersOpen, setFiltersOpen] = useState(false)
+  // Open by default on the desktop layout; the Filters button hides it again.
+  const [filtersOpen, setFiltersOpen] = useState(true)
   const inputRef = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => {
@@ -884,8 +885,10 @@ export function SearchPage() {
         )
         : null}
 
-      <div className='mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[230px_1fr]'>
-        <aside className={`${filtersOpen ? 'block' : 'hidden'} lg:block`}>
+      <div
+        className={`mt-6 grid grid-cols-1 gap-6 ${filtersOpen ? 'lg:grid-cols-[230px_1fr]' : ''}`}
+      >
+        <aside className={filtersOpen ? 'block' : 'hidden'}>
           <div className='rp-card p-4 lg:sticky lg:top-20'>
             {config.topics.length > 0
               ? (
