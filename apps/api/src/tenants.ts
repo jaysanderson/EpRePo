@@ -31,15 +31,16 @@ const grdc: TenantConfig = TenantConfigSchema.parse({
     },
   },
   searchPlaceholder: 'Search agronomy, crop protection, soils, farm business…',
-  // These ids must match the `topic` labelset on the bound knowledge box; until
-  // a GRDC box is connected they are the intended taxonomy, not a live one.
+  // These ids must match the `topic` labelset on the bound knowledge box -
+  // Explore intersects them with the box's facet counts, so an id that is not a
+  // real label silently yields an empty portal. Read from the box on
+  // 2026-08-31; the comments are its resource counts.
   topics: [
-    { id: 'agronomy', label: 'Agronomy' },
-    { id: 'crop-protection', label: 'Crop protection' },
-    { id: 'soils-nutrition', label: 'Soils and nutrition' },
-    { id: 'farm-business', label: 'Farm business' },
-    { id: 'climate-environment', label: 'Climate and environment' },
-    { id: 'harvest-storage', label: 'Harvest and storage' },
+    { id: 'research-development', label: 'Research and development' }, // 842
+    { id: 'investment-strategy', label: 'Investment strategy' }, // 147
+    { id: 'partnerships-initiatives', label: 'Partnerships and initiatives' }, // 45
+    { id: 'sustainability', label: 'Sustainability' }, // 30
+    { id: 'grdc-network', label: 'GRDC network' }, // 2
   ],
   suggestedQuestions: [
     {

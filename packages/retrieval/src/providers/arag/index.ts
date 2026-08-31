@@ -1048,7 +1048,12 @@ export class AragProvider implements RetrievalProvider {
   ): Promise<ResourceSummary[]> {
     const params = new URLSearchParams()
     params.set('page_number', '0')
-    params.set('page_size', String(limit))
+    // Over-fetch: documentation, junk and unprocessed resources are filtered
+    // out BELOW, so asking for exactly `limit` can return nothing at all when
+    // the first page happens to be all documentation - which is what the GRDC
+    // box does, since its help articles sort newest-first.
+    const fetchSize = Math.min(200, Math.max(limit * 6, 30))
+    params.set('page_size', String(fetchSize))
     params.append('show', 'basic')
     params.append('show', 'extra')
     params.append('show', 'origin')
@@ -1070,6 +1075,7 @@ export class AragProvider implements RetrievalProvider {
         isDisplayableResource(r) && !isDocumentationResource(r) &&
         (r.metadata?.status ?? '').toUpperCase() === 'PROCESSED'
       )
+      .slice(0, limit)
       .map(([id, r]) => this.toSummary(id, r))
   }
 

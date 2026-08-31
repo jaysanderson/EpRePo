@@ -68,7 +68,10 @@ describe('topicResources()', () => {
     expect(requestedUrl).toContain(
       encodeURIComponent('/classification.labels/topic/carp-control'),
     )
-    expect(requestedUrl).toContain('page_size=5')
+    // Over-fetches rather than asking for exactly `limit`: documentation and
+    // junk are filtered out after the fetch, so an exact page can filter to
+    // nothing. See the all-documentation case below.
+    expect(requestedUrl).toContain('page_size=30')
     expect(items.map((r) => r.id)).toEqual(['res-1'])
     expect(items[0]?.title).toBe('Carp control in the Murray-Darling')
   })
@@ -88,6 +91,38 @@ describe('topicResources()', () => {
 
     const items = await provider.topicResources(TENANT, 'governance-reporting')
     expect(items.map((r) => r.id)).toEqual(['res-good'])
+  })
+
+  it('still returns real resources when the newest page is all documentation', async () => {
+    // The GRDC box sorts its own help articles newest-first, so asking for
+    // exactly `limit` returned a page of documentation that filtered to zero
+    // and the topic row rendered empty on a corpus of 842 resources.
+    const docs = Object.fromEntries(
+      Array.from({ length: 12 }, (_, i) => [`doc-${i}`, {
+        title: `Getting started ${i}`,
+        icon: 'text/html',
+        metadata: { status: 'PROCESSED' },
+        usermetadata: {
+          classifications: [{ labelset: 'content-type', label: 'documentation' }],
+        },
+      }]),
+    )
+    const real = Object.fromEntries(
+      Array.from({ length: 3 }, (_, i) => [`real-${i}`, {
+        title: `GGL260${i}-003FAX.txt`,
+        icon: 'text/plain',
+        metadata: { status: 'PROCESSED' },
+      }]),
+    )
+    const provider = providerWithFetch(() =>
+      Promise.resolve(jsonResponse({ resources: { ...docs, ...real } }))
+    )
+
+    const items = await provider.topicResources(TENANT, 'research-development', 3)
+
+    expect(items.length).toBe(3)
+    expect(items.every((item: { title: string }) => !item.title.startsWith('Getting started')))
+      .toBe(true)
   })
 
   it('an empty index (no resources filed under the topic) resolves to an empty row, not an error', async () => {
