@@ -151,6 +151,17 @@ export const DOC_PAGES: DocPage[] = [
           'can **Continue in Assistant** to keep asking follow-ups.',
       },
       {
+        heading: 'Retrieved and cited - the difference',
+        body: 'An answer is built in two steps, and the portal shows you both:\n\n' +
+          '- **Retrieved** is what search found for your question. It is the whole pool the ' +
+          'answer was written from, including passages that turned out not to be useful.\n' +
+          '- **Cited** is the smaller set the answer actually drew on - the numbered [1] markers ' +
+          'in the text. Each one links to the exact passage it came from.\n\n' +
+          'So every cited source was retrieved, but not every retrieved source is cited. Seeing ' +
+          'both is deliberate: the cited set tells you what the answer rests on, and the wider ' +
+          'retrieved set lets you check whether anything relevant was found but passed over.',
+      },
+      {
         heading: 'How matching works',
         body: 'Three retrieval modes sit under the box:\n\n' +
           '- **Hybrid** (the default) combines keyword and semantic matching - the best all-round ' +

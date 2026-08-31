@@ -1090,11 +1090,11 @@ export function SearchPage() {
                               {[
                                 {
                                   value: 'resources' as const,
-                                  label: `Resources (${filteredResults.length})`,
+                                  label: `Retrieved (${filteredResults.length})`,
                                 },
                                 {
                                   value: 'citations' as const,
-                                  label: `Citations (${citedResults.length})`,
+                                  label: `Cited (${citedResults.length})`,
                                 },
                               ].map((option, index) => {
                                 const active = resultView === option.value

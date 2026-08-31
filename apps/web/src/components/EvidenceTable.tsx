@@ -105,10 +105,10 @@ export function evidenceSummary(
 ): string {
   const parts: string[] = []
   if (sources.length > 0) {
-    parts.push(`${sources.length} ${sources.length === 1 ? 'source' : 'sources'}`)
+    parts.push(`${sources.length} retrieved`)
     if (citedCount !== undefined && citedCount > 0) parts.push(`${citedCount} cited`)
   } else if (citedCount !== undefined && citedCount > 0) {
-    parts.push(`${citedCount} cited ${citedCount === 1 ? 'source' : 'sources'}`)
+    parts.push(`${citedCount} cited`)
   }
 
   const { span } = assessCurrency(sources)
@@ -359,7 +359,7 @@ export function EvidenceTable({
   sources,
   verdicts,
   judging = false,
-  title = 'evidence',
+  title = 'retrieved sources',
   citations,
   anchorPrefix,
   collapsible = true,
@@ -430,7 +430,7 @@ export function EvidenceTable({
             <div className='flex items-center gap-2 pt-1' role='separator'>
               <span className='h-px flex-1' style={{ backgroundColor: 'var(--rp-line)' }} />
               <span className='shrink-0 text-[11px] font-medium uppercase tracking-wide text-ink-3'>
-                Also retrieved (not used in the answer)
+                Retrieved, but not cited in the answer
               </span>
               <span className='h-px flex-1' style={{ backgroundColor: 'var(--rp-line)' }} />
             </div>

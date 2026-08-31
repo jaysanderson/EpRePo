@@ -797,7 +797,7 @@ function AssistantCard({
                 slug={slug}
                 question={question}
                 sources={evidenceSources}
-                title='the closest passages found'
+                title='the closest passages retrieved'
                 anchorPrefix={message.id}
               />
             </div>
@@ -982,7 +982,7 @@ function AssistantCard({
               regionId={`${message.id}-evidence`}
               open={showEvidence}
               onToggle={() => setShowEvidence((prev) => !prev)}
-              label='sources and evidence'
+              label='retrieved sources'
               summary={evidenceSummary(evidenceSources, citedSourceCount)}
             >
               <div className='space-y-5'>

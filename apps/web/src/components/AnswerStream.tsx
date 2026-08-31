@@ -486,7 +486,7 @@ export function AnswerStream({ slug, request, onSources, onRetry }: AnswerStream
               })}
             </div>
             <p className='mt-2 text-xs text-ink-3'>
-              {citations.length} {citations.length === 1 ? 'source' : 'sources'} cited
+              {citations.length} cited
             </p>
             <CurrencyNote
               className='mt-2'

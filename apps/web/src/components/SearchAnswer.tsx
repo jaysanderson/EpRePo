@@ -386,7 +386,7 @@ export function SearchAnswer({ slug, query, onResult }: SearchAnswerProps) {
                   {status === 'done' && !refused
                     ? (
                       <p className='mt-3 text-xs text-ink-3'>
-                        {citations.length} {citations.length === 1 ? 'source' : 'sources'} cited
+                        {citations.length} cited
                       </p>
                     )
                     : null}
