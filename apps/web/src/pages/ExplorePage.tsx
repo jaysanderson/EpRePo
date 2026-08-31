@@ -291,28 +291,41 @@ function QuickEntry({ slug }: { slug: string }) {
 
 /**
  * A featured band: the corpus is national, so the map is a way in by place.
- * Each region runs the search for its own name. The list beside the map is not
- * decoration - it is the keyboard and screen-reader path to the same searches.
+ * Each region asks a real question about that state rather than searching a
+ * bare place name. The list beside the map is not decoration - it is the
+ * keyboard and screen-reader path to the same questions, so it carries its own
+ * group label; the sentence that used to tell a reader what to do here has
+ * gone, and the label is what keeps that instruction for assistive tech.
  */
 function RegionBand({ slug }: { slug: string }) {
   return (
     <section style={{ backgroundColor: 'var(--rp-primary)' }}>
-      <div className='rp-shell grid gap-10 py-12 md:grid-cols-2 md:items-center md:py-16'>
+      {
+        /* Tighter stack on a phone, where the map reads as the continuation of
+        * the region buttons rather than a second block; the wider gap returns
+        * at `md:`, where it is the column gap between copy and map. */
+      }
+      <div className='rp-shell grid gap-8 py-12 md:grid-cols-2 md:items-center md:gap-10 md:py-16'>
         <div className='min-w-0'>
-          <p className='rp-eyebrow text-[var(--rp-on-primary)]/60'>Explore by region</p>
-          <h2 className='rp-display mt-2 text-3xl text-[var(--rp-on-primary)] sm:text-4xl'>
-            Research from every corner of the country
+          <h2 className='rp-display text-3xl text-[var(--rp-on-primary)] sm:text-4xl'>
+            Explore by region
           </h2>
           <p className='mt-4 max-w-md text-base leading-relaxed text-[var(--rp-on-primary)]/75'>
-            Research and its impact are deeply regional. Pick a state or territory to see what the
-            corpus holds there.
+            Research from every corner of the country
           </p>
-          <ul className='mt-6 flex flex-wrap gap-2'>
+          {
+            /* On a phone the seven links fill their wrap lines, so the group
+             * reads as a justified block of destinations rather than a ragged
+             * cloud of tags, and each one clears 44px for a thumb - a 33px pill
+             * is a poor target. Both are dropped at `sm:`, where the row goes
+             * back to natural widths beside the map. */
+          }
+          <ul aria-label='Regions' className='mt-6 flex flex-wrap gap-2'>
             {REGIONS.map((region) => (
-              <li key={region.id}>
+              <li key={region.id} className='grow sm:grow-0'>
                 <Link
                   to={`/t/${slug}/search?q=${encodeURIComponent(region.query)}`}
-                  className='rp-focus-inverse inline-flex rounded-[var(--rp-radius-chip)] border border-[var(--rp-on-primary)]/30 bg-[var(--rp-on-primary)]/10 px-3 py-1.5 text-sm text-[var(--rp-on-primary)] transition-colors duration-150 hover:bg-[var(--rp-on-primary)]/20'
+                  className='rp-focus-inverse inline-flex min-h-11 w-full items-center justify-center rounded-[var(--rp-radius-chip)] border border-[var(--rp-on-primary)]/30 bg-[var(--rp-on-primary)]/10 px-3 py-1.5 text-sm text-[var(--rp-on-primary)] transition-colors duration-150 hover:bg-[var(--rp-on-primary)]/20 sm:min-h-0 sm:w-auto'
                 >
                   {region.label}
                 </Link>
@@ -420,10 +433,10 @@ function TopicRowSkeleton() {
          * than a phone, so with the row's overflow left visible this skeleton
          * used to stretch the document to ~1084px and scroll the whole page
          * sideways for as long as the topics were loading. It clips instead,
-         * and takes the same mobile right-edge bleed as the real row so the
+         * and takes the same full-width mobile track as the real row so the
          * swap from skeleton to content does not shift. */
       }
-      <div className='-mr-6 mt-4 flex gap-3 overflow-hidden pr-6 sm:mr-0 sm:pr-0'>
+      <div className='-mx-[1.5rem] mt-4 flex gap-3 overflow-hidden px-[1.5rem] sm:mx-0 sm:px-0'>
         {Array.from({ length: 4 }).map((_, index) => (
           <div
             key={index}
@@ -553,18 +566,28 @@ export function ExplorePage() {
                   count={count}
                 />
                 {
-                  /* The scroll track runs out to the right edge of a phone
-                   * screen rather than stopping at the shell's 1.5rem gutter,
-                   * so the next card is a deliberate peek instead of a card
-                   * sliced off against an invisible margin. The negative margin
-                   * is exactly the shell's mobile padding, so the track ends on
-                   * the viewport edge and never widens the page; the matching
-                   * `pr-6` inside gives the last card the same breathing room
-                   * at the end of the scroll. The heading, count and "See all"
-                   * above stay on the normal gutter, and so does the first card
-                   * - only the right-hand end is released. */
+                  /* On a phone the track spans the whole viewport rather than
+                   * stopping at the shell's gutter, so cards pass under both
+                   * screen edges as the row scrolls instead of being sliced off
+                   * against an invisible margin 1.5rem in. The negative margin
+                   * releases the track; the equal padding inside it supplies
+                   * the resting inset, so at scroll 0 the first card still sits
+                   * on the 1.5rem gutter, in line with the heading above it,
+                   * and the last card keeps the same clearance at the far end.
+                   *
+                   * The 1.5rem is written out rather than taken from the
+                   * spacing scale on purpose. `rp-shell`'s gutter is a fixed
+                   * 1.5rem, but Tailwind's spacing utilities resolve against
+                   * `--spacing`, which the tenant density dial scales - a
+                   * `comfortable` or `spacious` portal would give this track a
+                   * negative margin wider than the gutter it is cancelling and
+                   * push the whole page sideways.
+                   *
+                   * `scroll-pl` matches the padding so snapping and any
+                   * scroll-into-view (keyboard focus, for one) come to rest on
+                   * the visual gutter rather than against the screen edge. */
                 }
-                <div className='rp-scroll-row rp-no-scrollbar -mr-6 mt-3.5 flex gap-3 overflow-x-auto pb-4 pr-6 pt-1 sm:mr-0 sm:pr-0'>
+                <div className='rp-scroll-row rp-no-scrollbar -mx-[1.5rem] mt-3.5 flex gap-3 overflow-x-auto scroll-pl-[1.5rem] px-[1.5rem] pb-4 pt-1 sm:mx-0 sm:scroll-pl-0 sm:px-0'>
                   {items.map((resource) => (
                     <ResourceCard key={resource.id} slug={config.slug} resource={resource} />
                   ))}
