@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { type CSSProperties, useEffect, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link, NavLink, Outlet, useLocation, useNavigate, useParams } from 'react-router-dom'
 import type { TenantConfig } from '@research-portal/core'
@@ -8,7 +8,7 @@ import { CommandPalette } from '../components/CommandPalette.tsx'
 import { KbSwitcher } from '../components/KbSwitcher.tsx'
 import { PortalFooter } from '../components/PortalFooter.tsx'
 import { SignInDialog } from '../components/SignInDialog.tsx'
-import { GENERATE_KINDS, GENERATE_WORKSPACES, GenerateMenu } from '../components/GenerateMenu.tsx'
+import { GenerateMenu } from '../components/GenerateMenu.tsx'
 
 export type TenantOutletContext = {
   config: TenantConfig
@@ -37,16 +37,110 @@ const NAV_ITEMS: { path: string; label: string; end: boolean }[] = [
   { path: '/graph', label: 'Graph', end: false },
 ]
 
+// The phone sheet lists the same four destinations as the desktop nav band.
+// Generate is a mega-menu up there and a plain link down here: the Generate
+// page carries its own artefact-kind picker, so one row reaches every kind
+// without stacking six more of them under the primary navigation.
+const MOBILE_NAV_ITEMS: { path: string; label: string; end: boolean }[] = [
+  ...NAV_ITEMS,
+  { path: '/generate', label: 'Generate', end: false },
+]
+
+// One name each for the help and account controls, read by both the header
+// icons and the phone sheet's rows so the two surfaces cannot drift apart. The
+// portal has no auth yet - SignInDialog is presentational and collects no
+// credential - so there is no signed-in state for these to reflect.
+const HELP_LABEL = 'Help'
+const ACCOUNT_LABEL = 'My account'
+
+function HelpIcon({ className }: { className: string }) {
+  return (
+    <svg
+      viewBox='0 0 24 24'
+      fill='none'
+      stroke='currentColor'
+      strokeWidth='1.6'
+      strokeLinecap='round'
+      strokeLinejoin='round'
+      className={className}
+      aria-hidden='true'
+    >
+      <circle cx='12' cy='12' r='9' />
+      <path d='M9.4 9.2a2.7 2.7 0 015.2.9c0 1.8-2.6 2.4-2.6 4' />
+      <path d='M12 17.4h.01' />
+    </svg>
+  )
+}
+
+function AccountIcon({ className }: { className: string }) {
+  return (
+    <svg
+      viewBox='0 0 24 24'
+      fill='none'
+      stroke='currentColor'
+      strokeWidth='1.6'
+      strokeLinecap='round'
+      strokeLinejoin='round'
+      className={className}
+      aria-hidden='true'
+    >
+      <circle cx='12' cy='8.5' r='3.75' />
+      <path d='M4.5 20a7.5 7.5 0 0115 0' />
+    </svg>
+  )
+}
+
+/**
+ * The menu trigger's three bars, which rotate and translate into the cross
+ * rather than cross-fading to a second icon. Every state lives in
+ * `.rp-navtoggle-bar` in styles.css, keyed off the button's own
+ * `aria-expanded`, so the drawn state and the announced state cannot disagree.
+ */
+function MenuBars() {
+  return (
+    <svg
+      viewBox='0 0 24 24'
+      fill='none'
+      stroke='currentColor'
+      strokeWidth='1.8'
+      strokeLinecap='round'
+      className='h-6 w-6'
+      aria-hidden='true'
+    >
+      <path className='rp-navtoggle-bar rp-navtoggle-bar-top' d='M4 7h16' />
+      <path className='rp-navtoggle-bar rp-navtoggle-bar-mid' d='M4 12h16' />
+      <path className='rp-navtoggle-bar rp-navtoggle-bar-bot' d='M4 17h16' />
+    </svg>
+  )
+}
+
+/** Anything the sheet's focus cycle should stop on. */
+const NAV_FOCUSABLE = 'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])'
+
+function prefersReducedMotion(): boolean {
+  return globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
+}
+
 export function TenantLayout() {
   const { slug } = useParams<{ slug: string }>()
   const location = useLocation()
   const navigate = useNavigate()
   const [navOpen, setNavOpen] = useState(false)
+  // The sheet outlives `navOpen` by the length of its exit, so the panel, the
+  // scrim and the rows can animate away and the trigger can morph back from the
+  // cross instead of the whole thing being ripped out of the DOM mid-gesture.
+  const [navMounted, setNavMounted] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [logoFailed, setLogoFailed] = useState(false)
   const [headerQuery, setHeaderQuery] = useState('')
   const [signInOpen, setSignInOpen] = useState(false)
   const headerRef = useRef<HTMLElement | null>(null)
+  const navPanelRef = useRef<HTMLElement | null>(null)
+  const navTriggerRef = useRef<HTMLButtonElement | null>(null)
+  // Set only by the deliberate close paths (the trigger, Escape, the scrim).
+  // Following a link closes the sheet too, and there the new page should keep
+  // the focus rather than have it yanked back up to the header.
+  const navRestoreFocus = useRef(false)
 
   // Cmd/Ctrl+K opens the search-or-ask palette from anywhere in the portal.
   useEffect(() => {
@@ -61,8 +155,10 @@ export function TenantLayout() {
   }, [])
 
   // The mobile nav sheet closes on navigation, on Escape, and locks page
-  // scroll behind it while open.
+  // scroll behind it while open. Following a link is not a deliberate dismissal,
+  // so the focus stays with the page that was just opened.
   useEffect(() => {
+    navRestoreFocus.current = false
     setNavOpen(false)
   }, [location.pathname])
 
@@ -76,23 +172,84 @@ export function TenantLayout() {
     setPaletteOpen(false)
   }, [location.pathname])
 
+  // Escape closes, and Tab is held inside the sheet. The trigger sits in the
+  // header rather than in the panel - it is the sheet's own close control now
+  // that it morphs into the cross - so it joins the front of the cycle instead
+  // of being tabbed past into the page underneath.
   useEffect(() => {
     if (!navOpen) return
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setNavOpen(false)
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        navRestoreFocus.current = true
+        setNavOpen(false)
+        return
+      }
+      if (event.key !== 'Tab') return
+      const panel = navPanelRef.current
+      const trigger = navTriggerRef.current
+      if (!panel || !trigger) return
+      const stops = [trigger, ...panel.querySelectorAll<HTMLElement>(NAV_FOCUSABLE)]
+      const index = stops.indexOf(document.activeElement as HTMLElement)
+      if (index === -1) {
+        event.preventDefault()
+        stops[0]?.focus()
+        return
+      }
+      if (event.shiftKey && index === 0) {
+        event.preventDefault()
+        stops[stops.length - 1]?.focus()
+      } else if (!event.shiftKey && index === stops.length - 1) {
+        event.preventDefault()
+        stops[0]?.focus()
+      }
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
   }, [navOpen])
 
+  // Opening moves the focus to the first destination in the sheet.
   useEffect(() => {
     if (!navOpen) return
+    navPanelRef.current?.querySelector<HTMLElement>(NAV_FOCUSABLE)?.focus()
+  }, [navOpen])
+
+  // The exit: hand the focus back before anything is unmounted, then hold the
+  // sheet in the DOM for exactly as long as its animations run. Under reduced
+  // motion there are none, so it goes immediately.
+  useEffect(() => {
+    if (navOpen || !navMounted) return
+    if (navRestoreFocus.current) {
+      navRestoreFocus.current = false
+      navTriggerRef.current?.focus()
+    }
+    const timer = setTimeout(() => setNavMounted(false), prefersReducedMotion() ? 0 : 220)
+    return () => clearTimeout(timer)
+  }, [navOpen, navMounted])
+
+  // The sheet is a phone control. Crossing to the desktop breakpoint with it
+  // open would otherwise leave the body scroll locked behind a hidden panel.
+  useEffect(() => {
+    if (!navMounted) return
+    const query = globalThis.matchMedia('(min-width: 768px)')
+    const sync = () => {
+      if (!query.matches) return
+      navRestoreFocus.current = false
+      setNavOpen(false)
+    }
+    sync()
+    query.addEventListener('change', sync)
+    return () => query.removeEventListener('change', sync)
+  }, [navMounted])
+
+  useEffect(() => {
+    if (!navMounted) return
     const previous = document.body.style.overflow
     document.body.style.overflow = 'hidden'
     return () => {
       document.body.style.overflow = previous
     }
-  }, [navOpen])
+  }, [navMounted])
   const {
     data: config,
     isLoading,
@@ -298,34 +455,21 @@ export function TenantLayout() {
               )}
               <Link
                 to={`/t/${config.slug}/help`}
-                aria-label='Help'
-                title='Help'
+                aria-label={HELP_LABEL}
+                title={HELP_LABEL}
                 className='rp-focus flex h-[calc(2.75rem*var(--rp-density-ctl,1))] w-[calc(2.75rem*var(--rp-density-ctl,1))] shrink-0 items-center justify-center rounded-full border transition-colors duration-150'
                 style={{
                   borderColor: 'color-mix(in srgb, var(--rp-primary) 25%, transparent)',
                   color: 'var(--rp-primary)',
                 }}
               >
-                <svg
-                  viewBox='0 0 24 24'
-                  fill='none'
-                  stroke='currentColor'
-                  strokeWidth='1.6'
-                  strokeLinecap='round'
-                  strokeLinejoin='round'
-                  className='h-6 w-6'
-                  aria-hidden='true'
-                >
-                  <circle cx='12' cy='12' r='9' />
-                  <path d='M9.4 9.2a2.7 2.7 0 015.2.9c0 1.8-2.6 2.4-2.6 4' />
-                  <path d='M12 17.4h.01' />
-                </svg>
+                <HelpIcon className='h-6 w-6' />
               </Link>
               <button
                 type='button'
                 onClick={() => setSignInOpen(true)}
-                aria-label='My account'
-                title='My account'
+                aria-label={ACCOUNT_LABEL}
+                title={ACCOUNT_LABEL}
                 aria-haspopup='dialog'
                 className='rp-focus flex h-[calc(2.75rem*var(--rp-density-ctl,1))] w-[calc(2.75rem*var(--rp-density-ctl,1))] shrink-0 items-center justify-center rounded-full border transition-colors duration-150'
                 style={{
@@ -333,45 +477,37 @@ export function TenantLayout() {
                   color: 'var(--rp-primary)',
                 }}
               >
-                <svg
-                  viewBox='0 0 24 24'
-                  fill='none'
-                  stroke='currentColor'
-                  strokeWidth='1.6'
-                  strokeLinecap='round'
-                  strokeLinejoin='round'
-                  className='h-6 w-6'
-                  aria-hidden='true'
-                >
-                  <circle cx='12' cy='8.5' r='3.75' />
-                  <path d='M4.5 20a7.5 7.5 0 0115 0' />
-                </svg>
+                <AccountIcon className='h-6 w-6' />
               </button>
               {
-                /* Wrapped, because .rp-btn sets its own display and would beat a
-                * `md:hidden` utility on the button itself - which is why this
-                * control used to show next to the full desktop nav. */
+                /* Wrapped, because .rp-navtoggle sets its own display and would
+                * beat a `md:hidden` utility on the button itself - component
+                * classes in styles.css are unlayered and win over Tailwind's
+                * utility layer no matter what the class list says. That is
+                * exactly why this control used to show next to the full desktop
+                * nav. The toggle is sized to match the help and account buttons
+                * beside it rather than being scaled up on its own, so the three
+                * read as one 44px cluster. */
               }
               <span className='md:hidden'>
                 <button
+                  ref={navTriggerRef}
                   type='button'
-                  onClick={() => setNavOpen(true)}
-                  aria-label='Open menu'
-                  aria-haspopup='dialog'
+                  onClick={() => {
+                    if (navOpen) {
+                      navRestoreFocus.current = true
+                      setNavOpen(false)
+                      return
+                    }
+                    setNavMounted(true)
+                    setNavOpen(true)
+                  }}
+                  aria-label={navOpen ? 'Close menu' : 'Open menu'}
                   aria-expanded={navOpen}
-                  className='rp-btn rp-btn-ghost h-9 w-9 shrink-0 !px-0'
+                  aria-controls='mobile-nav-sheet'
+                  className='rp-navtoggle rp-focus'
                 >
-                  <svg
-                    viewBox='0 0 20 20'
-                    fill='none'
-                    stroke='currentColor'
-                    strokeWidth='1.7'
-                    strokeLinecap='round'
-                    className='h-4 w-4'
-                    aria-hidden='true'
-                  >
-                    <path d='M3 5.5h14M3 10h14M3 14.5h14' />
-                  </svg>
+                  <MenuBars />
                 </button>
               </span>
             </div>
@@ -403,44 +539,46 @@ export function TenantLayout() {
         </div>
       </header>
 
-      {navOpen && (
-        <div
-          role='dialog'
-          aria-modal='true'
-          aria-label='Menu'
-          className='rp-anim-fade fixed inset-0 z-50 flex flex-col md:hidden'
-          style={{ backgroundColor: 'var(--rp-primary)' }}
-        >
-          <div className='flex shrink-0 items-center justify-between gap-4 border-b border-[var(--rp-on-primary)]/20 px-4 py-3'>
-            {config.branding.logoUrl && !logoFailed
-              ? (
-                <img
-                  src={config.branding.logoUrl}
-                  alt={config.branding.organisation}
-                  className='h-10 w-auto max-w-[13rem] object-contain brightness-0 invert'
-                />
-              )
-              : (
-                <span className='rp-display text-base text-[var(--rp-on-primary)]'>
-                  {config.branding.productName}
-                </span>
-              )}
-            <button
-              type='button'
-              onClick={() => setNavOpen(false)}
-              aria-label='Close menu'
-              className='rp-focus-inverse flex h-11 w-11 shrink-0 items-center justify-center text-[var(--rp-on-primary)]'
-            >
-              <svg viewBox='0 0 20 20' fill='currentColor' aria-hidden='true' className='h-5 w-5'>
-                <path d='M5.3 4.3l4.7 4.7 4.7-4.7 1 1L11 10l4.7 4.7-1 1L10 11l-4.7 4.7-1-1L9 10 4.3 5.3z' />
-              </svg>
-            </button>
-          </div>
-
-          <nav aria-label='Primary' className='flex-1 overflow-y-auto px-4 py-6'>
+      {
+        /* The phone menu. It hangs from under the header rather than covering
+        * it, which is what lets the trigger stay put and morph into the cross
+        * in place, and leaves a real scrim over the page below. Both layers
+        * carry `md:hidden` and neither animation class sets `display`, so the
+        * utility is unopposed - verified on the computed style at 1440px. */
+      }
+      {navMounted && (
+        <div className='md:hidden'>
+          <div
+            aria-hidden='true'
+            onClick={() => {
+              navRestoreFocus.current = true
+              setNavOpen(false)
+            }}
+            className={`fixed inset-x-0 bottom-0 z-50 ${
+              navOpen ? 'rp-navsheet-scrim' : 'rp-navsheet-scrim rp-navsheet-scrim-exit'
+            }`}
+            style={{ top: 'var(--rp-header-h, 4rem)' }}
+          />
+          <nav
+            id='mobile-nav-sheet'
+            ref={navPanelRef}
+            aria-label='Primary'
+            className={`fixed inset-x-0 z-50 overflow-y-auto overflow-x-hidden border-b border-[var(--rp-on-primary)]/20 px-4 pb-7 pt-2 ${
+              navOpen ? 'rp-navsheet-panel' : 'rp-navsheet-panel rp-navsheet-panel-exit'
+            }`}
+            style={{
+              top: 'var(--rp-header-h, 4rem)',
+              maxHeight: 'calc(100dvh - var(--rp-header-h, 4rem))',
+              backgroundColor: 'var(--rp-primary)',
+            }}
+          >
             <ul>
-              {NAV_ITEMS.map((item) => (
-                <li key={item.label}>
+              {MOBILE_NAV_ITEMS.map((item, index) => (
+                <li
+                  key={item.label}
+                  className={navOpen ? 'rp-navsheet-item' : 'rp-navsheet-item-exit'}
+                  style={{ '--rp-stage-i': index } as CSSProperties}
+                >
                   <NavLink
                     to={`/t/${config.slug}${item.path}`}
                     end={item.end}
@@ -458,84 +596,52 @@ export function TenantLayout() {
               ))}
             </ul>
 
-            {/* Generate, carrying the same sections as the desktop mega-menu. */}
-            <div className='mt-8 flex items-start gap-4'>
+            {
+              /* Support and account, under the mark. The same two controls as
+              * the header, drawn from the same icons and named by the same
+              * constants so the two surfaces cannot drift. */
+            }
+            <div
+              className={`mt-7 flex items-center gap-4 ${
+                navOpen ? 'rp-navsheet-item' : 'rp-navsheet-item-exit'
+              }`}
+              style={{ '--rp-stage-i': MOBILE_NAV_ITEMS.length } as CSSProperties}
+            >
+              {
+                /* The mark is sized in rem, so at a 22px accessibility root
+                * font it would otherwise grow to 204px and squeeze the two
+                * controls beside it into a wrapped 120px column. The
+                * proportional cap keeps the split roughly two-fifths to
+                * three-fifths at every text size. */
+              }
               <img
                 src='/brand/knowledge-hub-fish.svg'
                 alt=''
                 aria-hidden='true'
-                className='h-16 w-auto shrink-0'
+                className='h-24 w-auto max-w-[38%] shrink-0 object-contain'
               />
-              <div className='min-w-0'>
-                <h2 className='rp-display text-lg text-[var(--rp-on-primary)]'>
-                  Generate from the corpus
-                </h2>
+              <div className='flex min-w-0 flex-1 flex-col gap-2.5'>
                 <NavLink
-                  to={`/t/${config.slug}/generate`}
-                  className='rp-focus-inverse mt-1 inline-flex text-sm text-[var(--rp-on-primary)]/75'
+                  to={`/t/${config.slug}/help`}
+                  className='rp-navsheet-action rp-focus-inverse'
                 >
-                  All artefacts &rarr;
+                  <HelpIcon className='h-5 w-5 shrink-0' />
+                  {HELP_LABEL}
                 </NavLink>
+                <button
+                  type='button'
+                  aria-haspopup='dialog'
+                  onClick={() => {
+                    navRestoreFocus.current = false
+                    setNavOpen(false)
+                    setSignInOpen(true)
+                  }}
+                  className='rp-navsheet-action rp-focus-inverse'
+                >
+                  <AccountIcon className='h-5 w-5 shrink-0' />
+                  {ACCOUNT_LABEL}
+                </button>
               </div>
-            </div>
-
-            <p className='rp-eyebrow mt-6 text-[var(--rp-on-primary)]/55'>Artefacts</p>
-            <ul className='mt-1'>
-              {GENERATE_KINDS.map((kind) => (
-                <li key={kind.id}>
-                  <NavLink
-                    to={`/t/${config.slug}/generate?kind=${kind.id}`}
-                    className='rp-focus-inverse group flex items-center gap-3 border-b border-[var(--rp-on-primary)]/15 py-3.5 text-base font-light text-[var(--rp-on-primary)]/85'
-                  >
-                    <span
-                      aria-hidden='true'
-                      className='transition-transform duration-200 group-hover:translate-x-1'
-                    >
-                      &rarr;
-                    </span>
-                    {kind.label}
-                  </NavLink>
-                </li>
-              ))}
-            </ul>
-
-            <p className='rp-eyebrow mt-6 text-[var(--rp-on-primary)]/55'>Workspaces</p>
-            <ul className='mt-1'>
-              {GENERATE_WORKSPACES.map((workspace) => (
-                <li key={workspace.to}>
-                  <NavLink
-                    to={`/t/${config.slug}/${workspace.to}`}
-                    className='rp-focus-inverse group flex items-center gap-3 border-b border-[var(--rp-on-primary)]/15 py-3.5 text-base font-light text-[var(--rp-on-primary)]/85'
-                  >
-                    <span
-                      aria-hidden='true'
-                      className='transition-transform duration-200 group-hover:translate-x-1'
-                    >
-                      &rarr;
-                    </span>
-                    {workspace.label}
-                  </NavLink>
-                </li>
-              ))}
-            </ul>
-
-            <div className='mt-8 flex flex-wrap gap-3'>
-              <NavLink
-                to={`/t/${config.slug}/help`}
-                className='rp-focus-inverse border border-[var(--rp-on-primary)]/30 px-4 py-2.5 text-sm text-[var(--rp-on-primary)]'
-              >
-                Help
-              </NavLink>
-              <button
-                type='button'
-                onClick={() => {
-                  setNavOpen(false)
-                  setSignInOpen(true)
-                }}
-                className='rp-focus-inverse border border-[var(--rp-on-primary)]/30 px-4 py-2.5 text-sm text-[var(--rp-on-primary)]'
-              >
-                Sign in
-              </button>
             </div>
           </nav>
         </div>
