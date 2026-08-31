@@ -171,17 +171,6 @@ export function TenantLayout() {
   const navLinkClass = ({ isActive }: { isActive: boolean }) =>
     `rp-navlink${isActive ? ' rp-navlink-active' : ''}`
 
-  // The mobile sheet still sits on the page background, where the wash reads.
-  // Accent is arbitrary per-tenant data, so it pairs a guaranteed legible ink
-  // colour with a 12% wash rather than a solid fill that could fail contrast.
-  const sheetLinkStyle = ({ isActive }: { isActive: boolean }): CSSProperties =>
-    isActive
-      ? {
-        borderColor: 'var(--rp-accent)',
-        backgroundColor: 'color-mix(in srgb, var(--rp-accent) 12%, transparent)',
-      }
-      : {}
-
   return (
     <div
       className='min-h-screen bg-app'
@@ -384,87 +373,137 @@ export function TenantLayout() {
           role='dialog'
           aria-modal='true'
           aria-label='Menu'
-          className='rp-anim-fade fixed inset-0 z-50 flex flex-col bg-app md:hidden'
+          className='rp-anim-fade fixed inset-0 z-50 flex flex-col md:hidden'
+          style={{ backgroundColor: 'var(--rp-primary)' }}
         >
-          <div className='flex shrink-0 items-center justify-between border-b border-line px-4 py-3'>
-            <span className='text-sm font-semibold text-ink'>Menu</span>
+          <div className='flex shrink-0 items-center justify-between gap-4 border-b border-white/20 px-4 py-3'>
+            {config.branding.logoUrl && !logoFailed
+              ? (
+                <img
+                  src={config.branding.logoUrl}
+                  alt={config.branding.organisation}
+                  className='h-10 w-auto max-w-[13rem] object-contain brightness-0 invert'
+                />
+              )
+              : (
+                <span className='rp-display text-base text-white'>
+                  {config.branding.productName}
+                </span>
+              )}
             <button
               type='button'
               onClick={() => setNavOpen(false)}
               aria-label='Close menu'
-              className='rp-btn rp-btn-ghost h-9 w-9 !px-0'
+              className='rp-focus-inverse flex h-11 w-11 shrink-0 items-center justify-center text-white'
             >
-              <svg viewBox='0 0 20 20' fill='currentColor' aria-hidden='true' className='h-4 w-4'>
+              <svg viewBox='0 0 20 20' fill='currentColor' aria-hidden='true' className='h-5 w-5'>
                 <path d='M5.3 4.3l4.7 4.7 4.7-4.7 1 1L11 10l4.7 4.7-1 1L10 11l-4.7 4.7-1-1L9 10 4.3 5.3z' />
               </svg>
             </button>
           </div>
 
-          <nav aria-label='Primary' className='flex-1 overflow-y-auto px-3 py-3'>
-            <ul className='space-y-1'>
+          <nav aria-label='Primary' className='flex-1 overflow-y-auto px-4 py-6'>
+            <ul>
               {NAV_ITEMS.map((item) => (
                 <li key={item.label}>
                   <NavLink
                     to={`/t/${config.slug}${item.path}`}
                     end={item.end}
-                    className={({ isActive }) =>
-                      `rp-btn rp-btn-ghost h-12 w-full justify-start rounded-none border px-4 text-base ${
-                        isActive ? 'border-transparent text-ink' : 'border-transparent'
-                      }`}
-                    style={sheetLinkStyle}
+                    className='rp-focus-inverse group flex items-center gap-3 border-b border-white/15 py-4 text-lg font-light text-white'
                   >
+                    <span
+                      aria-hidden='true'
+                      className='transition-transform duration-200 group-hover:translate-x-1'
+                    >
+                      &rarr;
+                    </span>
                     {item.label}
                   </NavLink>
                 </li>
               ))}
-              <li className='pt-3'>
-                <p className='rp-eyebrow px-4 pb-1 text-ink-3'>Generate</p>
-              </li>
-              {[
-                { to: 'generate', label: 'All artefacts' },
-                ...GENERATE_KINDS.map((k) => ({
-                  to: `generate?kind=${k.id}`,
-                  label: k.label,
-                })),
-                ...GENERATE_WORKSPACES,
-              ].map((entry) => (
-                <li key={entry.to}>
+            </ul>
+
+            {/* Generate, carrying the same sections as the desktop mega-menu. */}
+            <div className='mt-8 flex items-start gap-4'>
+              <img
+                src='/brand/knowledge-hub-fish.svg'
+                alt=''
+                aria-hidden='true'
+                className='h-16 w-auto shrink-0'
+              />
+              <div className='min-w-0'>
+                <h2 className='rp-display text-lg text-white'>Generate from the corpus</h2>
+                <NavLink
+                  to={`/t/${config.slug}/generate`}
+                  className='rp-focus-inverse mt-1 inline-flex text-sm text-white/75'
+                >
+                  All artefacts &rarr;
+                </NavLink>
+              </div>
+            </div>
+
+            <p className='rp-eyebrow mt-6 text-white/55'>Artefacts</p>
+            <ul className='mt-1'>
+              {GENERATE_KINDS.map((kind) => (
+                <li key={kind.id}>
                   <NavLink
-                    to={`/t/${config.slug}/${entry.to}`}
-                    className='rp-btn rp-btn-ghost h-12 w-full justify-start rounded-none border border-transparent px-4 text-base'
+                    to={`/t/${config.slug}/generate?kind=${kind.id}`}
+                    className='rp-focus-inverse group flex items-center gap-3 border-b border-white/15 py-3.5 text-base font-light text-white/85'
                   >
-                    {entry.label}
+                    <span
+                      aria-hidden='true'
+                      className='transition-transform duration-200 group-hover:translate-x-1'
+                    >
+                      &rarr;
+                    </span>
+                    {kind.label}
                   </NavLink>
                 </li>
               ))}
             </ul>
-          </nav>
 
-          <div className='flex shrink-0 items-center justify-between gap-3 border-t border-line px-4 py-4'>
-            {kbStatus?.status === 'demo'
-              ? (
-                <Link
-                  to='/admin'
-                  onClick={() => setNavOpen(false)}
-                  className='rp-badge rp-badge-warn rp-focus'
-                >
-                  Demo only
-                </Link>
-              )
-              : kbStatus?.status === 'none'
-              ? (
-                <Link
-                  to='/admin'
-                  onClick={() => setNavOpen(false)}
-                  className='rp-badge rp-badge-quiet rp-focus'
-                >
-                  Not connected
-                </Link>
-              )
-              : <span />}
-          </div>
+            <p className='rp-eyebrow mt-6 text-white/55'>Workspaces</p>
+            <ul className='mt-1'>
+              {GENERATE_WORKSPACES.map((workspace) => (
+                <li key={workspace.to}>
+                  <NavLink
+                    to={`/t/${config.slug}/${workspace.to}`}
+                    className='rp-focus-inverse group flex items-center gap-3 border-b border-white/15 py-3.5 text-base font-light text-white/85'
+                  >
+                    <span
+                      aria-hidden='true'
+                      className='transition-transform duration-200 group-hover:translate-x-1'
+                    >
+                      &rarr;
+                    </span>
+                    {workspace.label}
+                  </NavLink>
+                </li>
+              ))}
+            </ul>
+
+            <div className='mt-8 flex flex-wrap gap-3'>
+              <NavLink
+                to={`/t/${config.slug}/help`}
+                className='rp-focus-inverse border border-white/30 px-4 py-2.5 text-sm text-white'
+              >
+                Help
+              </NavLink>
+              <button
+                type='button'
+                onClick={() => {
+                  setNavOpen(false)
+                  setSignInOpen(true)
+                }}
+                className='rp-focus-inverse border border-white/30 px-4 py-2.5 text-sm text-white'
+              >
+                Sign in
+              </button>
+            </div>
+          </nav>
         </div>
       )}
+
       {/* Keyed on the path so each route change replays the entrance. */}
       <div key={location.pathname} className='rp-page-enter'>
         <Outlet context={{ config } satisfies TenantOutletContext} />
