@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react'
 import { assessConfidence } from '../lib/confidence.ts'
 
 const SEGMENTS = 5
@@ -224,37 +225,81 @@ export function ConfidenceIndicator({ quality }: ConfidenceIndicatorProps) {
 
   if (confidence.state === 'moderate') {
     return (
-      <div
-        role='status'
-        className='flex items-start gap-2 rounded-[var(--rp-radius)] border p-3'
-        style={{ borderColor: 'var(--rp-warn-line)', background: 'var(--rp-warn-bg)' }}
-      >
-        <span className='mt-0.5 text-[var(--rp-warn-ink)]'>
-          <AlertTriangleIcon className='h-3.5 w-3.5' />
-        </span>
-        <p className='text-xs leading-relaxed text-[var(--rp-warn-ink)]'>
-          <strong className='font-semibold'>Moderate confidence.</strong>{' '}
-          The retrieved sources only partly support this answer - check the citations before relying
-          on it.
-        </p>
-      </div>
+      <ConfidencePill
+        tone='warn'
+        label='Moderate confidence'
+        detail='The retrieved sources only partly support this answer - check the citations before relying on it.'
+      />
     )
   }
 
   return (
-    <div
-      role='alert'
-      className='flex items-start gap-2.5 rounded-[var(--rp-radius)] border-2 p-3.5'
-      style={{ borderColor: 'var(--rp-bad-line)', background: 'var(--rp-bad-bg)' }}
-    >
-      <span className='mt-0.5 text-[var(--rp-bad-ink)]'>
-        <AlertTriangleIcon />
-      </span>
-      <p className='text-sm leading-relaxed text-[var(--rp-bad-ink)]'>
-        <strong className='font-semibold'>Low confidence</strong>{' '}
-        - the retrieved sources only weakly support this answer. Treat it as a lead and verify
-        against the cited sources below.
-      </p>
-    </div>
+    <ConfidencePill
+      tone='bad'
+      label='Low confidence'
+      detail='The retrieved sources only weakly support this answer. Treat it as a lead and verify against the cited sources below.'
+    />
+  )
+}
+
+/**
+ * The confidence level as a pill, with the elaboration behind a disclosure.
+ *
+ * The LEVEL itself stays visible - burying "low confidence" entirely would
+ * weaken the one signal this product exists to give. Only the sentence
+ * explaining it is tucked away, and the pill keeps `role="status"` plus an
+ * icon so the warning is not carried by colour alone.
+ */
+function ConfidencePill(
+  { tone, label, detail }: { tone: 'warn' | 'bad'; label: string; detail: string },
+) {
+  const [open, setOpen] = useState(false)
+  const wrapRef = useRef<HTMLSpanElement | null>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onDown = (event: MouseEvent) => {
+      if (!wrapRef.current?.contains(event.target as Node)) setOpen(false)
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  return (
+    <span ref={wrapRef} className='relative inline-flex'>
+      <button
+        type='button'
+        onClick={() => setOpen((prev) => !prev)}
+        onMouseEnter={() => setOpen(true)}
+        onMouseLeave={() => setOpen(false)}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
+        aria-expanded={open}
+        aria-label={`${label}. ${detail}`}
+        className={`rp-badge rp-focus inline-flex items-center gap-1 ${
+          tone === 'bad' ? 'rp-badge-bad' : 'rp-badge-warn'
+        }`}
+      >
+        <AlertTriangleIcon className='h-3.5 w-3.5' />
+        {label}
+      </button>
+      {open
+        ? (
+          <span
+            role='status'
+            className='rp-shadow-lg absolute left-0 top-full z-30 mt-1.5 w-72 rounded-[var(--rp-radius)] border border-line bg-surface p-3 text-xs leading-relaxed text-ink-2'
+          >
+            {detail}
+          </span>
+        )
+        : null}
+    </span>
   )
 }

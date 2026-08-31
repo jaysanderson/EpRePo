@@ -597,7 +597,11 @@ function FeedbackControl({
   )
 }
 
-/** Icon-only action used across the answer footer row. */
+/**
+ * Icon-only action used across the answer footer row. Colour lives in classes
+ * rather than an inline style: an inline colour beats any hover rule, which is
+ * why these buttons previously had no hover state at all.
+ */
 function ActionIcon(
   { label, onClick, disabled, active, path, filled }: {
     label: string
@@ -616,8 +620,11 @@ function ActionIcon(
       aria-label={label}
       aria-pressed={active}
       title={label}
-      className='rp-focus flex h-9 w-9 items-center justify-center rounded-none transition-colors duration-150 disabled:opacity-40'
-      style={{ color: active ? 'var(--rp-accent)' : 'var(--rp-ink-3)' }}
+      className={`rp-focus flex h-9 w-9 items-center justify-center rounded-none transition-colors duration-150 disabled:pointer-events-none disabled:opacity-40 ${
+        active
+          ? 'text-[var(--rp-accent)] bg-[color-mix(in_srgb,var(--rp-accent)_12%,transparent)]'
+          : 'text-ink-3 hover:bg-surface-2 hover:text-ink'
+      }`}
     >
       <svg
         viewBox='0 0 24 24'
@@ -1866,7 +1873,7 @@ export function AssistantPage() {
       <div className='flex w-full min-w-0 flex-1 flex-col'>
         {!isEmpty
           ? (
-            <div className='mb-3 flex shrink-0 items-center justify-between gap-4'>
+            <div className='mb-6 flex shrink-0 items-center justify-between gap-4'>
               <h1 className='rp-display min-w-0 truncate text-xl text-ink sm:text-2xl'>
                 {currentSessionTitle()}
               </h1>

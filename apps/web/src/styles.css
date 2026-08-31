@@ -518,6 +518,17 @@ body {
   --rp-cat-4: #eda100;
   --rp-cat-5: #e87ba4;
   --rp-cat-6: #4a3aa7;
+
+  /* Text tone for each category. The six fills above are tuned for mark-to-mark
+   * separation, which leaves four of them under 4.5:1 as TEXT on the surface.
+   * Carrying 55% of the hue into the ink keeps a caption recognisably "the
+   * green category" while clearing AA for all six (5.3:1 at the worst, amber). */
+  --rp-cat-1-ink: color-mix(in srgb, var(--rp-cat-1) 55%, var(--rp-ink));
+  --rp-cat-2-ink: color-mix(in srgb, var(--rp-cat-2) 55%, var(--rp-ink));
+  --rp-cat-3-ink: color-mix(in srgb, var(--rp-cat-3) 55%, var(--rp-ink));
+  --rp-cat-4-ink: color-mix(in srgb, var(--rp-cat-4) 55%, var(--rp-ink));
+  --rp-cat-5-ink: color-mix(in srgb, var(--rp-cat-5) 55%, var(--rp-ink));
+  --rp-cat-6-ink: color-mix(in srgb, var(--rp-cat-6) 55%, var(--rp-ink));
   color-scheme: light;
 }
 
@@ -1127,32 +1138,97 @@ label.rp-btn:has(input:focus-visible) {
 }
 
 /* ---------------------------------------------------------------------------
- * Knowledge map, ocean treatment. The canvas is a deep brand-coloured field and
- * the entities are lit against it - white through to pale blue-greens, which
- * reads as depth rather than as six unrelated categories.
+ * Knowledge map.
  *
- * The palette is fixed rather than mixed from the tenant accent: these six have
- * to stay distinguishable from each other AND legible on the dark field, and a
- * generated ramp cannot promise both.
+ * The field stays the paper surface: an earlier deep-field treatment looked
+ * handsome but forced the category hues towards each other until Species and
+ * Regions were the same blue. Categorical separation wins over atmosphere, so
+ * depth comes from a very soft vignette and the per-category territory washes
+ * (drawn as SVG gradients in KnowledgeMap.tsx) instead of from a dark ground.
  * ------------------------------------------------------------------------- */
-.rp-map-ocean {
-  --rp-map-1: #ffffff;
-  --rp-map-2: #b9e4f2;
-  --rp-map-3: #7fd0e8;
-  --rp-map-4: #4fb8d8;
-  --rp-map-5: #8fe3d0;
-  --rp-map-6: #cfe9ff;
-  --rp-map-edge: rgba(255, 255, 255, 0.28);
-  --rp-map-edge-strong: rgba(255, 255, 255, 0.75);
-  --rp-map-label: #ffffff;
-  --rp-map-label-halo: rgba(4, 22, 46, 0.75);
-  background:
-    radial-gradient(
-    120% 90% at 50% 0%,
-    color-mix(in srgb, var(--rp-hero-to) 70%, transparent),
-    transparent 70%
-  ),
-    linear-gradient(180deg, var(--rp-hero-from), #04162e);
+.rp-map {
+  background: var(--rp-surface);
+}
+
+/* Marks and links cross-fade between their emphasised and dimmed states, so
+ * hovering a hub reads as the neighbourhood lighting up rather than as a cut. */
+.rp-map-fade {
+  transition: opacity 180ms var(--rp-ease);
+}
+
+/* The map's type. Territory captions are the display face so they read as
+ * cartography rather than as more data labels. */
+.rp-map-label {
+  font-family: var(--rp-font-body);
+  font-size: 12px;
+  letter-spacing: -0.005em;
+}
+
+.rp-map-edge-label {
+  font-family: var(--rp-font-body);
+  font-size: 10.5px;
+  font-style: italic;
+}
+
+.rp-map-territory {
+  font-family: var(--rp-font-display);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+}
+
+/* Keyboard focus. Every node is tabbable, so the ring has to be real - the
+ * canvas previously cleared the outline and drew nothing in its place. */
+.rp-map-node:focus {
+  outline: none;
+}
+
+.rp-map-node .rp-map-ring {
+  opacity: 0;
+}
+
+.rp-map-node:focus-visible .rp-map-ring {
+  opacity: 1;
+}
+
+/* Loading state: a pale constellation that breathes, staggered per mark. */
+@keyframes rp-map-breathe {
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 0.75;
+  }
+}
+
+.rp-map-seed {
+  animation: rp-map-breathe 2.6s var(--rp-ease) infinite;
+}
+
+@keyframes rp-map-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.rp-map-spinner {
+  animation: rp-map-spin 900ms linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rp-map-fade {
+    transition: none;
+  }
+
+  .rp-map-seed {
+    animation: none;
+    opacity: 0.5;
+  }
+
+  .rp-map-spinner {
+    animation: none;
+  }
 }
 
 /* ---------------------------------------------------------------------------
@@ -1169,4 +1245,38 @@ summary {
 button:disabled,
 [role='button'][aria-disabled='true'] {
   cursor: not-allowed;
+}
+
+/* ---------------------------------------------------------------------------
+ * Scrollbars on the reading surfaces. The platform default is a heavy grey
+ * slab that competes with the document; these are thin, quiet, and only really
+ * visible on hover.
+ * ------------------------------------------------------------------------- */
+.rp-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--rp-surface-3) transparent;
+}
+
+.rp-scroll::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.rp-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.rp-scroll::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 9999px;
+  background-clip: content-box;
+  background-color: var(--rp-surface-3);
+}
+
+.rp-scroll::-webkit-scrollbar-thumb:hover {
+  background-color: var(--rp-ink-3);
+}
+
+.rp-scroll::-webkit-scrollbar-corner {
+  background: transparent;
 }

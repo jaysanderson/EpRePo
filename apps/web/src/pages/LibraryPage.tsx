@@ -76,7 +76,7 @@ function SelectionMark({ selected }: { selected: boolean }) {
 }
 
 function LibraryCard(
-  { item, slug, topicLabel, organisation, selecting, selected, onToggleSelect }: {
+  { item, slug, topicLabel, organisation, selecting, selected, onToggleSelect, view = 'grid' }: {
     item: CatalogItem
     slug: string
     topicLabel: (id: string) => string | undefined
@@ -84,6 +84,8 @@ function LibraryCard(
     selecting?: boolean
     selected?: boolean
     onToggleSelect?: (id: string) => void
+    /** A list row is a horizontal card with a small A4 thumbnail. */
+    view?: 'grid' | 'list'
   },
 ) {
   const meta = item as CatalogItemMeta
@@ -93,14 +95,24 @@ function LibraryCard(
   const statusInfo = item.status === 'processed' ? null : STATUS_BADGES[item.status]
   const publishedYear = meta.published ? formatYear(meta.published) : null
 
+  const list = view === 'list'
   const body = (
     <>
       <div
-        className='relative aspect-[4/3] w-full overflow-hidden bg-surface-2'
+        className={list
+          ? 'relative m-3.5 mr-0 aspect-[210/297] w-[4.5rem] shrink-0 self-start overflow-hidden border border-line'
+          : 'relative aspect-[4/3] w-full overflow-hidden bg-surface-2'}
         aria-hidden='true'
       >
-        {/* The page peeks up from behind the grey ground, as on Explore. */}
-        <div className='rp-shadow-sm absolute inset-x-6 bottom-0 top-6 overflow-hidden bg-surface'>
+        {
+          /* The page peeks up from behind the grey ground, as on Explore. In a
+          * list row there is no room for that, so it fills its frame. */
+        }
+        <div
+          className={list
+            ? 'absolute inset-0 overflow-hidden bg-surface'
+            : 'rp-shadow-sm absolute inset-x-6 bottom-0 top-6 overflow-hidden bg-surface'}
+        >
           <ResourceThumb slug={slug} id={item.id} type='document' imgClassName='object-top' />
         </div>
         {statusInfo
@@ -112,7 +124,11 @@ function LibraryCard(
           : null}
         {selecting ? <SelectionMark selected={Boolean(selected)} /> : null}
       </div>
-      <div className='flex flex-1 flex-col gap-2 border-t border-line p-3.5'>
+      <div
+        className={list
+          ? 'flex min-w-0 flex-1 flex-col gap-1.5 p-3.5'
+          : 'flex flex-1 flex-col gap-2 border-t border-line p-3.5'}
+      >
         <h3 className='rp-clamp-2 text-sm font-semibold leading-snug text-ink'>
           {item.title}
         </h3>
@@ -171,7 +187,9 @@ function LibraryCard(
         type='button'
         onClick={() => onToggleSelect?.(item.id)}
         aria-pressed={Boolean(selected)}
-        className='rp-card rp-focus flex flex-col overflow-hidden text-left'
+        className={`rp-card rp-focus flex overflow-hidden text-left ${
+          list ? 'flex-row items-stretch' : 'flex-col'
+        }`}
         style={selected
           ? { borderColor: 'var(--rp-accent)', boxShadow: '0 0 0 1px var(--rp-accent)' }
           : undefined}
@@ -184,7 +202,9 @@ function LibraryCard(
   return (
     <Link
       to={`/t/${slug}/library/${item.id}`}
-      className='rp-card rp-lift rp-focus flex flex-col overflow-hidden'
+      className={`rp-card rp-lift rp-focus flex overflow-hidden ${
+        list ? 'flex-row items-stretch' : 'flex-col'
+      }`}
     >
       {body}
     </Link>
@@ -386,13 +406,21 @@ function LibraryCardSkeleton() {
  * search page) can render it as its own no-query state.
  */
 export function LibraryBrowser(
-  { bare = false, sort: sortProp, onSortChange, density: densityProp, onDensityChange }: {
+  {
+    bare = false,
+    sort: sortProp,
+    onSortChange,
+    density: densityProp,
+    onDensityChange,
+    view = 'grid',
+  }: {
     bare?: boolean
     /** Controlled sort and density, when the host renders the controls itself. */
     sort?: SortValue
     onSortChange?: (value: SortValue) => void
     density?: number
     onDensityChange?: (value: number) => void
+    view?: 'grid' | 'list'
   } = {},
 ) {
   const { config } = useOutletContext<TenantOutletContext>()
@@ -512,7 +540,7 @@ export function LibraryBrowser(
 
   // A minimum track width keeps the grid responsive: the density sets how many
   // columns to aim for, and narrow viewports still fall back to fewer.
-  const gridStyle = {
+  const gridStyle = view === 'list' ? { gridTemplateColumns: '1fr' } : {
     gridTemplateColumns: `repeat(auto-fill, minmax(min(100%, ${
       Math.round(1180 / density)
     }px), 1fr))`,
@@ -756,6 +784,7 @@ export function LibraryBrowser(
                 >
                   {accumulated.map((item) => (
                     <LibraryCard
+                      view={view}
                       key={item.id}
                       item={item}
                       slug={config.slug}

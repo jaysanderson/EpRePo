@@ -1,24 +1,6 @@
-import {
-  type KeyboardEvent as ReactKeyboardEvent,
-  type PointerEvent as ReactPointerEvent,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type WheelEvent as ReactWheelEvent,
-} from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Link, useNavigate, useOutletContext } from 'react-router-dom'
-import {
-  forceCenter,
-  forceCollide,
-  forceLink,
-  forceManyBody,
-  forceSimulation,
-  forceX,
-  forceY,
-} from 'd3-force'
+import { Link, useOutletContext } from 'react-router-dom'
 import {
   getGraph,
   getLabelsets,
@@ -27,84 +9,34 @@ import {
   searchTenantFull,
 } from '../api/client.ts'
 import { EmptyState, ErrorCard } from '../components/ui.tsx'
+import {
+  buildDegrees,
+  buildGroupStyles,
+  type GroupStyle,
+  KnowledgeMap,
+  MapConstellation,
+  type MapEdge,
+  type MapLayout,
+  type MapNode,
+  MapSkeleton,
+} from '../components/KnowledgeMap.tsx'
 import type { TenantOutletContext } from './TenantLayout.tsx'
 
 // ---------------------------------------------------------------------------
 // The knowledge map: a live, explorable graph of how the corpus connects.
+//
 // Two lenses share one canvas engine - the entity graph (relations the
 // knowledge-graph agent extracted) and the concept map (how taxonomy
-// categories co-occur). The canvas is full-bleed: it fills the viewport below
-// the header, a floating navigator rail lets you browse by name, and selecting
-// a node docks an evidence panel. A path mode answers "how are these two
-// things connected?".
+// categories co-occur) - and two layouts share both. The canvas is full-bleed:
+// it fills the viewport below the header, a floating navigator rail lets you
+// browse by name, and selecting a node docks an evidence panel. A path mode
+// answers "how are these two things connected?".
+//
+// The canvas itself, its visual grammar and its layouts live in
+// components/KnowledgeMap.tsx; this file is the page around it.
 // ---------------------------------------------------------------------------
 
-// The simulation runs in its own coordinate space centred on this origin; the
-// canvas maps it into whatever pixel box the viewport gives us and a fit pass
-// frames the result, so these two numbers are just the physics origin.
-const SIM_W = 960
-const SIM_H = 640
-
 type Mode = 'entity' | 'concept'
-
-type MapNode = {
-  id: string
-  label: string
-  group: string
-  weight: number
-}
-
-type MapEdge = {
-  source: string
-  target: string
-  label: string
-  weight: number
-}
-
-type SimNode = MapNode & {
-  x?: number
-  y?: number
-  vx?: number
-  vy?: number
-  fx?: number | null
-  fy?: number | null
-  index?: number
-}
-
-type Transform = { x: number; y: number; k: number }
-type Size = { w: number; h: number; ready: boolean }
-
-/** Canvas label - long programme titles get an ellipsis; panels show the full name. */
-function shortLabel(label: string): string {
-  return label.length > 38 ? `${label.slice(0, 36)}…` : label
-}
-
-function radiusFor(weight: number): number {
-  return Math.max(7, Math.min(26, Math.sqrt(weight) * 3.4 + 6))
-}
-
-const CATEGORY_COLOURS = [
-  'var(--rp-map-1)',
-  'var(--rp-map-2)',
-  'var(--rp-map-3)',
-  'var(--rp-map-4)',
-  'var(--rp-map-5)',
-  'var(--rp-map-6)',
-]
-
-/** Stable colour per group name - assigned in first-seen order for contrast. */
-function buildGroupColours(nodes: MapNode[]): Map<string, string> {
-  const colours = new Map<string, string>()
-  for (const node of nodes) {
-    if (!colours.has(node.group)) {
-      colours.set(
-        node.group,
-        CATEGORY_COLOURS[colours.size % CATEGORY_COLOURS.length] ?? 'var(--rp-cat-1)',
-      )
-    }
-  }
-  return colours
-}
 
 // ---------------------------------------------------------------------------
 // Path finding - breadth-first over the loaded edges (undirected), so "how
@@ -148,557 +80,16 @@ function shortestPath(edges: MapEdge[], from: string, to: string): MapEdge[] | n
 }
 
 // ---------------------------------------------------------------------------
-// Live force simulation - positions live in a ref, a rAF loop repaints while
-// the simulation is warm or a node is being dragged. React renders the
-// structure; the loop only nudges coordinates.
-// ---------------------------------------------------------------------------
-
-function useLiveSimulation(nodes: MapNode[], edges: MapEdge[]) {
-  const simRef = useRef<ReturnType<typeof forceSimulation<SimNode>> | null>(null)
-  const nodesRef = useRef<SimNode[]>([])
-  const [frame, setFrame] = useState(0)
-
-  useEffect(() => {
-    const simNodes: SimNode[] = nodes.map((n) => {
-      // Keep the position of nodes that survive a data change (expand).
-      const existing = nodesRef.current.find((p) => p.id === n.id)
-      return { ...n, x: existing?.x, y: existing?.y }
-    })
-    nodesRef.current = simNodes
-    const simEdges = edges.map((e) => ({ ...e }))
-    const simulation = forceSimulation<SimNode>(simNodes)
-      .force('charge', forceManyBody().strength(-150).distanceMax(520))
-      .force(
-        'link',
-        forceLink<SimNode, { source: string; target: string }>(simEdges)
-          .id((d) => d.id)
-          .distance(76)
-          .strength(0.6),
-      )
-      .force('center', forceCenter(SIM_W / 2, SIM_H / 2))
-      // Without a positional pull, weakly connected and isolated entities drift
-      // to the far edges and the map reads as scattered dust.
-      .force('x', forceX<SimNode>(SIM_W / 2).strength(0.055))
-      .force('y', forceY<SimNode>(SIM_H / 2).strength(0.055))
-      .force('collide', forceCollide<SimNode>().radius((d) => radiusFor(d.weight) + 6))
-    simRef.current = simulation
-
-    // Settle the layout synchronously - instant, and immune to background-tab
-    // rAF throttling. Live physics then only animates real interactions.
-    simulation.stop()
-    simulation.tick(280)
-    setFrame((f) => f + 1)
-    return () => {
-      simulation.stop()
-    }
-  }, [nodes, edges])
-
-  /** Wake the simulation (for a drag) and keep repainting until it cools. */
-  const reheat = useCallback(() => {
-    const simulation = simRef.current
-    if (!simulation) return
-    simulation.alphaTarget(0.25).restart()
-    const loop = () => {
-      setFrame((f) => f + 1)
-      if ((simRef.current?.alpha() ?? 0) > 0.02) requestAnimationFrame(loop)
-    }
-    requestAnimationFrame(loop)
-  }, [])
-
-  const cool = useCallback(() => {
-    simRef.current?.alphaTarget(0)
-  }, [])
-
-  return { nodesRef, frame, reheat, cool }
-}
-
-// ---------------------------------------------------------------------------
-// Element measurement - the canvas is sized to whatever the viewport gives it,
-// so the SVG viewBox is 1:1 with pixels and pointer maths stay exact at any
-// size (no letterboxing).
-// ---------------------------------------------------------------------------
-
-function useElementSize() {
-  const ref = useRef<HTMLDivElement | null>(null)
-  const [size, setSize] = useState<Size>({ w: SIM_W, h: SIM_H, ready: false })
-  useEffect(() => {
-    const el = ref.current
-    if (!el) return
-    const update = () => {
-      const rect = el.getBoundingClientRect()
-      if (rect.width < 1 || rect.height < 1) return
-      setSize((prev) =>
-        prev.ready && prev.w === rect.width && prev.h === rect.height
-          ? prev
-          : { w: rect.width, h: rect.height, ready: true }
-      )
-    }
-    update()
-    const observer = new ResizeObserver(update)
-    observer.observe(el)
-    return () => observer.disconnect()
-  }, [])
-  return { ref, size }
-}
-
-/** Frame the whole graph inside the current viewport with breathing room. */
-function computeFit(nodes: SimNode[], w: number, h: number): Transform | null {
-  const points = nodes.filter((n) => n.x !== undefined && n.y !== undefined)
-  if (points.length === 0) return null
-  let minX = Infinity
-  let minY = Infinity
-  let maxX = -Infinity
-  let maxY = -Infinity
-  for (const node of points) {
-    const x = node.x as number
-    const y = node.y as number
-    if (x < minX) minX = x
-    if (x > maxX) maxX = x
-    if (y < minY) minY = y
-    if (y > maxY) maxY = y
-  }
-  const pad = Math.min(120, Math.max(56, Math.min(w, h) * 0.12))
-  const spanX = Math.max(1, maxX - minX)
-  const spanY = Math.max(1, maxY - minY)
-  const k = Math.max(0.35, Math.min(1.75, Math.min((w - pad * 2) / spanX, (h - pad * 2) / spanY)))
-  const cx = (minX + maxX) / 2
-  const cy = (minY + maxY) / 2
-  return { x: w / 2 - cx * k, y: h / 2 - cy * k, k }
-}
-
-// ---------------------------------------------------------------------------
-// Canvas - zoom, pan, drag, hover, select. One engine for both lenses. It
-// measures itself and fills its container edge to edge.
-// ---------------------------------------------------------------------------
-
-function GraphCanvas({
-  nodes,
-  edges,
-  groupColours,
-  hiddenGroups,
-  selectedId,
-  pathEdges,
-  pathFrom,
-  onSelect,
-  focusId,
-}: {
-  nodes: MapNode[]
-  edges: MapEdge[]
-  groupColours: Map<string, string>
-  hiddenGroups: Set<string>
-  selectedId: string | null
-  pathEdges: MapEdge[] | null
-  pathFrom: string | null
-  onSelect: (id: string | null) => void
-  focusId: string | null
-}) {
-  const visibleNodes = useMemo(
-    () => nodes.filter((n) => !hiddenGroups.has(n.group)),
-    [nodes, hiddenGroups],
-  )
-  const visibleIds = useMemo(() => new Set(visibleNodes.map((n) => n.id)), [visibleNodes])
-  const visibleEdges = useMemo(
-    () => edges.filter((e) => visibleIds.has(e.source) && visibleIds.has(e.target)),
-    [edges, visibleIds],
-  )
-
-  const { nodesRef, reheat, cool } = useLiveSimulation(visibleNodes, visibleEdges)
-  const { ref: sizeRef, size } = useElementSize()
-  const [transform, setTransform] = useState<Transform>({ x: 0, y: 0, k: 1 })
-  const [hoveredId, setHoveredId] = useState<string | null>(null)
-  const svgRef = useRef<SVGSVGElement | null>(null)
-  const panRef = useRef<{ startX: number; startY: number; ox: number; oy: number } | null>(null)
-  const dragRef = useRef<{ id: string; moved: boolean } | null>(null)
-  // Set on pointer-up when a drag actually moved a node, so the click that
-  // follows repositioning does not also fire a selection.
-  const draggedRef = useRef(false)
-  const fitSigRef = useRef<string>('')
-
-  const fitView = useCallback(() => {
-    const t = computeFit(nodesRef.current, size.w, size.h)
-    if (t) setTransform(t)
-  }, [nodesRef, size.w, size.h])
-
-  // Frame the graph whenever the visible set changes to a new shape (first
-  // load, mode switch, group toggle, expand). A pure resize keeps the user's
-  // current view - only the node set drives a re-fit.
-  useEffect(() => {
-    if (!size.ready) return
-    const sig = visibleNodes.map((n) => n.id).join('|')
-    if (sig === fitSigRef.current) return
-    const t = computeFit(nodesRef.current, size.w, size.h)
-    if (t) {
-      setTransform(t)
-      fitSigRef.current = sig
-    }
-    // nodesRef is a stable ref; positions are settled by useLiveSimulation's
-    // effect, which runs before this one.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visibleNodes, size.ready, size.w, size.h])
-
-  const neighbourIds = useMemo(() => {
-    const focus = selectedId ?? hoveredId
-    if (!focus) return null
-    const ids = new Set<string>([focus])
-    for (const e of visibleEdges) {
-      if (e.source === focus) ids.add(e.target)
-      if (e.target === focus) ids.add(e.source)
-    }
-    return ids
-  }, [selectedId, hoveredId, visibleEdges])
-
-  const pathNodeIds = useMemo(() => {
-    if (!pathEdges) return null
-    const ids = new Set<string>()
-    for (const e of pathEdges) {
-      ids.add(e.source)
-      ids.add(e.target)
-    }
-    return ids
-  }, [pathEdges])
-
-  const pathEdgeKeys = useMemo(
-    () => pathEdges ? new Set(pathEdges.map((e) => `${e.source}|${e.label}|${e.target}`)) : null,
-    [pathEdges],
-  )
-
-  // Centre the view on a newly focused node (search or panel click).
-  useEffect(() => {
-    if (!focusId) return
-    const node = nodesRef.current.find((n) => n.id === focusId)
-    if (!node || node.x === undefined || node.y === undefined) return
-    const k = Math.max(1.25, transform.k)
-    setTransform({ x: size.w / 2 - node.x * k, y: size.h / 2 - node.y * k, k })
-    // transform.k is read once to keep any user zoom level - not a dependency.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focusId])
-
-  const toGraphPoint = (clientX: number, clientY: number) => {
-    const svg = svgRef.current
-    if (!svg) return { x: 0, y: 0 }
-    const rect = svg.getBoundingClientRect()
-    const px = ((clientX - rect.left) / rect.width) * size.w
-    const py = ((clientY - rect.top) / rect.height) * size.h
-    return { x: (px - transform.x) / transform.k, y: (py - transform.y) / transform.k }
-  }
-
-  const onWheel = (event: ReactWheelEvent<SVGSVGElement>) => {
-    event.preventDefault()
-    const factor = event.deltaY < 0 ? 1.12 : 1 / 1.12
-    setTransform((t) => {
-      const k = Math.min(4, Math.max(0.35, t.k * factor))
-      if (k === t.k) return t
-      const svg = svgRef.current
-      if (!svg) return { ...t, k }
-      const rect = svg.getBoundingClientRect()
-      const px = ((event.clientX - rect.left) / rect.width) * size.w
-      const py = ((event.clientY - rect.top) / rect.height) * size.h
-      // Zoom towards the cursor: keep the point under it stationary.
-      return { x: px - ((px - t.x) / t.k) * k, y: py - ((py - t.y) / t.k) * k, k }
-    })
-  }
-
-  const onPointerDownBackground = (event: ReactPointerEvent<SVGSVGElement>) => {
-    if (dragRef.current) return
-    panRef.current = {
-      startX: event.clientX,
-      startY: event.clientY,
-      ox: transform.x,
-      oy: transform.y,
-    }
-    ;(event.target as Element).setPointerCapture?.(event.pointerId)
-  }
-
-  const onPointerMove = (event: ReactPointerEvent<SVGSVGElement>) => {
-    const drag = dragRef.current
-    if (drag) {
-      drag.moved = true
-      const point = toGraphPoint(event.clientX, event.clientY)
-      const node = nodesRef.current.find((n) => n.id === drag.id)
-      if (node) {
-        node.fx = point.x
-        node.fy = point.y
-      }
-      return
-    }
-    const pan = panRef.current
-    if (pan) {
-      const svg = svgRef.current
-      if (!svg) return
-      const rect = svg.getBoundingClientRect()
-      const dx = ((event.clientX - pan.startX) / rect.width) * size.w
-      const dy = ((event.clientY - pan.startY) / rect.height) * size.h
-      setTransform((t) => ({ ...t, x: pan.ox + dx, y: pan.oy + dy }))
-    }
-  }
-
-  const endPointer = () => {
-    if (dragRef.current) {
-      const node = nodesRef.current.find((n) => n.id === dragRef.current?.id)
-      if (node) {
-        node.fx = null
-        node.fy = null
-      }
-      draggedRef.current = dragRef.current.moved
-      dragRef.current = null
-      cool()
-    }
-    panRef.current = null
-  }
-
-  const startNodeDrag = (event: ReactPointerEvent, id: string) => {
-    event.stopPropagation()
-    dragRef.current = { id, moved: false }
-    const point = toGraphPoint(event.clientX, event.clientY)
-    const node = nodesRef.current.find((n) => n.id === id)
-    if (node) {
-      node.fx = point.x
-      node.fy = point.y
-    }
-    reheat()
-  }
-
-  // Bucketed so a smooth zoom does not recompute the label layout on every
-  // frame; a drag holds the previous result entirely.
-  const zoomBucket = Math.round(Math.max(transform.k, 0.35) * 4) / 4
-  const labelledIds = useMemo(() => {
-    // Labels are placed greedily, most-connected first, and any label whose box
-    // would collide with one already placed is dropped. Boxes are measured in
-    // simulation units divided by the zoom, so a label occupies less of the
-    // model the further you zoom in - which is what makes zooming reveal more
-    // labels rather than piling them on top of each other.
-    const k = zoomBucket
-    const byWeight = [...visibleNodes].sort((a, b) => b.weight - a.weight)
-    const placed: { x1: number; y1: number; x2: number; y2: number }[] = []
-    const kept = new Set<string>()
-    const budget = Math.min(visibleNodes.length, Math.round(26 * k))
-    for (const node of byWeight) {
-      if (kept.size >= budget) break
-      const sim = nodesRef.current.find((n) => n.id === node.id)
-      if (sim?.x === undefined || sim.y === undefined) continue
-      const text = shortLabel(node.label)
-      const halfW = (text.length * 13 * 0.5) / 2 / k
-      const h = 15 / k
-      const r = radiusFor(node.weight)
-      const box = {
-        x1: sim.x - halfW,
-        x2: sim.x + halfW,
-        y1: sim.y - r - 6 - h,
-        y2: sim.y - r - 6,
-      }
-      const hits = placed.some((p) =>
-        box.x1 < p.x2 && box.x2 > p.x1 && box.y1 < p.y2 && box.y2 > p.y1
-      )
-      if (hits) continue
-      placed.push(box)
-      kept.add(node.id)
-    }
-    return kept
-  }, [visibleNodes, zoomBucket])
-
-  const zoomBy = (factor: number) =>
-    setTransform((t) => {
-      const k = Math.min(4, Math.max(0.35, t.k * factor))
-      const cx = size.w / 2
-      const cy = size.h / 2
-      return { x: cx - ((cx - t.x) / t.k) * k, y: cy - ((cy - t.y) / t.k) * k, k }
-    })
-
-  return (
-    <div ref={sizeRef} className='absolute inset-0'>
-      <svg
-        ref={svgRef}
-        viewBox={`0 0 ${size.w} ${size.h}`}
-        preserveAspectRatio='xMidYMid meet'
-        role='application'
-        aria-label='Knowledge map - drag to pan, scroll to zoom, click a node to explore it'
-        tabIndex={0}
-        className='rp-map-ocean rp-focus block h-full w-full cursor-grab touch-none select-none active:cursor-grabbing'
-        onWheel={onWheel}
-        onPointerDown={onPointerDownBackground}
-        onPointerMove={onPointerMove}
-        onPointerUp={endPointer}
-        onPointerLeave={endPointer}
-        onClick={() => onSelect(null)}
-      >
-        <g transform={`translate(${transform.x} ${transform.y}) scale(${transform.k})`}>
-          <g>
-            {visibleEdges.map((edge, i) => {
-              const from = nodesRef.current.find((n) => n.id === edge.source)
-              const to = nodesRef.current.find((n) => n.id === edge.target)
-              if (!from?.x || !to?.x || from.y === undefined || to.y === undefined) return null
-              const key = `${edge.source}|${edge.label}|${edge.target}`
-              const onPath = pathEdgeKeys?.has(key) ?? false
-              const focus = selectedId ?? hoveredId
-              const touchesFocus = focus !== null &&
-                (edge.source === focus || edge.target === focus)
-              const dimmed = (pathEdgeKeys && !onPath) ||
-                (focus !== null && !touchesFocus && !pathEdgeKeys)
-              const showLabel = (touchesFocus || onPath) && transform.k >= 0.7
-              const mx = (from.x + to.x) / 2
-              const my = (from.y + to.y) / 2
-              return (
-                <g key={`${key}-${i}`}>
-                  <line
-                    x1={from.x}
-                    y1={from.y}
-                    x2={to.x}
-                    y2={to.y}
-                    stroke={onPath
-                      ? 'var(--rp-accent)'
-                      : touchesFocus
-                      ? 'var(--rp-accent)'
-                      : 'var(--rp-ink-3)'}
-                    strokeWidth={onPath ? 3 : touchesFocus ? 2 : Math.max(1, edge.weight)}
-                    strokeOpacity={dimmed ? 0.07 : onPath || touchesFocus ? 0.9 : 0.42}
-                  />
-                  {showLabel && edge.label
-                    ? (
-                      <text
-                        x={mx}
-                        y={my - 4}
-                        textAnchor='middle'
-                        fontSize={11}
-                        fill='var(--rp-ink-2)'
-                        stroke='var(--rp-surface-2)'
-                        strokeWidth={3.5}
-                        paintOrder='stroke'
-                        style={{ pointerEvents: 'none' }}
-                      >
-                        {edge.label}
-                      </text>
-                    )
-                    : null}
-                </g>
-              )
-            })}
-          </g>
-          <g>
-            {visibleNodes.map((node) => {
-              const sim = nodesRef.current.find((n) => n.id === node.id)
-              if (!sim || sim.x === undefined || sim.y === undefined) return null
-              const r = radiusFor(node.weight)
-              const isSelected = node.id === selectedId
-              const isPathStart = node.id === pathFrom
-              const inNeighbourhood = neighbourIds?.has(node.id) ?? true
-              const onPath = pathNodeIds?.has(node.id) ?? false
-              const dimmed = (pathNodeIds && !onPath) || (!pathNodeIds && !inNeighbourhood)
-              const showLabel = labelledIds.has(node.id) || isSelected || isPathStart ||
-                node.id === hoveredId || (neighbourIds?.has(node.id) ?? false) || onPath
-              return (
-                <g
-                  key={node.id}
-                  role='button'
-                  tabIndex={0}
-                  aria-label={`${node.label} - ${node.group || 'entity'}`}
-                  aria-pressed={isSelected}
-                  className='cursor-pointer focus:outline-none'
-                  opacity={dimmed ? 0.18 : 1}
-                  onPointerDown={(event) => startNodeDrag(event, node.id)}
-                  onPointerEnter={() => setHoveredId(node.id)}
-                  onPointerLeave={() => setHoveredId((h) => (h === node.id ? null : h))}
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    // A drag that moved the node should not also select it.
-                    if (draggedRef.current) {
-                      draggedRef.current = false
-                      return
-                    }
-                    onSelect(node.id)
-                  }}
-                  onKeyDown={(event: ReactKeyboardEvent) => {
-                    if (event.key === 'Enter' || event.key === ' ') {
-                      event.preventDefault()
-                      onSelect(node.id)
-                    }
-                  }}
-                >
-                  {isSelected
-                    ? (
-                      <circle
-                        cx={sim.x}
-                        cy={sim.y}
-                        r={r + 6}
-                        fill='none'
-                        stroke='var(--rp-accent)'
-                        strokeWidth={2}
-                        strokeOpacity={0.55}
-                      />
-                    )
-                    : null}
-                  <circle
-                    cx={sim.x}
-                    cy={sim.y}
-                    r={r}
-                    fill={groupColours.get(node.group) ?? 'var(--rp-map-1)'}
-                    fillOpacity={1}
-                    stroke={isSelected || isPathStart ? 'var(--rp-ink)' : 'var(--rp-surface)'}
-                    strokeWidth={isSelected || isPathStart ? 3 : 1.5}
-                  />
-                  {showLabel
-                    ? (
-                      <text
-                        x={sim.x}
-                        y={sim.y - r - 6}
-                        textAnchor='middle'
-                        fontSize={13}
-                        fontWeight={isSelected ? 600 : 400}
-                        fill='var(--rp-ink)'
-                        stroke='var(--rp-surface-2)'
-                        strokeWidth={4}
-                        paintOrder='stroke'
-                        style={{ pointerEvents: 'none' }}
-                      >
-                        {shortLabel(node.label)}
-                      </text>
-                    )
-                    : null}
-                </g>
-              )
-            })}
-          </g>
-        </g>
-      </svg>
-      <div className='absolute bottom-4 right-4 flex flex-col gap-1'>
-        <button
-          type='button'
-          aria-label='Zoom in'
-          onClick={() => zoomBy(1.3)}
-          className='rp-btn rp-btn-outline rp-shadow-sm h-9 w-9 p-0 text-lg'
-        >
-          +
-        </button>
-        <button
-          type='button'
-          aria-label='Zoom out'
-          onClick={() => zoomBy(1 / 1.3)}
-          className='rp-btn rp-btn-outline rp-shadow-sm h-9 w-9 p-0 text-lg'
-        >
-          −
-        </button>
-        <button
-          type='button'
-          aria-label='Fit the whole map to view'
-          title='Fit to view'
-          onClick={fitView}
-          className='rp-btn rp-btn-outline rp-shadow-sm h-9 w-9 p-0 text-sm'
-        >
-          ⤢
-        </button>
-      </div>
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
 // Node search - type to find an entity, click to focus it.
 // ---------------------------------------------------------------------------
 
 function NodeSearch({
   nodes,
+  groupStyles,
   onPick,
 }: {
   nodes: MapNode[]
+  groupStyles: Map<string, GroupStyle>
   onPick: (id: string) => void
 }) {
   const [query, setQuery] = useState('')
@@ -744,9 +135,14 @@ function NodeSearch({
                     onPick(node.id)
                     setQuery('')
                   }}
-                  className='flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm text-ink hover:bg-[var(--rp-surface-2)]'
+                  className='flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-ink hover:bg-[var(--rp-surface-2)]'
                 >
-                  <span className='truncate'>{node.label}</span>
+                  <span
+                    className='inline-block h-2.5 w-2.5 shrink-0 rounded-full'
+                    style={{ background: groupStyles.get(node.group)?.colour ?? 'var(--rp-cat-1)' }}
+                    aria-hidden='true'
+                  />
+                  <span className='min-w-0 flex-1 truncate'>{node.label}</span>
                   <span className='shrink-0 text-xs text-ink-3'>{node.group}</span>
                 </button>
               </li>
@@ -820,7 +216,7 @@ function DetailDock({ onClose, children }: { onClose: () => void; children: Reac
           <path d='M5.3 4.3l4.7 4.7 4.7-4.7 1 1L11 10l4.7 4.7-1 1L10 11l-4.7 4.7-1-1L9 10 4.3 5.3z' />
         </svg>
       </button>
-      <div className='flex flex-1 flex-col gap-4 overflow-y-auto p-4 pt-5'>
+      <div className='rp-scroll flex flex-1 flex-col gap-4 overflow-y-auto p-4 pt-5'>
         {children}
       </div>
     </aside>
@@ -831,7 +227,8 @@ function EntityPanel({
   slug,
   node,
   edges,
-  groupColour,
+  degree,
+  groupStyle,
   pathState,
   onSelect,
   onExpand,
@@ -842,7 +239,8 @@ function EntityPanel({
   slug: string
   node: MapNode
   edges: MapEdge[]
-  groupColour: string
+  degree: number
+  groupStyle: GroupStyle | undefined
   pathState: { from: string | null; path: MapEdge[] | null; noPath: boolean }
   onSelect: (id: string) => void
   onExpand: () => void
@@ -871,14 +269,29 @@ function EntityPanel({
         <div className='mt-1 flex items-start gap-2'>
           <span
             className='mt-1.5 inline-block h-3 w-3 shrink-0 rounded-full'
-            style={{ background: groupColour }}
+            style={{
+              background: groupStyle?.hollow ? 'var(--rp-surface)' : groupStyle?.colour,
+              boxShadow: groupStyle?.hollow ? `inset 0 0 0 2px ${groupStyle.colour}` : undefined,
+            }}
             aria-hidden='true'
           />
           <h2 className='font-display text-lg leading-tight text-ink'>{node.label}</h2>
         </div>
-        <p className='mt-1 text-xs uppercase tracking-wide text-ink-3'>
-          {node.group || 'Entity'} · {connections.reduce((n, [, list]) => n + list.length, 0)}{' '}
-          connections
+        <p className='mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs'>
+          <span
+            className='font-semibold uppercase tracking-wide'
+            style={{ color: groupStyle?.ink ?? 'var(--rp-ink-2)' }}
+          >
+            {node.group || 'Entity'}
+          </span>
+          <span className='text-ink-3' aria-hidden='true'>·</span>
+          <span className='text-ink-2'>
+            {degree} {degree === 1 ? 'relation' : 'relations'}
+          </span>
+          <span className='text-ink-3' aria-hidden='true'>·</span>
+          <span className='text-ink-2'>
+            {node.weight} {node.weight === 1 ? 'mention' : 'mentions'}
+          </span>
         </p>
       </div>
 
@@ -956,13 +369,19 @@ function EntityPanel({
                 <div key={label}>
                   <p className='text-xs italic text-ink-2'>{label}</p>
                   <div className='mt-1 flex flex-wrap gap-1.5'>
-                    {list.map(({ other }) => (
+                    {list.map(({ other, outgoing }) => (
                       <button
-                        key={other}
+                        key={`${outgoing ? 'out' : 'in'}-${other}`}
                         type='button'
                         onClick={() => onSelect(other)}
-                        className='rp-chip text-xs'
+                        className='rp-chip gap-1 text-xs'
+                        title={outgoing
+                          ? `${node.label} ${label} ${other}`
+                          : `${other} ${label} ${node.label}`}
                       >
+                        <span className='text-ink-3' aria-hidden='true'>
+                          {outgoing ? '→' : '←'}
+                        </span>
                         {other}
                       </button>
                     ))}
@@ -972,7 +391,12 @@ function EntityPanel({
             </div>
           </div>
         )
-        : <p className='text-xs text-ink-3'>No extracted relations for this entity yet.</p>}
+        : (
+          <p className='text-xs text-ink-3'>
+            No extracted relations for this entity yet - it appears in the corpus, but the
+            knowledge-graph agent has not linked it to anything.
+          </p>
+        )}
 
       <div>
         <h3 className='text-xs font-medium uppercase tracking-wide text-ink-3'>Mentioned in</h3>
@@ -1006,12 +430,14 @@ function ConceptPanel({
   node,
   edges,
   labelById,
+  groupStyle,
   onSelect,
 }: {
   slug: string
   node: MapNode
   edges: MapEdge[]
   labelById: Map<string, string>
+  groupStyle: GroupStyle | undefined
   onSelect: (id: string) => void
 }) {
   const related = edges
@@ -1023,6 +449,7 @@ function ConceptPanel({
     .sort((a, b) => b.count - a.count)
   const isTopic = node.id.startsWith('topic:')
   const slugPart = node.id.split(':')[1] ?? ''
+  const busiest = related[0]?.count ?? 1
 
   /** Library link filtered to this node - and to a pair when other is given. */
   const libraryHref = (otherId?: string) => {
@@ -1040,7 +467,10 @@ function ConceptPanel({
       <div className='pr-8'>
         <p className='rp-eyebrow text-ink-3'>{isTopic ? 'Topic' : 'Kind'}</p>
         <h2 className='mt-1 font-display text-lg text-ink'>{node.label}</h2>
-        <p className='mt-1 text-xs uppercase tracking-wide text-ink-3'>
+        <p
+          className='mt-1 text-xs font-semibold uppercase tracking-wide'
+          style={{ color: groupStyle?.ink ?? 'var(--rp-ink-2)' }}
+        >
           on {node.weight} {node.weight === 1 ? 'resource' : 'resources'}
         </p>
       </div>
@@ -1052,22 +482,33 @@ function ConceptPanel({
             </h3>
             <ul className='mt-2 space-y-1'>
               {related.map(({ otherId, count }) => (
-                <li key={otherId} className='flex items-center justify-between gap-1.5'>
-                  <button
-                    type='button'
-                    onClick={() =>
-                      onSelect(otherId)}
-                    className='min-w-0 truncate rounded-[var(--rp-radius)] px-1.5 py-1 text-left text-sm text-ink hover:bg-[var(--rp-surface-2)]'
-                  >
-                    {labelById.get(otherId) ?? otherId}
-                  </button>
-                  <Link
-                    to={libraryHref(otherId)}
-                    className='shrink-0 text-xs text-ink-3 underline-offset-2 hover:text-[var(--rp-ink)] hover:underline'
-                    title='View the resources where both appear'
-                  >
-                    {count} {count === 1 ? 'resource' : 'resources'}
-                  </Link>
+                <li key={otherId}>
+                  <div className='flex items-center justify-between gap-1.5'>
+                    <button
+                      type='button'
+                      onClick={() => onSelect(otherId)}
+                      className='min-w-0 truncate rounded-[var(--rp-radius)] px-1.5 py-1 text-left text-sm text-ink hover:bg-[var(--rp-surface-2)]'
+                    >
+                      {labelById.get(otherId) ?? otherId}
+                    </button>
+                    <Link
+                      to={libraryHref(otherId)}
+                      className='shrink-0 text-xs text-ink-3 underline-offset-2 hover:text-[var(--rp-ink)] hover:underline'
+                      title='View the resources where both appear'
+                    >
+                      {count} {count === 1 ? 'resource' : 'resources'}
+                    </Link>
+                  </div>
+                  {/* The same overlap the map draws as line weight, read as a bar. */}
+                  <div className='mx-1.5 h-1 bg-surface-3' aria-hidden='true'>
+                    <div
+                      className='h-full'
+                      style={{
+                        width: `${Math.max(3, (count / busiest) * 100)}%`,
+                        background: groupStyle?.colour ?? 'var(--rp-accent)',
+                      }}
+                    />
+                  </div>
                 </li>
               ))}
             </ul>
@@ -1087,15 +528,58 @@ function ConceptPanel({
 }
 
 // ---------------------------------------------------------------------------
-// Navigator rail - the way in. Legend, a most-connected shortlist and a
-// prompt so a first-time user knows what they are looking at and where to
-// start. Floats top-left on desktop, docks as a bottom sheet on mobile.
+// Navigator rail - the way in. A reading key, the legend, a shortlist of the
+// best-connected entities and the controls that thin the map out. Floats
+// top-left on desktop, docks as a bottom sheet on mobile.
 // ---------------------------------------------------------------------------
+
+function Switch({
+  checked,
+  onChange,
+  label,
+  description,
+}: {
+  checked: boolean
+  onChange: () => void
+  label: string
+  description?: string
+}) {
+  return (
+    <div>
+      <button
+        type='button'
+        role='switch'
+        aria-checked={checked}
+        onClick={onChange}
+        className='rp-focus inline-flex items-center gap-2 rounded-[var(--rp-radius)] py-0.5 text-left text-xs font-medium text-ink-2 transition-colors duration-150 hover:text-ink'
+      >
+        <span
+          aria-hidden='true'
+          className='relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border transition-colors duration-150'
+          style={{
+            borderColor: checked ? 'transparent' : 'var(--rp-line)',
+            background: checked ? 'var(--rp-accent)' : 'var(--rp-surface-2)',
+          }}
+        >
+          <span
+            className='inline-block h-4 w-4 rounded-full bg-white rp-shadow-sm transition-transform duration-150'
+            style={{ transform: checked ? 'translateX(18px)' : 'translateX(2px)' }}
+          />
+        </span>
+        {label}
+      </button>
+      {description
+        ? <p className='mt-1 text-xs leading-relaxed text-ink-3'>{description}</p>
+        : null}
+    </div>
+  )
+}
 
 function NavigatorRail({
   nodes,
   edges,
-  groupColours,
+  degrees,
+  groupStyles,
   hiddenGroups,
   onToggleGroup,
   onSelect,
@@ -1104,10 +588,14 @@ function NavigatorRail({
   selectedId,
   includeBuiltin,
   onToggleIncludeBuiltin,
+  unlinkedCount,
+  hideUnlinked,
+  onToggleUnlinked,
 }: {
   nodes: MapNode[]
   edges: MapEdge[]
-  groupColours: Map<string, string>
+  degrees: Map<string, number>
+  groupStyles: Map<string, GroupStyle>
   hiddenGroups: Set<string>
   onToggleGroup: (group: string) => void
   onSelect: (id: string) => void
@@ -1116,8 +604,17 @@ function NavigatorRail({
   selectedId: string | null
   includeBuiltin: boolean
   onToggleIncludeBuiltin: () => void
+  unlinkedCount: number
+  hideUnlinked: boolean
+  onToggleUnlinked: () => void
 }) {
-  const top = useMemo(() => [...nodes].sort((a, b) => b.weight - a.weight).slice(0, 10), [nodes])
+  const isEntity = mode === 'entity'
+  const top = useMemo(() => {
+    const rank = (node: MapNode) =>
+      isEntity ? (degrees.get(node.id) ?? 0) * 1000 + node.weight : node.weight
+    return [...nodes].sort((a, b) => rank(b) - rank(a)).slice(0, 10)
+  }, [nodes, degrees, isEntity])
+
   return (
     <aside
       aria-label='Map navigator'
@@ -1126,10 +623,10 @@ function NavigatorRail({
       <div className='flex items-start justify-between gap-2 border-b border-line px-4 py-3'>
         <div className='min-w-0'>
           <h2 className='font-display text-base leading-tight text-ink'>
-            {mode === 'entity' ? 'The connected corpus' : 'How themes overlap'}
+            {isEntity ? 'The connected corpus' : 'How themes overlap'}
           </h2>
           <p className='mt-1 text-xs leading-relaxed text-ink-2'>
-            {mode === 'entity'
+            {isEntity
               ? `${nodes.length} entities linked by ${edges.length} relations. Pick one to see its evidence, or trace how two connect.`
               : 'Categories that share resources sit closer. Pick one to see what it pairs with.'}
           </p>
@@ -1146,41 +643,53 @@ function NavigatorRail({
         </button>
       </div>
 
-      <div className='flex-1 overflow-y-auto px-4 py-3'>
-        {mode === 'entity'
+      <div className='rp-scroll flex-1 overflow-y-auto px-4 py-3'>
+        {/* Reading key - what the marks on the canvas actually mean. */}
+        <dl className='mb-4 space-y-1 border-b border-line pb-4 text-xs leading-relaxed'>
+          <div className='flex gap-2'>
+            <dt className='w-14 shrink-0 text-ink-3'>Size</dt>
+            <dd className='text-ink-2'>
+              {isEntity ? 'relations on the entity' : 'resources carrying the label'}
+            </dd>
+          </div>
+          <div className='flex gap-2'>
+            <dt className='w-14 shrink-0 text-ink-3'>Colour</dt>
+            <dd className='text-ink-2'>{isEntity ? 'entity category' : 'topic or kind'}</dd>
+          </div>
+          <div className='flex gap-2'>
+            <dt className='w-14 shrink-0 text-ink-3'>Line</dt>
+            <dd className='text-ink-2'>
+              {isEntity
+                ? 'an extracted relation, arrow pointing the way it reads'
+                : 'thicker where more resources are shared'}
+            </dd>
+          </div>
+        </dl>
+
+        {isEntity
           ? (
-            <div className='mb-4 border-b border-line pb-4'>
-              <button
-                type='button'
-                role='switch'
-                aria-checked={includeBuiltin}
-                onClick={onToggleIncludeBuiltin}
-                className='rp-focus inline-flex items-center gap-2 rounded-[var(--rp-radius)] py-0.5 text-xs font-medium text-ink-2 transition-colors duration-150 hover:text-ink'
-              >
-                <span
-                  aria-hidden='true'
-                  className='relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border transition-colors duration-150'
-                  style={{
-                    borderColor: includeBuiltin ? 'transparent' : 'var(--rp-line)',
-                    background: includeBuiltin ? 'var(--rp-accent)' : 'var(--rp-surface-2)',
-                  }}
-                >
-                  <span
-                    className='inline-block h-4 w-4 rounded-full bg-white rp-shadow-sm transition-transform duration-150'
-                    style={{ transform: includeBuiltin ? 'translateX(18px)' : 'translateX(2px)' }}
+            <div className='mb-4 space-y-3 border-b border-line pb-4'>
+              <Switch
+                checked={includeBuiltin}
+                onChange={onToggleIncludeBuiltin}
+                label='Include built-in entities'
+                description="Adds the platform's raw NER output (people, dates, places) alongside the curated relations - noisier, but complete."
+              />
+              {unlinkedCount > 0
+                ? (
+                  <Switch
+                    checked={hideUnlinked}
+                    onChange={onToggleUnlinked}
+                    label={`Hide the ${unlinkedCount} unlinked`}
+                    description='Entities the agent found in the text but has not connected to anything yet. They are drawn faded until you hide them.'
                   />
-                </span>
-                Include built-in entities
-              </button>
-              <p className='mt-1 text-xs leading-relaxed text-ink-3'>
-                Adds the platform's raw NER output (people, dates, places) alongside the curated
-                relations - noisier, but complete.
-              </p>
+                )
+                : null}
             </div>
           )
           : null}
 
-        {groupColours.size > 1
+        {groupStyles.size > 1
           ? (
             <div className='mb-4'>
               <h3 className='text-xs font-medium uppercase tracking-wide text-ink-3'>
@@ -1190,20 +699,26 @@ function NavigatorRail({
                 </span>
               </h3>
               <div className='mt-2 flex flex-wrap gap-1.5'>
-                {[...groupColours.entries()].map(([group, colour]) => (
+                {[...groupStyles.entries()].map(([group, style]) => (
                   <button
                     key={group}
                     type='button'
                     aria-pressed={!hiddenGroups.has(group)}
                     onClick={() => onToggleGroup(group)}
-                    className={`rp-chip text-xs ${hiddenGroups.has(group) ? 'opacity-40' : ''}`}
+                    className={`rp-chip gap-1.5 text-xs ${
+                      hiddenGroups.has(group) ? 'opacity-40' : ''
+                    }`}
                   >
                     <span
-                      className='mr-1 inline-block h-2.5 w-2.5 rounded-full'
-                      style={{ background: colour }}
+                      className='inline-block h-2.5 w-2.5 rounded-full'
+                      style={{
+                        background: style.hollow ? 'var(--rp-surface)' : style.colour,
+                        boxShadow: style.hollow ? `inset 0 0 0 2px ${style.colour}` : undefined,
+                      }}
                       aria-hidden='true'
                     />
                     {group || 'Entity'}
+                    <span className='text-ink-3'>{style.count}</span>
                   </button>
                 ))}
               </div>
@@ -1212,10 +727,14 @@ function NavigatorRail({
           : null}
 
         <div>
-          <h3 className='text-xs font-medium uppercase tracking-wide text-ink-3'>Most connected</h3>
+          <h3 className='text-xs font-medium uppercase tracking-wide text-ink-3'>
+            {isEntity ? 'Most connected' : 'Largest categories'}
+          </h3>
           <ul className='mt-2 space-y-0.5'>
             {top.map((node) => {
               const active = node.id === selectedId
+              const style = groupStyles.get(node.group)
+              const measure = isEntity ? (degrees.get(node.id) ?? 0) : node.weight
               return (
                 <li key={node.id}>
                   <button
@@ -1230,11 +749,14 @@ function NavigatorRail({
                   >
                     <span
                       className='inline-block h-2.5 w-2.5 shrink-0 rounded-full'
-                      style={{ background: groupColours.get(node.group) ?? 'var(--rp-cat-1)' }}
+                      style={{
+                        background: style?.hollow ? 'var(--rp-surface)' : style?.colour,
+                        boxShadow: style?.hollow ? `inset 0 0 0 2px ${style.colour}` : undefined,
+                      }}
                       aria-hidden='true'
                     />
                     <span className='min-w-0 flex-1 truncate'>{node.label}</span>
-                    <span className='shrink-0 text-xs text-ink-3'>{node.weight}</span>
+                    <span className='shrink-0 tabular-nums text-xs text-ink-3'>{measure}</span>
                   </button>
                 </li>
               )
@@ -1281,20 +803,60 @@ function ModeToggle({ mode, onChange }: { mode: Mode; onChange: (mode: Mode) => 
   )
 }
 
-/** A calm animated placeholder while the graph data loads. */
-function CanvasLoading() {
+/**
+ * Secondary control, styled against the hero rather than as a second white
+ * segmented control, so it never competes with the lens toggle beside it.
+ */
+function LayoutToggle({
+  layout,
+  onChange,
+}: {
+  layout: MapLayout
+  onChange: (layout: MapLayout) => void
+}) {
+  const options: { value: MapLayout; label: string; title: string }[] = [
+    {
+      value: 'grouped',
+      label: 'Grouped',
+      title: 'Gather each category into its own territory',
+    },
+    { value: 'free', label: 'Free', title: 'One open force layout, no category grouping' },
+  ]
   return (
     <div
-      className='absolute inset-0 flex flex-col items-center justify-center gap-4'
-      style={{ background: 'var(--rp-surface-2)' }}
-      role='status'
+      role='group'
+      aria-label='Map layout'
+      className='inline-flex h-11 shrink-0 items-center overflow-hidden border border-white/30'
     >
-      <div
-        className='h-8 w-8 animate-spin rounded-full border-2 border-line'
-        style={{ borderTopColor: 'var(--rp-ink)' }}
-        aria-hidden='true'
-      />
-      <p className='text-sm text-ink-2'>Building the map…</p>
+      <span className='px-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/60'>
+        Layout
+      </span>
+      {options.map((option) => (
+        <button
+          key={option.value}
+          type='button'
+          aria-pressed={layout === option.value}
+          title={option.title}
+          onClick={() => onChange(option.value)}
+          className={`rp-focus h-full border-l border-white/20 px-3.5 text-sm font-medium transition-colors duration-150 ${
+            layout === option.value
+              ? 'bg-white/20 text-white'
+              : 'text-white/65 hover:bg-white/10 hover:text-white'
+          }`}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/** Empty, error and everything-filtered-out share one frame on the map's own ground. */
+function CanvasNotice({ children }: { children: React.ReactNode }) {
+  return (
+    <div className='absolute inset-0 flex items-center justify-center bg-surface p-6'>
+      <MapConstellation still />
+      <div className='rp-anim-fade relative w-full max-w-md'>{children}</div>
     </div>
   )
 }
@@ -1302,11 +864,12 @@ function CanvasLoading() {
 export function GraphPage() {
   const { config } = useOutletContext<TenantOutletContext>()
   const slug = config.slug
-  const navigate = useNavigate()
   const [mode, setMode] = useState<Mode>('entity')
+  const [layout, setLayout] = useState<MapLayout>('grouped')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [focusId, setFocusId] = useState<string | null>(null)
   const [hiddenGroups, setHiddenGroups] = useState<Set<string>>(new Set())
+  const [hideUnlinked, setHideUnlinked] = useState(false)
   const [pathFrom, setPathFrom] = useState<string | null>(null)
   const [path, setPath] = useState<MapEdge[] | null>(null)
   const [noPath, setNoPath] = useState(false)
@@ -1388,17 +951,30 @@ export function GraphPage() {
         group: n.group === 'primary' ? 'Topic' : 'Kind',
         weight: n.weight,
       })),
+      // The raw overlap count is kept: the canvas log-scales it into line
+      // weight, so "2 750 resources in common" reads differently from "8".
       edges: data.edges.map((e) => ({
         ...e,
         label: `together on ${e.weight} ${e.weight === 1 ? 'resource' : 'resources'}`,
-        weight: Math.min(4, e.weight),
       })),
     }
   }, [mode, entityGraph, conceptQuery.data])
 
-  const groupColours = useMemo(() => buildGroupColours(nodes), [nodes])
+  const groupStyles = useMemo(() => buildGroupStyles(nodes), [nodes])
+  const degrees = useMemo(() => buildDegrees(edges), [edges])
   const labelById = useMemo(() => new Map(nodes.map((n) => [n.id, n.label])), [nodes])
   const selected = selectedId ? nodes.find((n) => n.id === selectedId) ?? null : null
+  const unlinkedCount = useMemo(
+    () => mode === 'entity' ? nodes.filter((n) => (degrees.get(n.id) ?? 0) === 0).length : 0,
+    [mode, nodes, degrees],
+  )
+  const visibleCount = useMemo(
+    () =>
+      nodes.filter((n) =>
+        !hiddenGroups.has(n.group) && !(hideUnlinked && (degrees.get(n.id) ?? 0) === 0)
+      ).length,
+    [nodes, hiddenGroups, hideUnlinked, degrees],
+  )
 
   const select = useCallback((id: string | null) => {
     if (id === null) {
@@ -1479,18 +1055,26 @@ export function GraphPage() {
     setPathFrom(null)
     setPath(null)
     setNoPath(false)
+    setHiddenGroups(new Set())
+    setHideUnlinked(false)
   }
 
   const loading = mode === 'entity' ? relationsQuery.isLoading : conceptQuery.isLoading
   const error = mode === 'entity' ? relationsQuery.error : conceptQuery.error
   const refetch = mode === 'entity' ? relationsQuery.refetch : conceptQuery.refetch
   const hasGraph = !loading && !error && nodes.length > 0
+  // The API flags an entity graph that is empty because extraction is still
+  // running, so the empty state can say "working" rather than "set this up".
+  const extracting =
+    (relationsQuery.data as { extracting?: boolean } | undefined)?.extracting === true
 
   const subtitle = mode === 'entity'
     ? `${nodes.length} ${nodes.length === 1 ? 'entity' : 'entities'} · ${edges.length} ${
       edges.length === 1 ? 'relation' : 'relations'
+    } · ${groupStyles.size} ${groupStyles.size === 1 ? 'category' : 'categories'}`
+    : `${nodes.length} ${nodes.length === 1 ? 'category' : 'categories'} · ${edges.length} ${
+      edges.length === 1 ? 'overlap' : 'overlaps'
     }`
-    : `${nodes.length} ${nodes.length === 1 ? 'category' : 'categories'}`
 
   return (
     <div className='flex h-[calc(100dvh-var(--rp-header-h,126px))] flex-col overflow-hidden bg-app'>
@@ -1526,53 +1110,83 @@ export function GraphPage() {
             {hasGraph ? <p className='mt-3 text-sm text-white/75'>{subtitle}</p> : null}
           </div>
           <div className='mt-7 flex flex-wrap items-center justify-center gap-2.5'>
-            <NodeSearch nodes={nodes} onPick={focusAndSelect} />
+            <NodeSearch nodes={nodes} groupStyles={groupStyles} onPick={focusAndSelect} />
             <ModeToggle mode={mode} onChange={switchMode} />
+            {hasGraph ? <LayoutToggle layout={layout} onChange={setLayout} /> : null}
           </div>
         </div>
       </div>
 
       {/* Canvas stage - the map fills it; panels float over it. */}
-      <div className='rp-map-ocean relative min-h-0 flex-1'>
-        {loading
-          ? <CanvasLoading />
-          : error
+      <div className='relative min-h-0 flex-1 bg-surface'>
+        {loading ? <MapSkeleton message='Building the map…' /> : error
           ? (
-            <div className='absolute inset-0 flex items-center justify-center p-6'>
-              <div className='w-full max-w-md'>
-                <ErrorCard
-                  message={error instanceof Error ? error.message : 'The map could not load.'}
-                  onRetry={() => void refetch()}
-                />
-              </div>
-            </div>
+            <CanvasNotice>
+              <ErrorCard
+                message={error instanceof Error ? error.message : 'The map could not load.'}
+                onRetry={() => void refetch()}
+              />
+            </CanvasNotice>
           )
           : nodes.length === 0
           ? (
-            <div className='absolute inset-0 flex items-center justify-center p-6'>
-              <div className='w-full max-w-md'>
-                <EmptyState
-                  title={mode === 'entity' ? 'No knowledge graph yet' : 'No taxonomy overlaps yet'}
-                  description={mode === 'entity'
-                    ? "The knowledge graph agent may still be working through the corpus, or hasn't been set up yet - configure it from Manage."
-                    : 'Once resources carry topics and kinds, their overlaps appear here.'}
-                />
-              </div>
-            </div>
+            <CanvasNotice>
+              <EmptyState
+                title={mode !== 'entity'
+                  ? 'No taxonomy overlaps yet'
+                  : extracting
+                  ? 'Building the knowledge graph'
+                  : 'No knowledge graph yet'}
+                description={mode !== 'entity'
+                  ? 'Once resources carry topics and kinds, their overlaps appear here.'
+                  : extracting
+                  ? 'The knowledge-graph agent is working through the corpus now. Relations appear here as it extracts them - check back shortly.'
+                  : 'No knowledge-graph agent has run over this corpus yet - configure one from Manage and the entities and relations will appear here.'}
+              />
+            </CanvasNotice>
           )
           : (
             <>
-              <GraphCanvas
+              <KnowledgeMap
                 nodes={nodes}
                 edges={edges}
-                groupColours={groupColours}
+                groupStyles={groupStyles}
+                degrees={degrees}
+                measure={mode === 'entity' ? 'links' : 'resources'}
+                layout={layout}
                 hiddenGroups={hiddenGroups}
+                hideUnlinked={hideUnlinked}
                 selectedId={selectedId}
                 pathEdges={path}
                 pathFrom={pathFrom}
                 onSelect={select}
                 focusId={focusId}
+                railOpen={railOpen}
+                dockOpen={selected !== null}
+                hint='Drag to pan · scroll to zoom · click a node to explore it'
               />
+
+              {visibleCount === 0
+                ? (
+                  <CanvasNotice>
+                    <EmptyState
+                      title='Everything is hidden'
+                      description='The legend filters have hidden every category on the map.'
+                    >
+                      <button
+                        type='button'
+                        onClick={() => {
+                          setHiddenGroups(new Set())
+                          setHideUnlinked(false)
+                        }}
+                        className='rp-btn rp-btn-outline'
+                      >
+                        Show everything again
+                      </button>
+                    </EmptyState>
+                  </CanvasNotice>
+                )
+                : null}
 
               {/* Tracing status - floats over the canvas, out of the panels' way. */}
               {pathFrom && !path
@@ -1621,7 +1235,8 @@ export function GraphPage() {
                   <NavigatorRail
                     nodes={nodes}
                     edges={edges}
-                    groupColours={groupColours}
+                    degrees={degrees}
+                    groupStyles={groupStyles}
                     hiddenGroups={hiddenGroups}
                     onToggleGroup={(group) =>
                       setHiddenGroups((prev) => {
@@ -1636,6 +1251,9 @@ export function GraphPage() {
                     selectedId={selectedId}
                     includeBuiltin={includeBuiltin}
                     onToggleIncludeBuiltin={() => setIncludeBuiltin((v) => !v)}
+                    unlinkedCount={unlinkedCount}
+                    hideUnlinked={hideUnlinked}
+                    onToggleUnlinked={() => setHideUnlinked((v) => !v)}
                   />
                 )}
 
@@ -1649,7 +1267,8 @@ export function GraphPage() {
                           slug={slug}
                           node={selected}
                           edges={edges}
-                          groupColour={groupColours.get(selected.group) ?? 'var(--rp-cat-1)'}
+                          degree={degrees.get(selected.id) ?? 0}
+                          groupStyle={groupStyles.get(selected.group)}
                           pathState={{ from: pathFrom, path, noPath }}
                           onSelect={focusAndSelect}
                           onExpand={() => void expandSelected()}
@@ -1672,32 +1291,16 @@ export function GraphPage() {
                           node={selected}
                           edges={edges}
                           labelById={labelById}
+                          groupStyle={groupStyles.get(selected.group)}
                           onSelect={focusAndSelect}
                         />
                       )}
                   </DetailDock>
                 )
                 : null}
-
-              {
-                /* Interaction hint - desktop only, and only before a selection
-                  claims the reader's attention. */
-              }
-              {!selected
-                ? (
-                  <p className='pointer-events-none absolute bottom-4 left-1/2 hidden -translate-x-1/2 text-xs text-ink-3 lg:block'>
-                    Drag to pan · scroll to zoom · click a node to explore it
-                  </p>
-                )
-                : null}
             </>
           )}
       </div>
-      {
-        /* Dossier deep links are still reachable via the panel; keep navigate
-          imported for future canvas-level shortcuts. */
-      }
-      {void navigate}
     </div>
   )
 }

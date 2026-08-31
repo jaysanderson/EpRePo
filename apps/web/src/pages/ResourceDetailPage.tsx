@@ -1119,7 +1119,8 @@ function ViewerSkeleton() {
 
 export function ResourceDetailPage() {
   const { config } = useOutletContext<TenantOutletContext>()
-  const rail = useResizableRail()
+  const splitRef = useRef<HTMLDivElement | null>(null)
+  const rail = useResizableRail(splitRef)
   const revealRail = rail.reveal
   const { id } = useParams<{ id: string }>()
   const [searchParams] = useSearchParams()
@@ -1254,6 +1255,7 @@ export function ResourceDetailPage() {
               />
 
               <div
+                ref={splitRef}
                 className={`mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_auto_var(--rp-rail)] ${
                   rail.dragging ? '' : 'rp-rail-eased'
                 }`}
@@ -1307,7 +1309,7 @@ export function ResourceDetailPage() {
                   className='rp-rail-handle hidden lg:block'
                 />
 
-                <aside className='space-y-5 lg:sticky lg:top-20 lg:max-h-[calc(100vh-6rem)] lg:self-start lg:overflow-y-auto lg:pr-1'>
+                <aside className='rp-scroll space-y-5 lg:sticky lg:top-20 lg:max-h-[calc(100vh-6rem)] lg:self-start lg:overflow-y-auto lg:pr-1'>
                   <MatchesPanel
                     indices={matchIndices}
                     blockTexts={blockTexts}

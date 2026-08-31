@@ -451,7 +451,10 @@ export function PdfReader(
 
       <LiveStatus message={announcement} />
 
-      <div ref={containerRef} className='max-h-[75vh] overflow-auto bg-surface-2 sm:max-h-[80vh]'>
+      <div
+        ref={containerRef}
+        className='rp-scroll max-h-[75vh] overflow-auto bg-surface-2 sm:max-h-[80vh]'
+      >
         {status === 'loading'
           ? (
             <div className='space-y-3 p-6'>

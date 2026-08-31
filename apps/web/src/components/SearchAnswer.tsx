@@ -374,30 +374,22 @@ export function SearchAnswer({ slug, query, onResult }: SearchAnswerProps) {
                     )
                     : null}
 
+                  {
+                    /* Confidence, citation count and source range read as one
+                    * fact about the answer, so they sit on one line and arrive
+                    * together rather than stacking up as three separate rows. */
+                  }
                   {status === 'done' && !refused
                     ? (
-                      <div className='mt-3'>
+                      <div className='rp-answer-in mt-3 flex flex-wrap items-center gap-x-4 gap-y-2'>
                         <ConfidenceIndicator quality={quality} />
+                        <p className='text-xs text-ink-3'>{citations.length} cited</p>
+                        <CurrencyNote
+                          sources={sources.filter((source) =>
+                            citations.some((citation) => citation.resourceId === source.id)
+                          )}
+                        />
                       </div>
-                    )
-                    : null}
-
-                  {status === 'done' && !refused
-                    ? (
-                      <p className='mt-3 text-xs text-ink-3'>
-                        {citations.length} cited
-                      </p>
-                    )
-                    : null}
-
-                  {status === 'done' && !refused
-                    ? (
-                      <CurrencyNote
-                        className='mt-2'
-                        sources={sources.filter((source) =>
-                          citations.some((citation) => citation.resourceId === source.id)
-                        )}
-                      />
                     )
                     : null}
                 </>

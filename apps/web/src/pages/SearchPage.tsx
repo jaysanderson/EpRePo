@@ -21,6 +21,7 @@ import { SearchAnswer, type SearchAnswerResult } from '../components/SearchAnswe
 import { EmptyState, ErrorCard, prettyLabel, Skeleton, TypeBadge } from '../components/ui.tsx'
 import { answerModeParam, readAnswerMode } from '../lib/search-mode.ts'
 import type { TenantOutletContext } from './TenantLayout.tsx'
+import { passageIsInformative } from '../lib/passage.ts'
 
 const MODES: { value: RetrievalMode; label: string }[] = [
   { value: 'hybrid', label: 'Hybrid' },
@@ -155,7 +156,7 @@ function ResultCard(
             ? <p className='mt-1.5 text-sm leading-relaxed text-ink-2'>{resource.summary}</p>
             : null}
 
-          {resource.matchedPassage
+          {resource.matchedPassage && passageIsInformative(resource.matchedPassage, query)
             ? (
               <blockquote className='mt-3 text-sm leading-relaxed text-ink-2'>
                 &ldquo;{resource.matchedPassage.length > 340
@@ -477,6 +478,7 @@ export function SearchPage() {
   // same row as the retrieval modes rather than floating above the grid.
   const [librarySort, setLibrarySort] = useState<SortValue>('newest')
   const [libraryDensity, setLibraryDensity] = useState(4)
+  const [libraryView, setLibraryView] = useState<'grid' | 'list'>('grid')
 
   useEffect(() => {
   }, [q])
@@ -677,6 +679,14 @@ export function SearchPage() {
 
   return (
     <main className='rp-shell py-8'>
+      {!hasQuery
+        ? (
+          <div className='mb-4 flex flex-wrap items-baseline justify-between gap-3'>
+            <h1 className='rp-display text-2xl text-ink'>Library</h1>
+          </div>
+        )
+        : null}
+
       <div className='flex flex-wrap items-center gap-2.5'>
         <div
           className='inline-flex overflow-hidden rounded-none border border-line bg-surface'
@@ -720,7 +730,39 @@ export function SearchPage() {
         {!hasQuery
           ? (
             <div className='ml-auto flex items-center gap-2'>
-              <label htmlFor='search-density' className='text-xs font-medium text-ink-3'>
+              <div
+                className='inline-flex overflow-hidden rounded-none border border-line bg-surface'
+                role='radiogroup'
+                aria-label='Result layout'
+              >
+                {(['grid', 'list'] as const).map((option, index) => (
+                  <button
+                    key={option}
+                    type='button'
+                    role='radio'
+                    aria-checked={libraryView === option}
+                    onClick={() => setLibraryView(option)}
+                    className={`rp-focus px-3 py-1.5 text-xs font-medium capitalize transition-colors duration-150 ${
+                      index > 0 ? 'border-l border-line' : ''
+                    } ${
+                      libraryView === option
+                        ? 'text-white'
+                        : 'text-[var(--rp-ink-2)] hover:bg-[var(--rp-surface-2)]'
+                    }`}
+                    style={libraryView === option
+                      ? { backgroundColor: 'var(--rp-primary)' }
+                      : undefined}
+                  >
+                    {option}
+                  </button>
+                ))}
+              </div>
+              <label
+                htmlFor='search-density'
+                className={`text-xs font-medium text-ink-3 ${
+                  libraryView === 'list' ? 'hidden' : ''
+                }`}
+              >
                 Grid
               </label>
               <input
@@ -732,7 +774,9 @@ export function SearchPage() {
                 value={libraryDensity}
                 onChange={(event) => setLibraryDensity(Number(event.target.value))}
                 aria-label='Cards across the grid'
-                className='rp-focus w-24 accent-[var(--rp-primary)]'
+                className={`rp-focus w-24 accent-[var(--rp-primary)] ${
+                  libraryView === 'list' ? 'hidden' : ''
+                }`}
               />
               <label htmlFor='search-sort' className='text-xs font-medium text-ink-3'>
                 Sort
@@ -815,7 +859,7 @@ export function SearchPage() {
         : null}
 
       <div
-        className={`mt-6 grid grid-cols-1 gap-6 ${filtersOpen ? 'lg:grid-cols-[230px_1fr]' : ''}`}
+        className={`mt-6 grid grid-cols-1 gap-6 ${filtersOpen ? 'lg:grid-cols-[275px_1fr]' : ''}`}
       >
         <aside className={filtersOpen ? 'block' : 'hidden'}>
           <div className='rp-card p-4 lg:sticky lg:top-20'>
@@ -978,6 +1022,7 @@ export function SearchPage() {
                 onSortChange={setLibrarySort}
                 density={libraryDensity}
                 onDensityChange={setLibraryDensity}
+                view={libraryView}
               />
             )
             : null}

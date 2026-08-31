@@ -30,7 +30,7 @@ function FullPageSpinner() {
 // Explore is reached by the logo, Help by its own icon, and Investigations and
 // Self assessment live under the Generate menu.
 const NAV_ITEMS: { path: string; label: string; end: boolean }[] = [
-  { path: '/search', label: 'Library', end: false },
+  { path: '/library', label: 'Library', end: false },
   { path: '/assistant', label: 'Assistant', end: false },
   // Generate is rendered as a menu, not a plain link - it carries the artefact
   // kinds plus the Investigations and Self assessment workspaces.

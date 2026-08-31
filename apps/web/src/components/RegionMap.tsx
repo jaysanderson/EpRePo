@@ -2,10 +2,17 @@ import { type KeyboardEvent, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { MAP_HEIGHT, MAP_WIDTH, STATES } from './australia-paths.ts'
 
+/**
+ * A bare place name is a poor question: the answer engine gets a noun with no
+ * intent and produces a thin, odd-looking answer. Asking a real question gives
+ * it something to answer and still retrieves the same regional documents.
+ */
+export const regionQuestion = (label: string) => `What research has been done in ${label}?`
+
 export const REGIONS = STATES.map((state) => ({
   id: state.id,
   label: state.label,
-  query: state.label,
+  query: regionQuestion(state.label),
 }))
 
 /**

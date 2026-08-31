@@ -17,7 +17,7 @@ function clamp(width: number): number {
  * asking the document a question) with an eased transition that is suppressed
  * while dragging - a transition during a drag lags the pointer.
  */
-export function useResizableRail() {
+export function useResizableRail(containerRef?: { current: HTMLElement | null }) {
   const [width, setWidth] = useState<number>(() => {
     try {
       const stored = Number(localStorage.getItem(STORAGE_KEY))
@@ -44,11 +44,14 @@ export function useResizableRail() {
     setDragging(true)
 
     const move = (moveEvent: PointerEvent) => {
-      // The rail is on the right, so its width is the distance from the
-      // pointer to the right edge of the viewport.
+      // Measure from the CONTAINER's right edge, not the viewport's. The rail
+      // sits inside the shell's padding and max-width, so using innerWidth made
+      // the width jump by the gutter the moment you grabbed the handle.
+      const right = containerRef?.current?.getBoundingClientRect().right ??
+        globalThis.innerWidth
       if (frameRef.current !== null) cancelAnimationFrame(frameRef.current)
       frameRef.current = requestAnimationFrame(() => {
-        setWidth(clamp(globalThis.innerWidth - moveEvent.clientX))
+        setWidth(clamp(right - moveEvent.clientX))
       })
     }
     const up = () => {
@@ -59,7 +62,7 @@ export function useResizableRail() {
     }
     handle.addEventListener('pointermove', move)
     handle.addEventListener('pointerup', up)
-  }, [])
+  }, [containerRef])
 
   /** Keyboard parity for the drag - a splitter must not be pointer-only. */
   const onKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
