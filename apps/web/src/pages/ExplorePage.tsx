@@ -14,18 +14,6 @@ import type { TenantOutletContext } from './TenantLayout.tsx'
  * ---------------------------------------------------------------------- */
 
 /**
- * The hero prompt. The tenant writes a search placeholder ("Search the grains
- * research library"); the portal asks rather than searches, so the leading verb
- * is swapped and the corpus flavour is kept.
- */
-function askPlaceholder(searchPlaceholder: string): string {
-  const trimmed = searchPlaceholder.trim()
-  if (trimmed.length === 0) return 'Ask a question of this corpus'
-  if (/^search\b/i.test(trimmed)) return trimmed.replace(/^search\b/i, 'Ask')
-  return `Ask ${trimmed.charAt(0).toLowerCase()}${trimmed.slice(1)}`
-}
-
-/**
  * The hero backdrop. With a tenant hero photograph it is a full-bleed cover
  * image under a duotone wash of the tenant's hero colours; without one it is
  * the gradient, lifted by a radial bloom and a faint dot grid so it reads as a
@@ -82,8 +70,13 @@ function Hero({
     onAsk(trimmed)
   }
 
+  // The horizontal gutter is `rp-shell`'s job. This section used to add `px-6`
+  // of its own on top of it, so on a 390px phone the two stacked into a 48px
+  // inset each side and left the headline, the ask field and the suggestion
+  // chips only 277px to live in. The extra inset is kept from `sm:` up, where
+  // there is width to spend on it.
   return (
-    <section className='relative isolate px-6 pb-24 pt-14 sm:pb-28 sm:pt-20'>
+    <section className='relative isolate pb-24 pt-14 sm:px-6 sm:pb-28 sm:pt-20'>
       <HeroBackdrop imageUrl={config.branding.heroImageUrl} />
 
       <div className='rp-shell grid items-center gap-10 lg:grid-cols-[minmax(0,1fr)_22rem] lg:gap-14'>
@@ -110,6 +103,13 @@ function Hero({
                   <circle cx='9' cy='9' r='5.5' />
                   <path d='M13.2 13.2L17 17' />
                 </svg>
+                {
+                  /* No placeholder: the tenant's corpus blurb is far longer than
+                   * the field is wide and clipped mid-word ("Ask fisheries,
+                   * aquaculture, stoc"), which read as a broken control. The
+                   * headline directly above already says what the field is for,
+                   * and the sr-only label above names it for assistive tech. */
+                }
                 <input
                   id='explore-search'
                   ref={inputRef}
@@ -117,8 +117,7 @@ function Hero({
                   autoComplete='off'
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
-                  placeholder={askPlaceholder(config.searchPlaceholder)}
-                  className='min-w-0 flex-1 border-0 bg-transparent px-2 py-2 text-[0.95rem] text-ink placeholder:text-[var(--rp-ink-3)] focus:outline-none'
+                  className='min-w-0 flex-1 border-0 bg-transparent px-2 py-2 text-[0.95rem] text-ink focus:outline-none'
                 />
                 <button type='submit' className='rp-btn rp-btn-primary shrink-0 font-semibold'>
                   Ask
@@ -382,12 +381,29 @@ function SectionHeading(
 ) {
   return (
     <div className='flex items-center gap-2.5'>
-      <h2 className='rp-display text-xl text-ink sm:text-[1.375rem]'>{label}</h2>
-      <span className='rp-badge rp-badge-quiet tabular-nums'>{count}</span>
+      {
+        /* `min-w-0` is load-bearing: without it the heading's automatic minimum
+         * size is its longest word, and since the badge is `nowrap` and the
+         * "See all" link is `shrink-0`, a narrow viewport (or a phone with the
+         * system font scaled up) could not compress this row - it pushed past
+         * the right edge and scrolled the whole page sideways. `break-words`
+         * covers the remaining case of a single topic label longer than the
+         * column it is left with. */
+      }
+      <h2 className='rp-display min-w-0 break-words text-xl text-ink sm:text-[1.375rem]'>
+        {label}
+      </h2>
+      <span className='rp-badge rp-badge-quiet shrink-0 tabular-nums'>{count}</span>
       <span className='h-px flex-1 bg-[var(--rp-line)]' aria-hidden='true' />
+      {
+        /* `py-3 -my-3` grows the hit area to 44px tall without moving anything:
+         * the link's own text box is only 20px, too small to hit reliably on a
+         * phone, and the negative margin keeps its outer size unchanged so the
+         * heading row's height is still set by the heading. */
+      }
       <Link
         to={`/t/${slug}/library?topic=${encodeURIComponent(topicId)}`}
-        className='rp-focus shrink-0 rounded-[var(--rp-radius-btn)] text-sm font-medium text-[var(--rp-ink-3)] transition-colors duration-150 hover:text-[var(--rp-ink)]'
+        className='rp-focus -my-3 shrink-0 rounded-[var(--rp-radius-btn)] py-3 text-sm font-medium text-[var(--rp-ink-3)] transition-colors duration-150 hover:text-[var(--rp-ink)]'
       >
         See all<span aria-hidden='true'>&rarr;</span>
       </Link>
@@ -399,7 +415,15 @@ function TopicRowSkeleton() {
   return (
     <div>
       <Skeleton className='h-6 w-56' />
-      <div className='mt-4 flex gap-3'>
+      {
+        /* The placeholder cards are `shrink-0` and four of them are far wider
+         * than a phone, so with the row's overflow left visible this skeleton
+         * used to stretch the document to ~1084px and scroll the whole page
+         * sideways for as long as the topics were loading. It clips instead,
+         * and takes the same mobile right-edge bleed as the real row so the
+         * swap from skeleton to content does not shift. */
+      }
+      <div className='-mr-6 mt-4 flex gap-3 overflow-hidden pr-6 sm:mr-0 sm:pr-0'>
         {Array.from({ length: 4 }).map((_, index) => (
           <div
             key={index}
@@ -528,7 +552,19 @@ export function ExplorePage() {
                   label={topic.label}
                   count={count}
                 />
-                <div className='rp-scroll-row rp-no-scrollbar mt-3.5 flex gap-3 overflow-x-auto pb-4 pt-1'>
+                {
+                  /* The scroll track runs out to the right edge of a phone
+                   * screen rather than stopping at the shell's 1.5rem gutter,
+                   * so the next card is a deliberate peek instead of a card
+                   * sliced off against an invisible margin. The negative margin
+                   * is exactly the shell's mobile padding, so the track ends on
+                   * the viewport edge and never widens the page; the matching
+                   * `pr-6` inside gives the last card the same breathing room
+                   * at the end of the scroll. The heading, count and "See all"
+                   * above stay on the normal gutter, and so does the first card
+                   * - only the right-hand end is released. */
+                }
+                <div className='rp-scroll-row rp-no-scrollbar -mr-6 mt-3.5 flex gap-3 overflow-x-auto pb-4 pr-6 pt-1 sm:mr-0 sm:pr-0'>
                   {items.map((resource) => (
                     <ResourceCard key={resource.id} slug={config.slug} resource={resource} />
                   ))}
