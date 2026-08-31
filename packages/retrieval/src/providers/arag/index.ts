@@ -634,6 +634,11 @@ export class AragProvider implements RetrievalProvider {
       published: meta.published,
       ...(kindLabel ? { kind: kindLabel } : {}),
       ...(merch.sourceName ? { sourceName: merch.sourceName } : {}),
+      // NOTE: a resource ingested from a website source carries `origin.url`
+      // on the platform, and resourceContent() surfaces it - but
+      // ResourceSummarySchema has no `originUrl` field, so a summary cannot
+      // carry the page it came from (zod strips it). Adding the optional
+      // field to that schema in packages/core is all this needs.
       enriched: false,
     })
   }

@@ -247,7 +247,30 @@ export interface Source {
   auto: boolean
   /** Urls already ingested from this source (dedupe across syncs). */
   synced?: string[]
+  /**
+   * Running total of pages ingested from this source. Kept as its own counter
+   * rather than read off `synced.length`, because `synced` is trimmed to the
+   * most recent 5000 urls and would understate a long-lived source.
+   */
+  itemCount?: number
+  /** Outcome of the most recent sync attempt, manual or scheduled. */
+  lastStatus?: 'ok' | 'error'
+  /** Why the most recent sync failed, when it did. */
+  lastError?: string | null
+  /**
+   * Ceiling on how many NEW pages one sync run may ingest. Bounds the first
+   * sync of a large site (which would otherwise pull the global cap in one
+   * go) and keeps a demo predictable; the rest arrive on later runs.
+   */
+  maxPages?: number
 }
+
+/**
+ * What the admin API hands back for a source. `synced` stays server-side: it
+ * holds up to 5000 urls, which is pure weight on every poll of the sources
+ * list, and the browser only ever needs the count.
+ */
+export type SourceSummary = Omit<Source, 'synced'> & { itemCount: number }
 
 export class SourceStore {
   private pathFor(slug: string): string {
@@ -256,6 +279,23 @@ export class SourceStore {
 
   list(slug: string): Source[] {
     return readJson<Source[]>(this.pathFor(slug), [])
+  }
+
+  /** The list as the admin API exposes it - no url ledger, count always present. */
+  summaries(slug: string): SourceSummary[] {
+    return this.list(slug).map(({ synced, ...rest }) => ({
+      ...rest,
+      itemCount: rest.itemCount ?? synced?.length ?? 0,
+    }))
+  }
+
+  find(slug: string, id: string): Source | undefined {
+    return this.list(slug).find((s) => s.id === id)
+  }
+
+  /** The registered source whose url matches exactly, if any. */
+  findByUrl(slug: string, url: string): Source | undefined {
+    return this.list(slug).find((s) => s.url === url)
   }
 
   /** Slugs that have at least one source registered. */
@@ -269,7 +309,7 @@ export class SourceStore {
     }
   }
 
-  add(slug: string, url: string, auto: boolean): Source {
+  add(slug: string, url: string, auto: boolean, maxPages?: number): Source {
     const all = this.list(slug)
     const existing = all.find((s) => s.url === url)
     if (existing) return existing
@@ -281,6 +321,10 @@ export class SourceStore {
       lastAdded: 0,
       auto,
       synced: [],
+      itemCount: 0,
+      lastStatus: undefined,
+      lastError: null,
+      ...(maxPages ? { maxPages } : {}),
     }
     writeJson(this.pathFor(slug), [...all, source])
     return source

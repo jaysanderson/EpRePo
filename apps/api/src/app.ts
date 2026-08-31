@@ -33,7 +33,12 @@ import {
 } from './kg.ts'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import process from 'node:process'
-import { discoverLinks, extractMainContent, looksLikeChallengePage } from './crawl.ts'
+import {
+  CRAWLER_USER_AGENT,
+  discoverLinks,
+  extractMainContent,
+  looksLikeChallengePage,
+} from './crawl.ts'
 import {
   InsightsStore,
   InvestigationStore,
@@ -41,7 +46,7 @@ import {
   SourceStore,
   WatchStore,
 } from './stores.ts'
-import { syncSource } from './scheduler.ts'
+import { MAX_SYNC_CAP, READ_ONLY_BOX_MESSAGE, recordSyncFailure, syncSource } from './scheduler.ts'
 import { implementSuggestion, runInterrogation, SuggestionStore } from './interrogate.ts'
 import { clientIp, rateLimit, SlidingWindowLimiter } from './rate-limit.ts'
 import {
@@ -107,7 +112,15 @@ const sessionPutSchema = z.object({
   messages: z.unknown().array().max(500),
 })
 const watchBodySchema = z.object({ query: z.string().min(2).max(500) })
-const sourceBodySchema = z.object({ url: z.string().url(), auto: z.boolean().optional() })
+const sourceBodySchema = z.object({
+  url: z.string().url(),
+  auto: z.boolean().optional(),
+  maxPages: z.number().int().min(1).max(MAX_SYNC_CAP).optional(),
+})
+const sourcePatchSchema = z.object({
+  auto: z.boolean().optional(),
+  maxPages: z.number().int().min(1).max(MAX_SYNC_CAP).optional(),
+})
 const hiddenBodySchema = z.object({ hidden: z.boolean() })
 // Purge is destructive - default TRUE means "just show me the scope", never
 // "go ahead and delete". An explicit { dryRun: false } is required to delete.
@@ -398,6 +411,28 @@ export function buildApp(opts: BuildAppOptions): Hono {
         retryAfter: err.backpressure.tryAfter,
       }
       : null
+
+  /**
+   * The other way an ingestion write fails for a reason that is not a bug:
+   * the box's service-account token has read scope only, so every write comes
+   * back a bare 403 `{"detail":"Forbidden"}` while retrieval keeps working
+   * perfectly. Surfaced as a plain 500 `internal_error` this is close to
+   * undiagnosable from the admin UI - the box looks healthy, content just
+   * never appears. Name it instead. Returns the body to send, else null.
+   */
+  const readOnlyBoxBody = (err: unknown) =>
+    err instanceof AragApiError && (err.status === 401 || err.status === 403)
+      ? { error: 'read_only_box' as const, message: READ_ONLY_BOX_MESSAGE }
+      : null
+
+  /** Both ingestion guards in the order they should be tried, or null. */
+  const ingestErrorResponse = (err: unknown) => {
+    const busy = ingestionBusyBody(err)
+    if (busy) return { body: busy, status: 503 as const }
+    const readOnly = readOnlyBoxBody(err)
+    if (readOnly) return { body: readOnly, status: 403 as const }
+    return null
+  }
 
   // Unauthenticated liveness/readiness check for Fly's health checker - no
   // upstream/ARAG calls. Also verifies the SPA bundle is present, so an
@@ -1316,7 +1351,7 @@ export function buildApp(opts: BuildAppOptions): Hono {
     try {
       try {
         const res = await fetch(parsed.data.url, {
-          headers: { 'user-agent': 'Mozilla/5.0 (research-portal-ingest)' },
+          headers: { 'user-agent': CRAWLER_USER_AGENT },
           signal: AbortSignal.timeout(25_000),
         })
         if (res.ok && (res.headers.get('content-type') ?? '').includes('html')) {
@@ -1351,8 +1386,8 @@ export function buildApp(opts: BuildAppOptions): Hono {
       }
       return c.json(await management!.createLink(config, parsed.data))
     } catch (err) {
-      const busy = ingestionBusyBody(err)
-      if (busy) return c.json(busy, 503)
+      const handled = ingestErrorResponse(err)
+      if (handled) return c.json(handled.body, handled.status)
       throw err
     }
   })
@@ -1367,8 +1402,8 @@ export function buildApp(opts: BuildAppOptions): Hono {
     try {
       return c.json(await management!.createText(config, { ...parsed.data, format: 'MARKDOWN' }))
     } catch (err) {
-      const busy = ingestionBusyBody(err)
-      if (busy) return c.json(busy, 503)
+      const handled = ingestErrorResponse(err)
+      if (handled) return c.json(handled.body, handled.status)
       throw err
     }
   })
@@ -1386,8 +1421,8 @@ export function buildApp(opts: BuildAppOptions): Hono {
     try {
       return c.json(await management!.uploadFile(config, { filename, contentType, bytes }))
     } catch (err) {
-      const busy = ingestionBusyBody(err)
-      if (busy) return c.json(busy, 503)
+      const handled = ingestErrorResponse(err)
+      if (handled) return c.json(handled.body, handled.status)
       throw err
     }
   })
@@ -1776,8 +1811,8 @@ export function buildApp(opts: BuildAppOptions): Hono {
       const result = await management!.ingestDocumentation(config)
       return c.json({ ok: true, searchConfigs: configs, ...result })
     } catch (err) {
-      const busy = ingestionBusyBody(err)
-      if (busy) return c.json(busy, 503)
+      const handled = ingestErrorResponse(err)
+      if (handled) return c.json(handled.body, handled.status)
       throw err
     }
   })
@@ -1920,10 +1955,17 @@ export function buildApp(opts: BuildAppOptions): Hono {
     return c.json({ ok: true })
   })
 
+  // --- Website sources: register once, sync on demand and daily -------------
+  // A "source" is a website or sitemap URL, not a single page. Each sync
+  // re-discovers the site, diffs against the urls already ingested from it,
+  // and ingests what is new (bounded by the source's own page cap).
+
   app.get('/api/admin/t/:slug/sources', (c) => {
     const config = tenant(c.req.param('slug'))
     if (!config) return c.json({ error: 'unknown_tenant' }, 404)
-    return c.json(sources.list(config.slug))
+    // `summaries`, not `list`: the stored `synced` url ledger runs to
+    // thousands of entries and the browser only needs its count.
+    return c.json(sources.summaries(config.slug))
   })
 
   app.post('/api/admin/t/:slug/sources', async (c) => {
@@ -1931,7 +1973,58 @@ export function buildApp(opts: BuildAppOptions): Hono {
     if (!config) return c.json({ error: 'unknown_tenant' }, 404)
     const parsed = sourceBodySchema.safeParse(await c.req.json().catch(() => null))
     if (!parsed.success) return c.json({ error: 'invalid_request' }, 400)
-    return c.json(sources.add(config.slug, parsed.data.url, parsed.data.auto ?? true))
+    const { url, auto, maxPages } = parsed.data
+    const duplicate = sources.findByUrl(config.slug, url)
+    // Silently handing back the existing row made the UI report "Source
+    // added" for a source that was already registered.
+    if (duplicate) {
+      return c.json({
+        error: 'duplicate_source',
+        message: 'That URL is already registered as a source.',
+        source: sources.summaries(config.slug).find((s) => s.id === duplicate.id),
+      }, 409)
+    }
+    // Prove the site is actually crawlable BEFORE registering it. Without
+    // this, an unreachable or bot-walled site (frdc.com.au is one) registers
+    // happily and only reveals the problem when someone presses Sync now -
+    // or never, if it is left to the daily schedule.
+    let discovered: { source: string; count: number }
+    try {
+      discovered = await discoverLinks(url, 25)
+    } catch (err) {
+      return c.json({
+        error: 'source_unreachable',
+        message: err instanceof Error ? err.message : 'That site could not be read.',
+      }, 400)
+    }
+    if (discovered.count === 0) {
+      return c.json({
+        error: 'no_pages_found',
+        message: 'No pages were found at that address. Point at a site section or a sitemap ' +
+          '(for example https://example.com/sitemap.xml).',
+      }, 400)
+    }
+    const added = sources.add(config.slug, url, auto ?? true, maxPages)
+    const summary = sources.summaries(config.slug).find((s) => s.id === added.id)
+    return c.json({
+      ...summary,
+      discovered: discovered.count,
+      discoveredVia: discovered.source,
+    })
+  })
+
+  // Change how a registered source behaves: daily auto-sync on or off, and
+  // how many new pages one run may ingest.
+  app.patch('/api/admin/t/:slug/sources/:id', async (c) => {
+    const config = tenant(c.req.param('slug'))
+    if (!config) return c.json({ error: 'unknown_tenant' }, 404)
+    const parsed = sourcePatchSchema.safeParse(await c.req.json().catch(() => null))
+    if (!parsed.success) return c.json({ error: 'invalid_request' }, 400)
+    const id = c.req.param('id')
+    if (!sources.find(config.slug, id)) return c.json({ error: 'not_found' }, 404)
+    sources.update(config.slug, id, parsed.data)
+    const updated = sources.summaries(config.slug).find((s) => s.id === id)
+    return c.json(updated ?? { error: 'not_found' })
   })
 
   app.delete('/api/admin/t/:slug/sources/:id', (c) => {
@@ -1944,7 +2037,7 @@ export function buildApp(opts: BuildAppOptions): Hono {
   app.post('/api/admin/t/:slug/sources/:id/sync', (c) => {
     const config = tenant(c.req.param('slug'))
     if (!config) return c.json({ error: 'unknown_tenant' }, 404)
-    const source = sources.list(config.slug).find((s) => s.id === c.req.param('id'))
+    const source = sources.find(config.slug, c.req.param('id'))
     if (!source) return c.json({ error: 'not_found' }, 404)
     if (!opts.management) return c.json({ error: 'management_unavailable' }, 503)
     const management = opts.management
@@ -1960,7 +2053,11 @@ export function buildApp(opts: BuildAppOptions): Hono {
         )
         await emit({ type: 'done', added, deferred })
       } catch (err) {
-        await emit({ type: 'error', message: err instanceof Error ? err.message : 'sync_failed' })
+        // Persist the failure against the source as well as streaming it, so
+        // it is still visible after the log panel is closed - and identical
+        // to what a failed scheduled run leaves behind.
+        const message = recordSyncFailure(sources, config.slug, source, err)
+        await emit({ type: 'error', message })
       }
     })
   })

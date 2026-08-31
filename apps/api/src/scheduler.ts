@@ -1,6 +1,12 @@
 import type { TenantConfig } from '@research-portal/core'
 import { AragApiError, type AragProvider } from '@research-portal/retrieval'
-import { discoverLinks, extractMainContent, looksLikeChallengePage } from './crawl.ts'
+import {
+  CRAWLER_USER_AGENT,
+  describeFetchFailure,
+  discoverLinks,
+  extractMainContent,
+  looksLikeChallengePage,
+} from './crawl.ts'
 import { type Source, SourceStore, WatchStore } from './stores.ts'
 import type { TenantStore } from './tenants.ts'
 
@@ -11,10 +17,30 @@ import type { TenantStore } from './tenants.ts'
 // synced on demand from Manage > Content.
 // ---------------------------------------------------------------------------
 
+/**
+ * A knowledge box whose service-account token has read scope only accepts
+ * every retrieval call and refuses every write with a bare 403 "Forbidden".
+ * Nothing about that says "wrong token", so name it explicitly wherever an
+ * ingestion write hits it.
+ */
+export const READ_ONLY_BOX_MESSAGE =
+  'The knowledge box refused the write (HTTP 403). Its service-account token can read this ' +
+  'box but not add to it, so no content can be ingested until a token with write access is ' +
+  'connected.'
+
 /** Pages discovered per crawl - deep enough to reach past already-synced ones. */
 const DISCOVER_CAP = 500
-/** New pages ingested per sync run - the rest arrive on later runs. */
-const SYNC_CAP = 60
+/** Default new pages per sync run when a source sets no cap of its own. */
+export const SYNC_CAP = 60
+/** Hard ceiling on a per-source cap, so one source cannot monopolise a run. */
+export const MAX_SYNC_CAP = 200
+
+/** The pages-per-run ceiling for a source: its own cap, clamped, else the default. */
+export function pagesPerRun(source: Pick<Source, 'maxPages'>): number {
+  const requested = source.maxPages
+  if (!requested || !Number.isFinite(requested) || requested < 1) return SYNC_CAP
+  return Math.min(Math.floor(requested), MAX_SYNC_CAP)
+}
 
 /** Ingest new pages from one source; reports how many were added vs left for next time. */
 export async function syncSource(
@@ -24,10 +50,11 @@ export async function syncSource(
   source: Source,
   emit: (label: string) => void | Promise<void>,
 ): Promise<{ added: number; deferred: number }> {
+  const perRun = pagesPerRun(source)
   const discovered = await discoverLinks(source.url, DISCOVER_CAP)
   const known = new Set(source.synced ?? [])
   const freshAll = discovered.links.filter((l) => !known.has(l))
-  const fresh = freshAll.slice(0, SYNC_CAP)
+  const fresh = freshAll.slice(0, perRun)
   await emit(
     `Found ${discovered.links.length} pages via ${discovered.source} - ${freshAll.length} new` +
       (freshAll.length > fresh.length ? ` (ingesting ${fresh.length} this run)` : ''),
@@ -35,6 +62,10 @@ export async function syncSource(
   let added = 0
   let rejected = 0
   let deferred = 0
+  /** Pages we could not read cleanly - never guessed at, never ingested. */
+  let skipped = 0
+  /** The first refusal reason seen, reported once instead of per page. */
+  let rejectedReason: string | undefined
   for (const [i, url] of fresh.entries()) {
     try {
       // Fetch and clean the page ourselves so the index holds body content,
@@ -42,11 +73,31 @@ export async function syncSource(
       let ingested = false
       try {
         const res = await fetch(url, {
-          headers: { 'user-agent': 'Mozilla/5.0 (research-portal-ingest)' },
+          headers: { 'user-agent': CRAWLER_USER_AGENT },
           signal: AbortSignal.timeout(25_000),
         })
-        if (res.ok && (res.headers.get('content-type') ?? '').includes('html')) {
+        if (!res.ok) {
+          // A refusal (typically a bot wall answering 403) used to fall
+          // through to createLink, handing the same blocked URL to the
+          // platform crawler - which fails the same way and leaves an empty
+          // junk resource behind. Reject it here instead.
+          const body = await res.text().catch(() => '')
+          rejectedReason ??= describeFetchFailure(res.status, body)
+          rejected += 1
+          known.add(url)
+          continue
+        }
+        if ((res.headers.get('content-type') ?? '').includes('html')) {
           const html = await res.text()
+          if (looksLikeChallengePage(html)) {
+            // Checked BEFORE extraction, not only as its fallback: a
+            // challenge page can carry enough prose to clear the extractor's
+            // word floor and would otherwise be ingested as real content.
+            rejectedReason ??= describeFetchFailure(res.status, html)
+            rejected += 1
+            known.add(url)
+            continue
+          }
           const cleaned = extractMainContent(html)
           if (cleaned) {
             await management.createText(config, {
@@ -56,20 +107,32 @@ export async function syncSource(
               originUrl: url,
             })
             ingested = true
-          } else if (looksLikeChallengePage(html)) {
-            rejected += 1
-            known.add(url)
-            continue
           }
         }
       } catch (err) {
-        // A knowledge-box back-pressure error is not a fetch failure - let it
-        // through to the outer catch rather than masking it as a crawler fallback.
-        if (err instanceof AragApiError && err.backpressure) throw err
-        // fall through to the platform crawler
+        // Errors from the knowledge box are not fetch/parse failures and must
+        // not be masked as "the site was awkward, skip it". Back-pressure
+        // needs the outer catch's deferral, and a 401/403 means the box
+        // refuses writes outright - both belong to the caller.
+        if (err instanceof AragApiError) {
+          if (err.backpressure || err.status === 401 || err.status === 403) throw err
+        }
+        // Our own fetch or parse failed - fall through to the skip below.
       }
       if (!ingested) {
-        await management.createLink(config, { url })
+        // This used to hand the url to the platform's own crawler
+        // (createLink) as a fallback. That bypasses this function's entire
+        // quality gate: the platform crawler has no bot-wall check, so on a
+        // site that challenges intermittently it stores the interstitial as
+        // a resource - verified live, a page titled "Just a moment..."
+        // carrying Cloudflare's "Performing security verification" copy.
+        // An unattended job feeding a shared corpus must not create junk it
+        // cannot recognise. Skip the page instead; `known` still records it
+        // so one stubborn url cannot starve every later page of the run, and
+        // an administrator can still force it in from Add content > Add link.
+        skipped += 1
+        known.add(url)
+        continue
       }
       known.add(url)
       added += 1
@@ -87,19 +150,59 @@ export async function syncSource(
         )
         break
       }
+      // A 401/403 from the platform is a credential problem, not a bad page:
+      // it will reject every remaining page identically. Stop and say so once,
+      // rather than emitting a "skipped" line per page and finishing "complete".
+      if (err instanceof AragApiError && (err.status === 401 || err.status === 403)) {
+        throw new Error(READ_ONLY_BOX_MESSAGE)
+      }
       await emit(`Skipped ${url} - the platform rejected it`)
     }
   }
   if (rejected > 0) {
-    await emit(`Rejected ${rejected} bot-challenge or empty ${rejected === 1 ? 'page' : 'pages'}`)
+    await emit(
+      `Rejected ${rejected} unreadable ${rejected === 1 ? 'page' : 'pages'}` +
+        (rejectedReason ? ` - ${rejectedReason}` : ''),
+    )
+  }
+  if (skipped > 0) {
+    await emit(
+      `Skipped ${skipped} ${skipped === 1 ? 'page' : 'pages'} with no readable content - ` +
+        'they were not added rather than added empty.',
+    )
   }
   sources.update(config.slug, source.id, {
     lastSync: new Date().toISOString(),
     lastAdded: added,
     synced: [...known].slice(-5000),
+    itemCount: (source.itemCount ?? source.synced?.length ?? 0) + added,
+    lastStatus: 'ok',
+    lastError: null,
   })
   await emit(added > 0 ? `Sync complete - ${added} pages added` : 'Sync complete - nothing new')
   return { added, deferred }
+}
+
+/**
+ * Record a failed sync against the source so the failure is visible in Manage
+ * long after the run. Scheduled syncs have no one watching a log, and used to
+ * fail completely silently - the row simply kept showing its previous, stale
+ * "last synced" time with no hint that nothing had happened since.
+ */
+export function recordSyncFailure(
+  sources: SourceStore,
+  slug: string,
+  source: Source,
+  err: unknown,
+): string {
+  const message = err instanceof Error ? err.message : 'The sync could not complete.'
+  sources.update(slug, source.id, {
+    lastSync: new Date().toISOString(),
+    lastAdded: 0,
+    lastStatus: 'error',
+    lastError: message.slice(0, 400),
+  })
+  return message
 }
 
 /** Re-run every watch and flag the ones whose top results changed. */
@@ -145,8 +248,12 @@ export async function runAutoSyncs(
       if (!source.auto) continue
       try {
         await syncSource(management, sources, config, source, () => {})
-      } catch {
-        // source site unreachable - try again next cycle
+      } catch (err) {
+        // The site is unreachable, or the box refuses writes. Either way the
+        // run is over for this source - but record WHY against the source so
+        // an administrator can see it in Manage, then carry on with the rest.
+        const message = recordSyncFailure(sources, config.slug, source, err)
+        console.error(`[scheduler] auto-sync failed for ${config.slug} ${source.url}: ${message}`)
       }
     }
   }

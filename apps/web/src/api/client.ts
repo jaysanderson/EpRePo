@@ -1029,8 +1029,22 @@ export interface PortalSource {
   url: string
   addedAt: string
   lastSync: string | null
+  /** Pages ingested by the most recent sync run. */
   lastAdded: number
+  /** Pages ingested from this source in total, across every run. */
+  itemCount: number
   auto: boolean
+  /** Outcome of the most recent run - absent until a source has been synced. */
+  lastStatus?: 'ok' | 'error'
+  lastError?: string | null
+  /** New pages one run may ingest; absent means the server default. */
+  maxPages?: number
+}
+
+/** What POST /sources returns: the new source plus what discovery found on it. */
+export interface AddedSource extends PortalSource {
+  discovered: number
+  discoveredVia: string
 }
 
 export function getSources(slug: string, passcode: string): Promise<PortalSource[]> {
@@ -1040,13 +1054,30 @@ export function getSources(slug: string, passcode: string): Promise<PortalSource
 export function addSource(
   slug: string,
   passcode: string,
-  url: string,
-): Promise<PortalSource> {
+  input: { url: string; auto?: boolean; maxPages?: number },
+): Promise<AddedSource> {
   return adminRequest(`/api/admin/t/${encodeURIComponent(slug)}/sources`, passcode, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ url }),
+    body: JSON.stringify(input),
   })
+}
+
+export function updateSource(
+  slug: string,
+  passcode: string,
+  id: string,
+  patch: { auto?: boolean; maxPages?: number },
+): Promise<PortalSource> {
+  return adminRequest(
+    `/api/admin/t/${encodeURIComponent(slug)}/sources/${encodeURIComponent(id)}`,
+    passcode,
+    {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(patch),
+    },
+  )
 }
 
 export function deleteSource(

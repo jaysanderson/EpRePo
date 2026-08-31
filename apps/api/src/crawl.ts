@@ -10,6 +10,44 @@ const ASSET_EXT =
   /\.(png|jpe?g|gif|svg|webp|ico|css|js|mjs|json|xml|rss|pdf|zip|gz|mp4|mp3|woff2?|ttf|eot)(\?|$)/i
 const SKIP_PATHS = /\/(wp-json|cdn-cgi|wp-admin|feed|tag|author)\/|[?#]|(Special|Talk|File):/i
 
+/**
+ * One user agent for every outbound page fetch - discovery AND ingestion.
+ * These used to differ ('research-portal-crawler/1.0' for discovery, a
+ * Mozilla string for ingestion), so a site that allowed one and blocked the
+ * other let discovery succeed and then failed every page of the sync, with
+ * nothing on screen to explain the contradiction.
+ */
+export const CRAWLER_USER_AGENT = 'Mozilla/5.0 (compatible; research-portal-ingest/1.0)'
+
+/**
+ * A site refusing an automated fetch is the single most common reason a
+ * website source cannot be ingested (many public sites, frdc.com.au among
+ * them, sit behind a bot challenge that answers every server-side request
+ * with a 403 interstitial). Say so in terms a librarian can act on, rather
+ * than leaking a bare status code.
+ */
+export function describeFetchFailure(status: number, body = ''): string {
+  if (status === 401 || status === 403 || looksLikeChallengePage(body)) {
+    return `The site refused an automated request (HTTP ${status}). It sits behind a bot ` +
+      'challenge, so a server cannot read its pages. Try its sitemap or feed URL, or upload ' +
+      'the documents directly.'
+  }
+  if (status === 404) return 'That address was not found on the site (HTTP 404).'
+  if (status === 429) return 'The site is rate-limiting automated requests - try again shortly.'
+  if (status >= 500) return `The site is having trouble of its own (HTTP ${status}).`
+  return `The site responded with ${status}.`
+}
+
+/** A transport-level failure (DNS, TLS, reset, timeout) explained the same way. */
+export function describeNetworkFailure(err: unknown): string {
+  const message = err instanceof Error ? err.message : String(err)
+  if (/timed? ?out|timeout/i.test(message)) {
+    return 'The site did not respond in time - it may be slow or blocking automated requests.'
+  }
+  return 'The site could not be reached. It may be offline, or it may be rejecting ' +
+    'automated requests outright.'
+}
+
 function assertPublicHttpUrl(raw: string): URL {
   const url = new URL(raw)
   if (url.protocol !== 'https:' && url.protocol !== 'http:') {
@@ -28,14 +66,24 @@ function assertPublicHttpUrl(raw: string): URL {
 }
 
 async function fetchText(url: string): Promise<{ body: string; contentType: string }> {
-  const res = await fetch(url, {
-    redirect: 'follow',
-    headers: { 'user-agent': 'research-portal-crawler/1.0' },
-    signal: AbortSignal.timeout(20_000),
-  })
+  let res: Response
+  try {
+    res = await fetch(url, {
+      redirect: 'follow',
+      headers: { 'user-agent': CRAWLER_USER_AGENT },
+      signal: AbortSignal.timeout(20_000),
+    })
+  } catch (err) {
+    // Deno surfaces a reset/DNS/TLS failure as a bare "fetch failed", which
+    // tells an administrator nothing about what to do next.
+    throw new Error(describeNetworkFailure(err))
+  }
   // A public URL may redirect anywhere - re-validate where we actually landed.
   if (res.url) assertPublicHttpUrl(res.url)
-  if (!res.ok) throw new Error(`The site responded with ${res.status}`)
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    throw new Error(describeFetchFailure(res.status, body))
+  }
   return { body: await res.text(), contentType: res.headers.get('content-type') ?? '' }
 }
 
