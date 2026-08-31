@@ -1366,6 +1366,38 @@ export function getSourceVerdicts(
   })
 }
 
+// --- Follow-up questions ------------------------------------------------------
+
+/**
+ * Questions worth asking next, written from the answer just given and proved
+ * against the passages that answer retrieved. Fired after the answer completes,
+ * never before: nothing here may delay a reader's answer. The signal is the
+ * caller's, so asking the next question cancels the follow-ups for the last one.
+ */
+export function getFollowUpQuestions(
+  slug: string,
+  input: {
+    question: string
+    answer: string
+    passages: { title: string; text: string }[]
+  },
+  signal?: AbortSignal,
+): Promise<{ questions: string[] }> {
+  return clientRequest(`/api/t/${encodeURIComponent(slug)}/followups`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      question: input.question.slice(0, 1000),
+      answer: input.answer.slice(0, 20000),
+      passages: input.passages.slice(0, 12).map((passage) => ({
+        title: passage.title.slice(0, 300),
+        text: passage.text.slice(0, 4000),
+      })),
+    }),
+    ...(signal ? { signal } : {}),
+  })
+}
+
 // --- Admin: corpus health -----------------------------------------------------
 
 export interface CorpusHealthRow {

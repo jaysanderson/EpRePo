@@ -1089,6 +1089,25 @@ label.rp-btn:has(input:focus-visible) {
   }
 }
 
+/* Everything that lands after the answer itself - the confidence line, the
+ * quality meters, the answer actions, the retrieved-sources disclosure, and the
+ * follow-up questions that arrive later still. They used to appear the instant
+ * the stream ended, along with a border, a fill and a shadow snapping around
+ * the whole card; now the card's treatment never changes and these simply fade
+ * up under the answer, in the order they read. Same 4px rise, easing and
+ * --rp-stage-i stagger as the timeline they hand over from, held a beat longer
+ * because nobody is waiting on them. */
+.rp-answer-tail {
+  animation: rp-stage-in 320ms var(--rp-ease) both;
+  animation-delay: calc(var(--rp-stage-i, 0) * 60ms);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rp-answer-tail {
+    animation: none;
+  }
+}
+
 /* ---------------------------------------------------------------------------
  * Resizable document rail. The handle is a thin hit area with a visible grip on
  * hover or focus; the eased class is applied only when NOT dragging, because a

@@ -66,6 +66,7 @@ import {
   merchandiseSummary,
   runEnrichmentOverCorpus,
 } from './enrichments.ts'
+import { generateFollowUpQuestions } from './follow-up-questions.ts'
 import { generateSuggestedQuestions, SUGGESTED_QUESTIONS_SCHEMA_ID } from './suggested-questions.ts'
 
 const searchQuerySchema = z.object({ q: z.string().min(1) })
@@ -234,6 +235,15 @@ const VERDICTS_SCHEMA = {
     required: ['verdicts'],
   },
 }
+
+const followUpsBodySchema = z.object({
+  question: z.string().min(3).max(1000),
+  answer: z.string().min(1).max(20000),
+  passages: z.object({
+    title: z.string().min(1).max(300),
+    text: z.string().min(1).max(4000),
+  }).array().max(12),
+})
 
 const SUBQUERIES_SCHEMA = {
   name: 'research_subquestions',
@@ -1281,6 +1291,23 @@ export function buildApp(opts: BuildAppOptions): Hono {
     } catch {
       return c.json({ verdicts: [] })
     }
+  })
+
+  // Questions worth asking NEXT, written from the answer just given and proved
+  // against the passages that answer retrieved - see follow-up-questions.ts for
+  // why the tenant's generic openers are the wrong thing under an answer.
+  // Always 200 with a (possibly empty) list: the page renders nothing when
+  // there is nothing good to offer, and a follow-up must never look like a
+  // failure of the answer it follows.
+  app.post('/api/t/:slug/followups', expensiveRateLimit, async (c) => {
+    const config = tenant(c.req.param('slug'))
+    if (!config) return c.json({ error: 'unknown_tenant' }, 404)
+    if (!opts.management) return c.json({ questions: [] })
+    const parsed = followUpsBodySchema.safeParse(await c.req.json().catch(() => null))
+    if (!parsed.success) return c.json({ error: 'invalid_request' }, 400)
+    return c.json({
+      questions: await generateFollowUpQuestions(opts.management, config, parsed.data),
+    })
   })
 
   // Admin: connect a knowledge box to a tenant. The administrator enters the

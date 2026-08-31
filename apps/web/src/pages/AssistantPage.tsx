@@ -1,4 +1,5 @@
 import {
+  type CSSProperties,
   type FormEvent,
   type KeyboardEvent,
   type ReactNode,
@@ -12,6 +13,7 @@ import type { AskEvent, AskStage, Citation, ScoredResource } from '@research-por
 import {
   addWatch,
   deleteServerSession,
+  getFollowUpQuestions,
   getServerSession,
   getSourceVerdicts,
   getSubqueries,
@@ -722,6 +724,40 @@ function WatchControl({ question, slug }: { question: string; slug: string }) {
 /** Cap on how many sources get an AI verdict in one judge call - keeps it fast. */
 const MAX_JUDGED = 8
 
+/**
+ * One treatment for the whole life of an answer.
+ *
+ * The card used to be bare padding while it streamed and then gain a border, a
+ * fill, a shadow AND a different padding the instant the sources and quality
+ * signals landed, so a finished answer visibly snapped into a box under a
+ * reader who was still reading it. Nothing about the container changes now -
+ * same box, same padding, start to finish - and the parts that arrive at the
+ * end fade up into it instead (see `rp-answer-tail` in styles.css).
+ *
+ * Borderless rather than always-bordered because that is the treatment asked
+ * for: the answer is the page's main content, and a chat transcript does not
+ * need a card drawn around every turn to be legible. The user bubble opposite
+ * it carries the only fill in the thread, which is what makes the two sides
+ * readable at a glance.
+ */
+const ANSWER_CARD = 'py-1'
+
+/**
+ * The order the late arrivals fade up in. They are staggered rather than
+ * simultaneous so the eye is led down the block - answer, then how much to
+ * trust it, then what to do with it, then where it came from - and each index
+ * is fixed, so a message missing one of them does not reshuffle the rest.
+ */
+const TAIL_QUALITY = 0
+const TAIL_NOTICE = 1
+const TAIL_ACTIONS = 2
+const TAIL_SOURCES = 3
+
+/** `--rp-stage-i` is the stagger index the timeline and the tail both ride on. */
+function tailStyle(index: number): CSSProperties {
+  return { '--rp-stage-i': index } as CSSProperties
+}
+
 function AssistantCard({
   message,
   slug,
@@ -845,8 +881,8 @@ function AssistantCard({
   // AI opinion), and next actions rather than a dead end.
   if (!message.pending && message.refused) {
     return (
-      <div className='rounded-[calc(var(--rp-radius)+4px)] border border-line bg-surface p-3 sm:p-5 shadow-sm'>
-        <div className='mb-2'>
+      <div className={ANSWER_CARD}>
+        <div className='mb-2 rp-answer-tail' style={tailStyle(TAIL_QUALITY)}>
           <span className='rp-badge rp-badge-quiet'>No direct evidence found</span>
         </div>
 
@@ -856,7 +892,10 @@ function AssistantCard({
 
         {evidenceSources.length > 0
           ? (
-            <div className='mt-4 border-t border-line pt-3'>
+            <div
+              className='rp-answer-tail mt-4 border-t border-line pt-3'
+              style={tailStyle(TAIL_SOURCES)}
+            >
               <EvidenceTable
                 slug={slug}
                 question={question}
@@ -868,7 +907,10 @@ function AssistantCard({
           )
           : null}
 
-        <div className='mt-4 flex flex-wrap items-center gap-3 border-t border-line pt-3'>
+        <div
+          className='rp-answer-tail mt-4 flex flex-wrap items-center gap-3 border-t border-line pt-3'
+          style={tailStyle(TAIL_ACTIONS)}
+        >
           <WatchControl question={question} slug={slug} />
         </div>
 
@@ -893,17 +935,18 @@ function AssistantCard({
   }
 
   return (
-    <div
-      className={message.pending
-        ? 'rounded-[var(--rp-radius)] p-5'
-        : 'rounded-[calc(var(--rp-radius)+4px)] border border-line bg-surface p-3 sm:p-5 shadow-sm'}
-    >
-      {message.deepBadge || message.interpretedQuery
+    <div className={ANSWER_CARD}>
+      {
+        /* Gated on deepBadge alone. It used to render on `interpretedQuery`
+        * too, and interpretedQuery draws nothing here - so an `interpreted`
+        * event arriving mid-stream mounted an empty row and pushed the answer
+        * the reader was reading 8px down the page. deepBadge is known before
+        * the first token, so this row's height never changes after mount. */
+      }
+      {message.deepBadge
         ? (
           <div className='mb-2 flex flex-wrap items-center gap-2'>
-            {message.deepBadge
-              ? <span className='rp-badge rp-badge-quiet'>Deep re-answer</span>
-              : null}
+            <span className='rp-badge rp-badge-quiet'>Deep re-answer</span>
           </div>
         )
         : null}
@@ -926,7 +969,7 @@ function AssistantCard({
       }
       {!message.pending
         ? (
-          <div className='mt-4 space-y-2.5'>
+          <div className='rp-answer-tail mt-4 space-y-2.5' style={tailStyle(TAIL_QUALITY)}>
             <ConfidenceIndicator quality={message.quality} />
             {message.quality
               ? (
@@ -942,8 +985,12 @@ function AssistantCard({
       {message.error && message.text.trim()
         ? (
           <div
-            className='mt-3 flex flex-wrap items-center justify-between gap-2 rounded-[var(--rp-radius)] border p-3'
-            style={{ borderColor: 'var(--rp-bad-line)', background: 'var(--rp-bad-bg)' }}
+            className='rp-answer-tail mt-3 flex flex-wrap items-center justify-between gap-2 rounded-[var(--rp-radius)] border p-3'
+            style={{
+              ...tailStyle(TAIL_NOTICE),
+              borderColor: 'var(--rp-bad-line)',
+              background: 'var(--rp-bad-bg)',
+            }}
           >
             <p className='text-xs text-[var(--rp-bad-ink)]'>
               The answer was cut short - {message.error}
@@ -962,8 +1009,12 @@ function AssistantCard({
       {offerDeepReanswer
         ? (
           <div
-            className='mt-3 flex flex-wrap items-center justify-between gap-2 rounded-[var(--rp-radius)] border p-3'
-            style={{ borderColor: 'var(--rp-warn-line)', background: 'var(--rp-warn-bg)' }}
+            className='rp-answer-tail mt-3 flex flex-wrap items-center justify-between gap-2 rounded-[var(--rp-radius)] border p-3'
+            style={{
+              ...tailStyle(TAIL_NOTICE),
+              borderColor: 'var(--rp-warn-line)',
+              background: 'var(--rp-warn-bg)',
+            }}
           >
             <p className='text-xs text-[var(--rp-warn-ink)]'>
               This answer is thinly grounded - re-answer with full-document context?
@@ -981,7 +1032,10 @@ function AssistantCard({
 
       {isSparselyGrounded && !offerDeepReanswer && evidenceSources.length > 0
         ? (
-          <p className='mt-3 text-xs text-[var(--rp-warn-ink)]'>
+          <p
+            className='rp-answer-tail mt-3 text-xs text-[var(--rp-warn-ink)]'
+            style={tailStyle(TAIL_NOTICE)}
+          >
             Parts of this answer go beyond the retrieved passages - open the evidence below to check
             it before relying on it.
           </p>
@@ -991,7 +1045,10 @@ function AssistantCard({
       {/* Answer-level actions stay visible next to the quality signal. */}
       {!message.pending && (message.learningId || question.trim().length > 0)
         ? (
-          <div className='mt-3 flex flex-wrap items-center justify-between gap-3'>
+          <div
+            className='rp-answer-tail mt-3 flex flex-wrap items-center justify-between gap-3'
+            style={tailStyle(TAIL_ACTIONS)}
+          >
             <FeedbackControl message={message} onFeedback={onFeedback} />
             <div className='flex items-center gap-0.5'>
               <CopyAnswer text={message.text} />
@@ -1018,7 +1075,10 @@ function AssistantCard({
       }
       {!message.pending && (message.sources.length > 0 || message.citations.length > 0)
         ? (
-          <div className='mt-4 border-t border-line pt-3'>
+          <div
+            className='rp-answer-tail mt-4 border-t border-line pt-3'
+            style={tailStyle(TAIL_SOURCES)}
+          >
             <EvidenceDisclosure
               regionId={`${message.id}-evidence`}
               open={showEvidence}
@@ -1271,13 +1331,29 @@ export function AssistantPage() {
   const stageStatuses = statusesFor(activeStage, seenStages)
   const [showSidebar, setShowSidebar] = useState(false)
   const [deepResearch, setDeepResearch] = useState(false)
+  /**
+   * Follow-ups for ONE answer - the newest. They are about where this answer
+   * leaves the reader, so they belong under the answer they came from and
+   * nowhere else; asking the next question clears them and starts again.
+   * Null until a generation succeeds with something worth offering, so a
+   * failure or an empty result renders nothing at all rather than a placeholder.
+   */
+  const [followUps, setFollowUps] = useState<{ messageId: string; questions: string[] } | null>(
+    null,
+  )
 
   const abortRef = useRef<AbortController | null>(null)
+  /** In-flight follow-up generation, cancelled the moment a new ask starts. */
+  const followUpAbortRef = useRef<AbortController | null>(null)
   /** Sessions deleted in THIS tab - saveSessions must not resurrect them. */
   const deletedIdsRef = useRef(new Set<string>())
 
-  // Leaving the page cancels any in-flight answer stream.
-  useEffect(() => () => abortRef.current?.abort(), [])
+  // Leaving the page cancels any in-flight answer stream, and the follow-up
+  // generation that trails it.
+  useEffect(() => () => {
+    abortRef.current?.abort()
+    followUpAbortRef.current?.abort()
+  }, [])
   const threadEndRef = useRef<HTMLDivElement | null>(null)
   const sidebarDrawerRef = useRef<HTMLDivElement | null>(null)
   // Guards the `?ask=` handoff from Explore against a double-send (React 18
@@ -1403,6 +1479,7 @@ export function AssistantPage() {
     setSessions(localSessions)
     setActiveSessionId(null)
     setMessages([])
+    setFollowUps(null)
     askHandledRef.current = false
 
     for (const timer of syncTimersRef.current.values()) clearTimeout(timer)
@@ -1498,6 +1575,7 @@ export function AssistantPage() {
     if (isStreaming) return
     setActiveSessionId(null)
     setMessages([])
+    setFollowUps(null)
     setShowSidebar(false)
   }
 
@@ -1520,6 +1598,7 @@ export function AssistantPage() {
     if (activeSessionId === id) {
       setActiveSessionId(null)
       setMessages([])
+      setFollowUps(null)
     }
   }
 
@@ -1529,6 +1608,9 @@ export function AssistantPage() {
     if (!session) return
     setActiveSessionId(id)
     setMessages(session.messages.map((message) => ({ ...message, pending: false })))
+    // Follow-ups belong to the answer they were generated from, and a restored
+    // session's last answer was generated in another sitting.
+    setFollowUps(null)
     setShowSidebar(false)
   }
 
@@ -1543,12 +1625,52 @@ export function AssistantPage() {
     })
   }
 
+  /**
+   * Questions worth asking next, generated from the answer just given and the
+   * passages it retrieved. Deliberately fired AFTER the stream closes and never
+   * awaited by anything on the answer path: an answer must never wait on a
+   * nicety. Silent on every failure - no spinner, no placeholder, no empty
+   * heading - because a follow-up that is not ready is simply not offered.
+   */
+  async function requestFollowUps(answer: ChatMessage | undefined, question: string) {
+    if (!answer || answer.pending || answer.error || answer.refused) return
+    if (answer.text.trim().length === 0 || question.trim().length === 0) return
+    // The retrieved passages are the only thing a follow-up may be built from,
+    // so an answer that arrived without them gets no follow-ups at all.
+    const passages = answer.sources
+      .map((source) => ({ title: source.title, text: (source.matchedPassage ?? '').trim() }))
+      .filter((passage) => passage.text.length > 0)
+      .slice(0, 8)
+    if (passages.length === 0) return
+
+    const controller = new AbortController()
+    followUpAbortRef.current = controller
+    try {
+      const result = await getFollowUpQuestions(
+        config.slug,
+        { question, answer: answer.text, passages },
+        controller.signal,
+      )
+      if (controller.signal.aborted) return
+      const questions = Array.isArray(result.questions) ? result.questions : []
+      if (questions.length > 0) setFollowUps({ messageId: answer.id, questions })
+    } catch {
+      // Follow-ups are advisory - a failure leaves the answer exactly as it was.
+    } finally {
+      if (followUpAbortRef.current === controller) followUpAbortRef.current = null
+    }
+  }
+
   async function runAsk(
     query: string,
     baseMessages: ChatMessage[],
     sessionId: string,
     options?: { depth?: 'default' | 'deep'; prequeries?: string[]; deepBadge?: boolean },
   ) {
+    // A new answer retires the last answer's follow-ups the moment it starts.
+    followUpAbortRef.current?.abort()
+    followUpAbortRef.current = null
+    setFollowUps(null)
     const assistantId = makeId()
     // baseMessages ends with the question being asked (as a USER message) - the
     // request sends that as `query`, so prior turns exclude it here.
@@ -1695,6 +1817,11 @@ export function AssistantPage() {
       setSeenStages(new Set())
       abortRef.current = null
       persist(working, sessionId)
+      // After the answer, never during it - and never after a Stop, which is
+      // the reader saying they have finished with this question.
+      if (!controller.signal.aborted) {
+        void requestFollowUps(working.find((message) => message.id === assistantId), query)
+      }
     }
   }
 
@@ -2047,6 +2174,53 @@ export function AssistantPage() {
                     )
                 )
               )}
+            {
+              /* Where this answer leaves you. Generated from the answer and the
+              * passages behind it, not from the portal's generic openers, so
+              * they continue the conversation rather than restarting it; each
+              * one is proved answerable from the corpus server-side before it
+              * is offered. They arrive after the answer and fade up in place -
+              * nothing is reserved for them, so an answer with no follow-ups
+              * looks exactly as it did before this existed.
+              *
+              * Above the scroll anchor, so the anchor's composer-height scroll
+              * margin still clears the pinned bar on a phone with these
+              * present. */
+            }
+            {followUps && followUps.messageId === lastMessage?.id && !isStreaming
+              ? (
+                <div
+                  className='pt-1'
+                  role='group'
+                  aria-labelledby={`${followUps.messageId}-followups`}
+                >
+                  <p
+                    id={`${followUps.messageId}-followups`}
+                    className='rp-answer-tail rp-eyebrow text-ink-3'
+                    style={tailStyle(0)}
+                  >
+                    Ask next
+                  </p>
+                  <div className='mt-2 flex flex-col gap-2 sm:flex-row sm:flex-wrap'>
+                    {followUps.questions.map((question, index) => (
+                      <button
+                        key={question}
+                        type='button'
+                        onClick={() => void send(question)}
+                        style={tailStyle(index + 1)}
+                        className='rp-answer-tail rp-focus flex items-center gap-2 rounded-[var(--rp-radius-btn)] border border-line bg-surface px-3 py-2 text-left text-[0.8125rem] leading-snug font-medium text-[var(--rp-ink-2)] transition-colors duration-150 hover:bg-[var(--rp-surface-2)] hover:text-[var(--rp-ink)] sm:max-w-[24rem]'
+                      >
+                        <span className='min-w-0'>{question}</span>
+                        <span aria-hidden='true' className='ml-auto shrink-0 text-ink-3'>
+                          &rarr;
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )
+              : null}
+
             {
               /* Auto-scroll anchor. On a phone it has to stop short of the bar
               * the thread runs under, so it carries the measured composer
