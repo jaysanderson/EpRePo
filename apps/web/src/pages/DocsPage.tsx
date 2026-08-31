@@ -309,7 +309,16 @@ function DocsAssistant({ slug }: { slug: string }) {
               : answer.text.length > 0
               ? <Markdown text={answer.text} citation={citationNode(answer.citations)} />
               : answer.pending
-              ? <p className='text-sm text-ink-3'>Thinking…</p>
+              ? (
+                <p className='flex items-center gap-2 text-sm text-ink-3'>
+                  <span className='rp-dots' aria-hidden='true'>
+                    <span />
+                    <span />
+                    <span />
+                  </span>
+                  <span className='sr-only'>Working</span>
+                </p>
+              )
               : null}
 
             {!answer.pending && !answer.refused && answer.quality

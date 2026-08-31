@@ -848,7 +848,16 @@ function AssistantCard({
       {message.text.length > 0
         ? renderMarkdown(message.text, message.citations, message.sources, slug)
         : message.pending
-        ? <p className='text-sm text-ink-3'>Thinking…</p>
+        ? (
+          <p className='flex items-center gap-2 text-sm text-ink-3'>
+            <span className='rp-dots' aria-hidden='true'>
+              <span />
+              <span />
+              <span />
+            </span>
+            <span className='sr-only'>Working</span>
+          </p>
+        )
         : null}
 
       {message.pending && message.text.length > 0

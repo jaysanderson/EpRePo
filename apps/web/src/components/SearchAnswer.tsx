@@ -281,7 +281,7 @@ export function SearchAnswer({ slug, query, onResult }: SearchAnswerProps) {
     : ''
 
   const headerSummary = status === 'streaming'
-    ? (stageLabel ?? 'Thinking…')
+    ? (stageLabel ?? '')
     : status === 'error'
     ? 'Unavailable'
     : refused
@@ -302,7 +302,20 @@ export function SearchAnswer({ slug, query, onResult }: SearchAnswerProps) {
           />
           <p className='rp-eyebrow shrink-0 text-ink-3'>AI answer</p>
           {collapsed
-            ? <p className='truncate text-xs text-ink-3'>&middot; {headerSummary}</p>
+            ? (
+              <p className='flex min-w-0 items-center gap-1.5 truncate text-xs text-ink-3'>
+                &middot; {headerSummary}
+                {status === 'streaming'
+                  ? (
+                    <span className='rp-dots' aria-hidden='true'>
+                      <span />
+                      <span />
+                      <span />
+                    </span>
+                  )
+                  : null}
+              </p>
+            )
             : null}
         </div>
         <button
