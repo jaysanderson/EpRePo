@@ -21,6 +21,26 @@ export interface AnswerStreamProps {
   onSources?: (resources: ScoredResource[]) => void
   /** Optional hook fired when the reader retries a failed answer - the stream itself always retries the same request either way. */
   onRetry?: () => void
+  /**
+   * Opt-in, set only by a page that is already showing the single document
+   * this answer was built from. The answer's meta block - the numbered source
+   * chips, the "n cited" line, the currency note, the usage line, the quality
+   * gauge and the journey through the context - exists to tell a reader which
+   * documents an answer came from and how far to trust the spread of them.
+   * On a page scoped to one document, all of it names the document already on
+   * screen, so it is noise rather than evidence and is suppressed.
+   *
+   * Off by default: a whole-corpus caller keeps the full block.
+   */
+  scopedToResource?: boolean
+  /**
+   * Opt-in, called when the reader activates an inline `[n]` marker. Return
+   * true to say the jump was handled in the page itself (the caller scrolled
+   * its own reader to the passage) and the marker's navigation is suppressed;
+   * return false to let the marker follow its deep link as usual. Absent, the
+   * marker is a plain deep link.
+   */
+  onCitationJump?: (citation: Citation, passage: string | undefined) => boolean
 }
 
 /**
@@ -136,19 +156,46 @@ export function EvidenceDisclosure({
   )
 }
 
-/** Renders `**bold**` spans within a single line/paragraph of streamed text. */
-function renderInline(text: string, keyPrefix: string): ReactNode[] {
-  const parts = text.split(/(\*\*[^*]+\*\*)/g)
-  return parts.map((part, index) => {
-    if (part.startsWith('**') && part.endsWith('**') && part.length > 4) {
-      return <strong key={`${keyPrefix}-${index}`}>{part.slice(2, -2)}</strong>
-    }
-    return <span key={`${keyPrefix}-${index}`}>{part}</span>
+/**
+ * Renders one bound `[n]` marker found in the prose, or null when `n` has no
+ * matching citation - an unbound number is left as the literal text it was.
+ */
+type MarkerRenderer = (label: string, index: number, key: string) => ReactNode | null
+
+/**
+ * Splits a plain run on `[n]` markers and hands each one to `renderMarker`.
+ * A marker the renderer declines (no such citation) stays literal text, so a
+ * number the model invented never becomes a link to nowhere.
+ */
+function renderCitationMarkers(
+  text: string,
+  renderMarker: MarkerRenderer,
+  keyPrefix: string,
+): ReactNode[] {
+  return text.split(/(\[\d+\])/g).map((segment, index) => {
+    const key = `${keyPrefix}-${index}`
+    const match = /^\[(\d+)\]$/.exec(segment)
+    const marker = match?.[1] ? renderMarker(segment, Number(match[1]), key) : null
+    return marker ?? <span key={key}>{segment}</span>
   })
 }
 
-/** Minimal markdown-ish renderer: \n\n paragraphs, **bold**, and "- " lists. */
-function renderAnswerText(text: string): ReactNode[] {
+/** Renders `**bold**` spans, and `[n]` markers, within one line/paragraph. */
+function renderInline(
+  text: string,
+  renderMarker: MarkerRenderer,
+  keyPrefix: string,
+): ReactNode[] {
+  const parts = text.split(/(\*\*[^*]+\*\*)/g)
+  return parts.flatMap((part, index): ReactNode[] =>
+    part.startsWith('**') && part.endsWith('**') && part.length > 4
+      ? [<strong key={`${keyPrefix}-${index}`}>{part.slice(2, -2)}</strong>]
+      : renderCitationMarkers(part, renderMarker, `${keyPrefix}-${index}`)
+  )
+}
+
+/** Minimal markdown-ish renderer: \n\n paragraphs, **bold**, "- " lists, `[n]` markers. */
+function renderAnswerText(text: string, renderMarker: MarkerRenderer): ReactNode[] {
   const blocks = text.split(/\n{2,}/)
   return blocks.map((block, blockIndex) => {
     const lines = block.split('\n').filter((line) => line.trim().length > 0)
@@ -159,7 +206,7 @@ function renderAnswerText(text: string): ReactNode[] {
         <ul key={blockIndex} className='list-disc space-y-1 pl-5'>
           {lines.map((line, lineIndex) => (
             <li key={lineIndex}>
-              {renderInline(line.trim().slice(2), `${blockIndex}-${lineIndex}`)}
+              {renderInline(line.trim().slice(2), renderMarker, `${blockIndex}-${lineIndex}`)}
             </li>
           ))}
         </ul>
@@ -170,7 +217,7 @@ function renderAnswerText(text: string): ReactNode[] {
 
     return (
       <p key={blockIndex} className='leading-relaxed'>
-        {renderInline(block, String(blockIndex))}
+        {renderInline(block, renderMarker, String(blockIndex))}
       </p>
     )
   })
@@ -290,13 +337,21 @@ export function ContextJourney({ slug, sources, query = '', onOpen }: ContextJou
 
 /**
  * Self-contained streamed-answer view: input state machine (idle / streaming
- * / done / error), a tiny inline markdown renderer, numbered source chips
- * that deep-link into the resource view (with a secondary scroll affordance
- * when a matching result is on the page), a "journey through the context"
- * trigger, and a usage line. Reused by SearchPage (whole-corpus asks) and
- * ResourceDetailPage (single-document asks via `resourceId`).
+ * / done / error), a tiny inline markdown renderer with clickable `[n]`
+ * citation markers, numbered source chips that deep-link into the resource
+ * view (with a secondary scroll affordance when a matching result is on the
+ * page), a "journey through the context" trigger, and a usage line.
+ *
+ * `scopedToResource` drops the whole evidence-and-diagnostics block for a
+ * caller whose page is already the one document being answered from, and
+ * `onCitationJump` lets that caller handle a marker click in the page rather
+ * than navigating. Both are off by default, so a whole-corpus caller gets
+ * exactly what it got before.
  */
-export function AnswerStream({ slug, request, onSources, onRetry }: AnswerStreamProps) {
+export function AnswerStream(
+  { slug, request, onSources, onRetry, scopedToResource = false, onCitationJump }:
+    AnswerStreamProps,
+) {
   const [status, setStatus] = useState<Status>('idle')
   const [text, setText] = useState('')
   const [sources, setSources] = useState<ScoredResource[]>([])
@@ -322,7 +377,12 @@ export function AnswerStream({ slug, request, onSources, onRetry }: AnswerStream
 
   const phase = useAnswerPhase(text.length > 0, status === 'streaming' || status === 'done')
 
-  const existingResultIds = useExistingResultIds(citations.map((citation) => citation.resourceId))
+  // Scoped to one document there are no source chips, so nothing needs the
+  // "scroll to this result" affordance - and the hook skips its DOM observer
+  // entirely on an empty list.
+  const existingResultIds = useExistingResultIds(
+    scopedToResource ? [] : citations.map((citation) => citation.resourceId),
+  )
 
   useEffect(() => {
     abortRef.current?.abort()
@@ -370,6 +430,13 @@ export function AnswerStream({ slug, request, onSources, onRetry }: AnswerStream
           })
           break
         case 'done':
+          // The deterministically citation-bound text replaces the streamed
+          // accumulation: the platform strips the model's own inline markers
+          // and splices `[n]` at its citation char-offsets, numbered to match
+          // the citation events just received. Without this the prose carries
+          // the model's unbound numbering, which is what a marker click would
+          // have to trust. SearchAnswer and AssistantPage already do this.
+          if (event.text !== undefined) setText(event.text)
           setStatus('done')
           break
         case 'error':
@@ -419,6 +486,46 @@ export function AnswerStream({ slug, request, onSources, onRetry }: AnswerStream
     el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
   }
 
+  /**
+   * An inline `[n]` in the prose. Rendered as an anchor rather than a button
+   * so it keeps a real href: when the caller cannot handle the jump in the
+   * page (no extracted text to scroll to, say) the same element still takes
+   * the reader to the passage the long way, and middle-click still opens it in
+   * a tab. `onCitationJump` gets first refusal on a plain click; only when it
+   * says it handled the jump is the navigation suppressed. Space is wired to
+   * the anchor as well, since where the jump is handled in-page the marker
+   * behaves as a control and readers try both keys.
+   */
+  const renderMarker: MarkerRenderer = (label, index, key) => {
+    const citation = citations.find((item) => item.index === index)
+    if (!citation) return null
+    const passage = citation.passage ??
+      sources.find((source) => source.id === citation.resourceId)?.matchedPassage
+    return (
+      <sup key={key}>
+        <Link
+          to={citationHref(slug, citation.resourceId, passage)}
+          onClick={(event) => {
+            if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+            if (onCitationJump?.(citation, passage)) event.preventDefault()
+          }}
+          onKeyDown={(event) => {
+            if (event.key !== ' ') return
+            event.preventDefault()
+            event.currentTarget.click()
+          }}
+          aria-label={onCitationJump
+            ? `Source ${index}, ${citation.title} - show the cited passage`
+            : `Source ${index}, ${citation.title}`}
+          className='rp-focus rounded-[var(--rp-radius-chip)] px-0.5 font-semibold no-underline'
+          style={{ color: 'var(--rp-accent-fg)' }}
+        >
+          {label}
+        </Link>
+      </sup>
+    )
+  }
+
   return (
     <div className='rp-card p-5'>
       <div className='flex items-center gap-2'>
@@ -441,7 +548,7 @@ export function AnswerStream({ slug, request, onSources, onRetry }: AnswerStream
             />
           )
           : text.length > 0
-          ? <div className='rp-answer-in'>{renderAnswerText(text)}</div>
+          ? <div className='rp-answer-in'>{renderAnswerText(text, renderMarker)}</div>
           : null}
         {status === 'streaming' && text.length > 0
           ? (
@@ -454,7 +561,7 @@ export function AnswerStream({ slug, request, onSources, onRetry }: AnswerStream
           : null}
       </div>
 
-      {citations.length > 0
+      {citations.length > 0 && !scopedToResource
         ? (
           <>
             <div className='mt-4 flex flex-wrap items-center gap-1.5'>
@@ -521,7 +628,7 @@ export function AnswerStream({ slug, request, onSources, onRetry }: AnswerStream
         )
         : null}
 
-      {usage
+      {usage && !scopedToResource
         ? (
           <p className='mt-3 text-xs text-ink-3'>
             {usage.inputTokens.toLocaleString()} in / {usage.outputTokens.toLocaleString()}{' '}
@@ -530,7 +637,7 @@ export function AnswerStream({ slug, request, onSources, onRetry }: AnswerStream
         )
         : null}
 
-      {quality
+      {quality && !scopedToResource
         ? (
           <div className='mt-2'>
             <TrustSignals quality={quality} />
@@ -538,7 +645,7 @@ export function AnswerStream({ slug, request, onSources, onRetry }: AnswerStream
         )
         : null}
 
-      {status === 'done' && citedSources.length > 0
+      {status === 'done' && citedSources.length > 0 && !scopedToResource
         ? (
           <div className='mt-4 border-t border-line pt-3.5'>
             <ContextJourney slug={slug} sources={citedSources} query={request.query} />

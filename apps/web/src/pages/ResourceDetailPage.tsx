@@ -11,7 +11,12 @@ import {
 import { useQuery } from '@tanstack/react-query'
 import { createPortal } from 'react-dom'
 import { Link, useOutletContext, useParams, useSearchParams } from 'react-router-dom'
-import type { ResourceContent, ResourceSummary, ScoredResource } from '@research-portal/core'
+import type {
+  Citation,
+  ResourceContent,
+  ResourceSummary,
+  ScoredResource,
+} from '@research-portal/core'
 import {
   ApiError,
   getResource,
@@ -751,9 +756,14 @@ function ResourceHeader(
       <div className='flex items-center justify-between gap-3'>
         <BackToLibrary slug={slug} />
         <div className='shrink-0'>
+          {
+            /* Just "Save" with a bookmark glyph. The picker it opens is
+            * titled "Save to investigation", so the destination is stated the
+            * moment it matters, and the button gives its width back to the
+            * title row on a phone. The accessible name keeps the long form. */
+          }
           <SaveEvidenceButton
             slug={slug}
-            label='Save to investigation'
             evidence={{
               passage: resource.summary,
               resourceId: resource.id,
@@ -888,11 +898,17 @@ function ResourceContext({ resource }: { resource: ResourceSummary }) {
  * state rather than a blank box.
  */
 function DocumentChat(
-  { slug, resource, onFocus }: {
+  { slug, resource, onFocus, onCitationJump }: {
     slug: string
     resource: ResourceSummary
     /** Lets the page widen the rail when the reader starts asking. */
     onFocus?: () => void
+    /**
+     * Sends a citation click into the reader beside this panel. Returns
+     * whether the passage was found and scrolled to; false lets the marker
+     * fall through to its ordinary deep link.
+     */
+    onCitationJump?: (citation: Citation, passage: string | undefined) => boolean
   },
 ) {
   const [draft, setDraft] = useState('')
@@ -981,6 +997,8 @@ function DocumentChat(
               slug={slug}
               request={{ query, resourceId: resource.id }}
               onRetry={() => setQuery(query)}
+              scopedToResource
+              onCitationJump={onCitationJump}
             />
           </div>
         )
@@ -1004,8 +1022,21 @@ function DocumentChat(
 
 /** One recommendation card: thumbnail + title + type, linking onward. */
 function RecommendationCard(
-  { slug, resource }: { slug: string; resource: ScoredResource },
+  { slug, resource, topicLabel }: {
+    slug: string
+    resource: ScoredResource
+    topicLabel: (id: string) => string | undefined
+  },
 ) {
+  // The second line used to be `resource.type`, which reads "document" on
+  // every row of this corpus and is in any case already said by the thumbnail,
+  // whose fallback is a per-type glyph. The topic is the one classification
+  // that is both near-universally present (measured: 135 of 136 real rail
+  // rows) and actually different between rows (47% of rows carry a topic other
+  // than the one being read), so it is what a reader can choose on. Absent, the
+  // line is simply not rendered - no empty chip, no reserved gap.
+  const topic = resource.topicIds.map(topicLabel).find(Boolean)
+
   return (
     <li>
       <Link
@@ -1019,9 +1050,13 @@ function RecommendationCard(
           <p className='rp-clamp-2 text-sm font-medium leading-snug text-ink-2 transition-colors duration-150 group-hover:text-ink'>
             {resource.title}
           </p>
-          <span className='mt-1 inline-block text-[11px] text-ink-3'>
-            {resource.type}
-          </span>
+          {topic
+            ? (
+              <span className='rp-badge rp-badge-quiet mt-1.5 max-w-full'>
+                <span className='truncate'>{topic}</span>
+              </span>
+            )
+            : null}
         </div>
       </Link>
     </li>
@@ -1035,7 +1070,11 @@ function RecommendationCard(
  * resource-to-resource browsing.
  */
 function RecommendationsRail(
-  { slug, resource }: { slug: string; resource: ResourceSummary },
+  { slug, resource, topicLabel }: {
+    slug: string
+    resource: ResourceSummary
+    topicLabel: (id: string) => string | undefined
+  },
 ) {
   const relatedQuery = buildRelatedQuery(resource.title, resource.summary)
   const query = useQuery({
@@ -1077,7 +1116,14 @@ function RecommendationsRail(
         ? <p className='mt-3 text-sm text-ink-3'>No related resources found yet.</p>
         : (
           <ul className='mt-2 space-y-1'>
-            {recommendations.map((r) => <RecommendationCard key={r.id} slug={slug} resource={r} />)}
+            {recommendations.map((r) => (
+              <RecommendationCard
+                key={r.id}
+                slug={slug}
+                resource={r}
+                topicLabel={topicLabel}
+              />
+            ))}
           </ul>
         )}
     </div>
@@ -1244,14 +1290,49 @@ export function ResourceDetailPage() {
       .map(({ index }) => index)
   }, [blockTexts, matchTerms])
 
-  function jumpToBlock(index: number) {
-    document.getElementById(`doc-block-${index}`)?.scrollIntoView({
-      behavior: 'smooth',
-      block: 'center',
-    })
+  /**
+   * Scrolls the reader to one parsed block and flashes it. Returns false when
+   * the block is not on the page at all - the reader may be a transcript, an
+   * image, or a PDF with no extracted text - so a caller can fall back rather
+   * than believing a jump happened.
+   *
+   * For a PDF the reader lives inside a collapsed `Extracted text` disclosure,
+   * and scrolling into a closed `<details>` does nothing, so the ancestor is
+   * opened first. Focus moves to the block as well: without it a keyboard or
+   * screen-reader user is left on the control they activated with no signal
+   * that anything moved.
+   */
+  function jumpToBlock(index: number): boolean {
+    const el = document.getElementById(`doc-block-${index}`)
+    if (!el) return false
+
+    const disclosure = el.closest('details')
+    if (disclosure && !disclosure.open) disclosure.open = true
+
+    el.setAttribute('tabindex', '-1')
+    el.focus({ preventScroll: true })
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+
     if (flashTimeout.current) globalThis.clearTimeout(flashTimeout.current)
     setFlashIndex(index)
     flashTimeout.current = globalThis.setTimeout(() => setFlashIndex(null), 1500)
+    return true
+  }
+
+  /**
+   * Locates a cited passage in the parsed blocks and jumps to it. Uses the
+   * same 40-character normalised needle as the `?passage=` highlight, so a
+   * citation click and a passage deep link agree on the target by
+   * construction. A passage the extraction does not contain - the retrieved
+   * text and the extracted text are two different readings of the file, and
+   * they do drift - finds nothing and returns false, which sends the reader
+   * down the ordinary deep link instead of to a confidently wrong block.
+   */
+  function jumpToPassage(passage: string | undefined): boolean {
+    const needle = passageNeedle(passage ?? null)
+    if (!needle) return false
+    const index = blockTexts.findIndex((text) => normalise(text).includes(needle))
+    return index >= 0 && jumpToBlock(index)
   }
 
   function handleContentMouseUp() {
@@ -1376,9 +1457,18 @@ export function ResourceDetailPage() {
                     blockTexts={blockTexts}
                     onJump={jumpToBlock}
                   />
-                  <DocumentChat slug={config.slug} resource={resource} onFocus={revealRail} />
+                  <DocumentChat
+                    slug={config.slug}
+                    resource={resource}
+                    onFocus={revealRail}
+                    onCitationJump={(_citation, passage) => jumpToPassage(passage)}
+                  />
                   <ResourceContext resource={resource} />
-                  <RecommendationsRail slug={config.slug} resource={resource} />
+                  <RecommendationsRail
+                    slug={config.slug}
+                    resource={resource}
+                    topicLabel={topicLabel}
+                  />
                 </aside>
               </div>
             </>
