@@ -33,7 +33,11 @@ export interface SearchAnswerResult {
 
 export interface SearchAnswerProps {
   slug: string
-  /** The submitted (not draft) search query - a stream starts only when this changes. */
+  /**
+   * The submitted (not draft) search query - a stream starts only when this
+   * changes, and never at all while it is empty, so an unsearched page costs
+   * nothing.
+   */
   query: string
   /**
    * Fires whenever the streamed answer's citations or sources change -
@@ -145,11 +149,14 @@ function AnswerSkeleton() {
 }
 
 /**
- * The AI Answer panel restored to the search results page: a streamed,
- * cited answer for the same query the results below are for. Collapsible,
- * honest about refusal (the portal's "no direct evidence" pattern rather
- * than a fake answer), surfaces rate-limiting plainly, and always offers a
- * path to continue the same question in the full Assistant.
+ * The AI Answer panel on the search results page: a streamed, cited answer for
+ * the same query the results below are for. This is the DEFAULT state of a
+ * search that has a query - the page mounts it without being asked, and only an
+ * explicit "Results only" opt-out (`?answer=0`) unmounts it. An empty query
+ * still streams nothing, so the unsearched page spends no LLM call. Collapsible,
+ * honest about refusal (the portal's "no direct evidence" pattern rather than a
+ * fake answer), surfaces rate-limiting plainly, and always offers a path to
+ * continue the same question in the full Assistant.
  *
  * Deliberately its own small stream state machine rather than reusing
  * `AnswerStream` - this panel needs to apply the deterministically

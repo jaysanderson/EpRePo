@@ -86,7 +86,8 @@ function resourceLink(slug: string, resource: ScoredResource): string {
 
 /**
  * One result. The matched passage is the point of the card - it is the citation
- * in context, which is why this view needs no synthesised answer above it.
+ * in context, which is what keeps this list readable on its own when someone
+ * switches the AI answer off.
  */
 function ResultCard(
   { resource, slug, query, kindLabel, citedIndex }: {
@@ -448,48 +449,6 @@ function WatchStrip(
   )
 }
 
-/**
- * Find mode's answer-on-demand invitation. It sits where the AI answer would
- * be, so switching Find -> Ask swaps the same region: results are already on
- * screen, this is the deliberate step up to a synthesised, cited answer over
- * them. No LLM call fires until the user chooses it.
- */
-function AskStepUp({ onAsk }: { onAsk: () => void }) {
-  return (
-    <section
-      className='rp-card flex flex-wrap items-center justify-between gap-3 p-4 sm:p-5'
-      aria-label='Ask for an AI answer'
-    >
-      <div className='flex min-w-0 items-start gap-3'>
-        <span
-          className='mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full'
-          style={{ backgroundColor: 'color-mix(in srgb, var(--rp-accent) 14%, transparent)' }}
-          aria-hidden='true'
-        >
-          <span
-            className='h-2 w-2 rounded-full'
-            style={{ backgroundColor: 'var(--rp-accent)' }}
-          />
-        </span>
-        <div className='min-w-0'>
-          <p className='text-sm font-semibold text-ink'>Want a synthesised answer?</p>
-          <p className='mt-0.5 text-sm leading-relaxed text-ink-2'>
-            Ask reads the top results and writes a short, cited answer to your search. Plain search
-            stays instant and answer-free.
-          </p>
-        </div>
-      </div>
-      <button
-        type='button'
-        onClick={onAsk}
-        className='rp-btn rp-btn-primary shrink-0 font-semibold'
-      >
-        Ask AI
-      </button>
-    </section>
-  )
-}
-
 export function SearchPage() {
   const { config } = useOutletContext<TenantOutletContext>()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -507,8 +466,10 @@ export function SearchPage() {
     return raw ? raw.split(',').filter((id) => id.length > 0) : []
   }, [searchParams])
   const strength: MatchStrength = searchParams.get('strength') === 'strong' ? 'strong' : 'all'
-  // FIND (results only) vs ASK (results + streamed cited answer). Held in the
-  // URL so both are shareable and reload to the same state; Find is the default.
+  // ANSWERED (results + streamed cited answer) vs RESULTS ONLY. Held in the URL
+  // so both are shareable and reload to the same state. Answered is the default -
+  // a search with a query gets its cited answer with no extra click - and
+  // `answer=0` is the explicit, shareable opt-out.
   const answerMode = readAnswerMode(searchParams)
 
   const [draft, setDraft] = useState(q)
@@ -607,9 +568,9 @@ export function SearchPage() {
     setResultView('resources')
   }, [q])
 
-  // Find mode has no answer: SearchAnswer is unmounted, so clear any citations
-  // it left behind (they would otherwise linger as "Cited" badges) and drop the
-  // Citations view, which only makes sense alongside an answer.
+  // Results-only mode has no answer: SearchAnswer is unmounted, so clear any
+  // citations it left behind (they would otherwise linger as "Cited" badges) and
+  // drop the Citations view, which only makes sense alongside an answer.
   useEffect(() => {
     if (!answerMode) {
       setAnswer({ citations: [], sources: [] })
@@ -669,25 +630,28 @@ export function SearchPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedTopics, selectedKinds, strength, config.topics, config.branding.organisation])
 
-  // Submit the current draft. `answer` picks the intent: false for a plain
-  // Find (no LLM call), true for Ask (results + streamed cited answer).
-  function runSearch(text: string, answer: boolean) {
+  // Submit the current draft. `withAnswer` picks the intent: true for the
+  // default answered search (results + streamed cited answer), false for the
+  // results-only opt-out, which fires no LLM call.
+  function runSearch(text: string, withAnswer: boolean) {
     const trimmed = text.trim()
     if (trimmed.length === 0) return
     typeahead.close()
     setDraft(trimmed)
-    updateParams({ q: trimmed, answer: answerModeParam(answer) })
+    updateParams({ q: trimmed, answer: answerModeParam(withAnswer) })
   }
 
-  // Enter and the primary button both run Find - the fast, cheap default;
-  // Ask is always a deliberate, separate action.
+  // Enter and the primary button run the search in whatever answer state the
+  // page is already in - answered by default, results-only once the user has
+  // opted out - so refining a query never flips the mode under them.
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    runSearch(draft, false)
+    runSearch(draft, answerMode)
   }
 
   // Suggested and "people also ask" chips are phrased as questions, so their
-  // payoff is the synthesised answer - they run Ask.
+  // payoff is the synthesised answer - they always run answered, which is also
+  // a way back for someone who had switched to results only.
   function askQuestion(text: string) {
     runSearch(text, true)
   }
@@ -781,17 +745,25 @@ export function SearchPage() {
               <button type='submit' className='rp-btn rp-btn-primary font-semibold'>
                 Search
               </button>
+              {
+                /* The opt-out, not an opt-in: every search is answered unless
+                * this is pressed, and pressing it again brings the answer back.
+                * Falls back to the submitted query so the control still works
+                * on the results already on screen after the box is cleared. */
+              }
               <button
                 type='button'
-                onClick={() => runSearch(draft, true)}
-                aria-pressed={answerMode}
-                title='Search and generate a cited AI answer for this query'
+                onClick={() => runSearch(draft.trim() || q, !answerMode)}
+                aria-pressed={!answerMode}
+                title={answerMode
+                  ? 'Hide the AI answer and show only the matching resources'
+                  : 'Show a cited AI answer above the results again'}
                 className='rp-btn rp-btn-outline font-semibold'
-                style={answerMode
+                style={!answerMode
                   ? { borderColor: 'var(--rp-accent)', color: 'var(--rp-accent)' }
                   : undefined}
               >
-                Ask AI
+                Results only
               </button>
             </div>
           </div>
@@ -1034,15 +1006,6 @@ export function SearchPage() {
               <p className='-mt-2 mb-4 text-xs text-ink-3'>
                 Watched searches are re-checked daily - a dot appears here when results change.
               </p>
-            )
-            : null}
-
-          {hasQuery && !answerMode && !isLoading && !isError && results &&
-              filteredResults.length > 0
-            ? (
-              <div className='mb-4'>
-                <AskStepUp onAsk={() => updateParams({ answer: '1' })} />
-              </div>
             )
             : null}
 

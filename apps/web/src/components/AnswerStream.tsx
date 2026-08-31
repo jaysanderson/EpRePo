@@ -36,6 +36,105 @@ export function citationHref(
   return `/t/${slug}/library/${resourceId}${query}`
 }
 
+/**
+ * The disclosure chevron: points right when closed, down when open. The
+ * rotation is decoration, so it stops entirely under `prefers-reduced-motion`.
+ */
+function DisclosureChevron({ open }: { open: boolean }) {
+  return (
+    <svg
+      viewBox='0 0 20 20'
+      fill='none'
+      stroke='currentColor'
+      strokeWidth='1.7'
+      strokeLinecap='round'
+      strokeLinejoin='round'
+      aria-hidden='true'
+      className={`h-3 w-3 shrink-0 transition-transform duration-150 motion-reduce:transition-none ${
+        open ? 'rotate-90' : ''
+      }`}
+    >
+      <path d='M7 4l6 6-6 6' />
+    </svg>
+  )
+}
+
+export interface EvidenceDisclosureProps {
+  /** DOM id of the region this control shows and hides - the `aria-controls` target. */
+  regionId: string
+  open: boolean
+  onToggle: () => void
+  /**
+   * The noun phrase for what is inside, in sentence case and lower case -
+   * e.g. `'sources and evidence'`. Rendered as "Show ..." / "Hide ...".
+   */
+  label: string
+  /**
+   * The compact, act-on-it line - e.g. "7 sources · 3 cited · 1980-2010". Shown
+   * in both states so a collapsed panel still says what it holds and whether it
+   * is worth opening.
+   */
+  summary?: string
+  /** Renders the control inside an `<h3>` so it keeps its place in the heading order. */
+  heading?: boolean
+  children: ReactNode
+}
+
+/**
+ * The house progressive-disclosure control for the bulky end of an answer -
+ * the retrieved passages, the pipeline detail, anything that would otherwise
+ * bury the prose it is meant to support.
+ *
+ * A real `<button>` carrying `aria-expanded` + `aria-controls`, keyboard
+ * reachable with a visible focus ring (`rp-focus`), and a chevron whose motion
+ * stops under `prefers-reduced-motion`. The controlled region is always in the
+ * DOM (hidden while closed) so `aria-controls` always resolves, while its
+ * children mount only while open - a closed panel costs nothing to render.
+ *
+ * Nothing is lost by collapsing: the summary line carries the shape of what is
+ * inside, and one click restores every row in full.
+ */
+export function EvidenceDisclosure({
+  regionId,
+  open,
+  onToggle,
+  label,
+  summary,
+  heading = false,
+  children,
+}: EvidenceDisclosureProps) {
+  const control = (
+    <button
+      type='button'
+      onClick={onToggle}
+      aria-expanded={open}
+      aria-controls={regionId}
+      className='rp-focus flex w-full flex-wrap items-center gap-x-2 gap-y-1 rounded-none py-1.5 text-left text-xs font-semibold text-ink-2 transition-colors duration-150 hover:text-ink motion-reduce:transition-none sm:py-1'
+    >
+      <span className='flex min-w-0 items-center gap-1.5'>
+        <DisclosureChevron open={open} />
+        <span className='min-w-0'>{open ? 'Hide' : 'Show'} {label}</span>
+      </span>
+      {summary
+        ? (
+          <span className='rounded-none bg-surface-2 px-1.5 py-0.5 text-[10px] font-normal tabular-nums text-ink-3'>
+            {summary}
+          </span>
+        )
+        : null}
+    </button>
+  )
+
+  return (
+    <div>
+      {heading ? <h3 className='m-0'>{control}</h3> : control}
+      <div id={regionId} hidden={!open} className='mt-3'>
+        {open ? children : null}
+      </div>
+    </div>
+  )
+}
+
 /** Renders `**bold**` spans within a single line/paragraph of streamed text. */
 function renderInline(text: string, keyPrefix: string): ReactNode[] {
   const parts = text.split(/(\*\*[^*]+\*\*)/g)

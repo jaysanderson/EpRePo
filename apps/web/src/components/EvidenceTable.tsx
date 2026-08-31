@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { type EvidenceVerdict } from '../api/client.ts'
-import { citationHref } from './AnswerStream.tsx'
+import { assessCurrency } from '../lib/currency.ts'
+import { citationHref, EvidenceDisclosure } from './AnswerStream.tsx'
 import { SaveEvidenceButton } from './SaveEvidence.tsx'
 
 // ---------------------------------------------------------------------------
@@ -25,6 +26,13 @@ import { SaveEvidenceButton } from './SaveEvidence.tsx'
 // the context". This table is display-only - it shows verdicts the caller has
 // already obtained (`verdicts`), a shimmer while a judgement is in flight
 // (`judging`), and nothing at all in the verdict slot until one exists.
+//
+// PROGRESSIVE DISCLOSURE. Raw retrieved chunks are the bulkiest thing on the
+// page and they were burying the prose they exist to support, so the table
+// collapses by default behind a summary the reader can act on ("7 sources ·
+// 3 cited · 1980-2010") and opens on their say-so. Even open, each passage is
+// clamped to three lines with its own "Show more"; nothing is deleted, only
+// deferred, and every row is one click away.
 // ---------------------------------------------------------------------------
 
 export interface EvidenceSource {
@@ -38,6 +46,13 @@ export interface EvidenceSource {
   matchedPage?: number
   /** True when the matched passage looks like a reference list or front matter. */
   referenceChunk?: boolean
+  /** ISO publication date, when known - read only to date the collapsed summary's year span. */
+  published?: string
+  /**
+   * The raw source name / project code (e.g. "1975-022-DLD.pdf"). Read only as
+   * the fallback year for the collapsed summary, the way `CurrencyNote` does.
+   */
+  sourceName?: string
 }
 
 export interface EvidenceVerdictInfo {
@@ -74,6 +89,36 @@ function verdictLabel(verdict: string): string {
   return VERDICT_LABEL[verdict] ?? verdict
 }
 
+/**
+ * The one-line, act-on-it summary of a collapsed evidence block - what the
+ * reader needs to decide whether to open it, and nothing more:
+ * "7 sources · 3 cited · 1980-2010".
+ *
+ * The year span comes from `assessCurrency`, so it uses the same
+ * published -> project code -> title fallback as the recency line and simply
+ * omits the span when no source carries a usable year rather than guessing.
+ * Pure, so both the outer panel and the table header can render the same words.
+ */
+export function evidenceSummary(
+  sources: readonly EvidenceSource[],
+  citedCount?: number,
+): string {
+  const parts: string[] = []
+  if (sources.length > 0) {
+    parts.push(`${sources.length} ${sources.length === 1 ? 'source' : 'sources'}`)
+    if (citedCount !== undefined && citedCount > 0) parts.push(`${citedCount} cited`)
+  } else if (citedCount !== undefined && citedCount > 0) {
+    parts.push(`${citedCount} cited ${citedCount === 1 ? 'source' : 'sources'}`)
+  }
+
+  const { span } = assessCurrency(sources)
+  if (span) {
+    parts.push(span.earliest === span.latest ? `${span.latest}` : `${span.earliest}-${span.latest}`)
+  }
+
+  return parts.join(' · ')
+}
+
 /** Appends `?page=<n>` (or `&page=<n>` alongside an existing `?passage=`) so the reader lands on the matched page. */
 function withPage(href: string, page: number | undefined): string {
   if (page === undefined) return href
@@ -106,12 +151,34 @@ function EvidenceRow({
   anchorId?: string
 }) {
   const [expanded, setExpanded] = useState(false)
+  // Whether the three-line clamp is actually hiding anything. Measured rather
+  // than guessed from a character count: the same passage clamps on a 390px
+  // phone and doesn't on a 27-inch monitor, and a length threshold would either
+  // hide text with no way to reach it or offer a "Show more" that does nothing.
+  const [isClamped, setIsClamped] = useState(false)
+  const passageRef = useRef<HTMLParagraphElement | null>(null)
+  const rowId = useId()
+  const passageId = `${rowId}-passage`
   const passage = source.passage?.trim() || undefined
   const scorePct = typeof source.score === 'number' ? Math.round(source.score * 100) : null
   const isWeak = scorePct !== null && scorePct < 35
   const isCited = citationIndices.length > 0
   const href = withPage(citationHref(slug, source.id, passage), source.matchedPage)
   const showUnusedFlag = citationsKnown && !isCited && verdict?.verdict === 'supports'
+
+  useEffect(() => {
+    // Only the clamped state can be measured; while expanded there is nothing
+    // overflowing, so the flag simply holds its last value and keeps the
+    // "Show less" control on screen.
+    const element = passageRef.current
+    if (!element || expanded) return
+    const measure = () => setIsClamped(element.scrollHeight > element.clientHeight + 1)
+    measure()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(measure)
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [expanded, passage])
 
   return (
     <div
@@ -181,22 +248,31 @@ function EvidenceRow({
 
       {passage
         ? (
-          <p
-            className={`mt-1.5 text-xs leading-relaxed text-ink-2 ${expanded ? '' : 'rp-clamp-2'}`}
-          >
-            {passage}
-          </p>
-        )
-        : null}
-      {passage && passage.length > 140
-        ? (
-          <button
-            type='button'
-            onClick={() => setExpanded((prev) => !prev)}
-            className='mt-1 text-xs font-medium text-[var(--rp-accent)]'
-          >
-            {expanded ? 'Show less' : 'Show more'}
-          </button>
+          <div className='mt-1.5'>
+            <p
+              id={passageId}
+              ref={passageRef}
+              className={`text-xs leading-relaxed text-ink-2 ${expanded ? '' : 'rp-clamp-3'}`}
+            >
+              {passage}
+            </p>
+            {isClamped
+              ? (
+                <button
+                  type='button'
+                  onClick={() => setExpanded((prev) => !prev)}
+                  aria-expanded={expanded}
+                  aria-controls={passageId}
+                  aria-label={expanded
+                    ? `Show less of the passage from ${source.title}`
+                    : `Show more of the passage from ${source.title}`}
+                  className='rp-focus mt-1 rounded-none text-xs font-medium text-[var(--rp-accent)] hover:underline'
+                >
+                  {expanded ? 'Show less' : 'Show more'}
+                </button>
+              )
+              : null}
+          </div>
         )
         : null}
 
@@ -242,12 +318,27 @@ export interface EvidenceTableProps {
   verdicts?: Record<string, EvidenceVerdictInfo>
   /** True while a judgement pass is in flight - rows show a shimmer in the verdict slot. */
   judging?: boolean
-  /** Header label - defaults to "Evidence", overridable for e.g. "Closest passages found". */
+  /**
+   * The disclosure's noun phrase, in lower case - defaults to `'evidence'`
+   * ("Show evidence"), overridable for e.g. `'closest passages found'`.
+   */
   title?: string
   /** The answer's inline `[n]` citations - when supplied, cited sources render first with a matching badge. */
   citations?: EvidenceCitation[]
   /** Prefix for each row's DOM id (`${anchorPrefix}-src-${resourceId}`), so a page can scroll to a row. */
   anchorPrefix?: string
+  /**
+   * Whether the table brings its own disclosure. On by default (collapsed):
+   * the raw passages are the bulkiest thing on the page, so the reader opens
+   * them deliberately.
+   *
+   * Pass `false` where the table already sits inside a panel the reader has
+   * just opened - a second, near-identical control there would only make them
+   * click twice for the same evidence and repeat the same summary line. The
+   * rows then render under a plain section heading, and the enclosing panel
+   * owns the collapse.
+   */
+  collapsible?: boolean
 }
 
 /**
@@ -258,6 +349,9 @@ export interface EvidenceTableProps {
  * produced only when the reader opens "Journey through the context"; this
  * table just displays whatever `verdicts` the caller has obtained, a shimmer
  * per row while `judging`, and nothing in the verdict slot until then.
+ *
+ * Collapsed by default behind a summary the reader can act on ("7 sources ·
+ * 3 cited · 1980-2010") so the raw passages never bury the answer above them.
  */
 export function EvidenceTable({
   slug,
@@ -265,10 +359,13 @@ export function EvidenceTable({
   sources,
   verdicts,
   judging = false,
-  title = 'Evidence',
+  title = 'evidence',
   citations,
   anchorPrefix,
+  collapsible = true,
 }: EvidenceTableProps) {
+  const reactId = useId()
+  const [open, setOpen] = useState(false)
   const knownVerdicts = verdicts ?? {}
   const verdictsKnown = Object.keys(knownVerdicts).length > 0
 
@@ -315,38 +412,63 @@ export function EvidenceTable({
     )
   }
 
-  return (
-    <div>
-      <div className='flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1'>
-        <h3 className='text-xs font-semibold uppercase tracking-wide text-ink-3'>
-          {title}: {sources.length}
-        </h3>
-        {verdictsKnown || judging
-          ? (
-            <p className='text-[11px] text-ink-3'>
-              AI verdicts are advisory - open a source to judge for yourself.
-            </p>
-          )
-          : null}
-      </div>
-      <div className='mt-2 space-y-2'>
-        {citedSources.map(renderRow)}
+  const advisoryNote = verdictsKnown || judging
+    ? (
+      <p className='text-[11px] text-ink-3'>
+        AI verdicts are advisory - open a source to judge for yourself.
+      </p>
+    )
+    : null
 
-        {uncitedSources.length > 0
-          ? (
-            <>
-              <div className='flex items-center gap-2 pt-1' role='separator'>
-                <span className='h-px flex-1' style={{ backgroundColor: 'var(--rp-line)' }} />
-                <span className='shrink-0 text-[11px] font-medium uppercase tracking-wide text-ink-3'>
-                  Also retrieved (not used in the answer)
-                </span>
-                <span className='h-px flex-1' style={{ backgroundColor: 'var(--rp-line)' }} />
-              </div>
-              {uncitedSources.map(renderRow)}
-            </>
-          )
-          : null}
-      </div>
+  const rows = (
+    <div className='space-y-2'>
+      {citedSources.map(renderRow)}
+
+      {uncitedSources.length > 0
+        ? (
+          <>
+            <div className='flex items-center gap-2 pt-1' role='separator'>
+              <span className='h-px flex-1' style={{ backgroundColor: 'var(--rp-line)' }} />
+              <span className='shrink-0 text-[11px] font-medium uppercase tracking-wide text-ink-3'>
+                Also retrieved (not used in the answer)
+              </span>
+              <span className='h-px flex-1' style={{ backgroundColor: 'var(--rp-line)' }} />
+            </div>
+            {uncitedSources.map(renderRow)}
+          </>
+        )
+        : null}
     </div>
+  )
+
+  // Inside a panel the reader has already opened, the enclosing disclosure owns
+  // the collapse - so the table is a plain titled section rather than a second
+  // control repeating the same words one line below the first.
+  if (!collapsible) {
+    return (
+      <div>
+        <div className='flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1'>
+          <h3 className='text-xs font-semibold uppercase tracking-wide text-ink-3'>
+            {title}: {sources.length}
+          </h3>
+          {advisoryNote}
+        </div>
+        <div className='mt-2'>{rows}</div>
+      </div>
+    )
+  }
+
+  return (
+    <EvidenceDisclosure
+      regionId={`${anchorPrefix ?? reactId}-evidence-rows`}
+      open={open}
+      onToggle={() => setOpen((prev) => !prev)}
+      label={title}
+      summary={evidenceSummary(sources, citationsKnown ? citedSources.length : undefined)}
+      heading
+    >
+      {advisoryNote ? <div className='mb-2'>{advisoryNote}</div> : null}
+      {rows}
+    </EvidenceDisclosure>
   )
 }

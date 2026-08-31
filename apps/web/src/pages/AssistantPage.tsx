@@ -21,10 +21,11 @@ import {
   sendAnswerFeedback,
   streamAsk,
 } from '../api/client.ts'
-import { citationHref, ContextJourney } from '../components/AnswerStream.tsx'
+import { citationHref, ContextJourney, EvidenceDisclosure } from '../components/AnswerStream.tsx'
 import { CurrencyNote } from '../components/CurrencyNote.tsx'
 import {
   type EvidenceSource,
+  evidenceSummary,
   EvidenceTable,
   type EvidenceVerdictInfo,
 } from '../components/EvidenceTable.tsx'
@@ -677,8 +678,10 @@ function AssistantCard({
   onVerdicts: (verdicts: Record<string, EvidenceVerdictInfo>) => void
 }) {
   const [showPipeline, setShowPipeline] = useState(false)
-  // The sources/evidence block is collapsed by default: the reader chooses to
-  // open it, rather than every answer unfurling a wall of evidence on arrival.
+  // The sources/evidence block is collapsed by default and this state is
+  // per-message (it lives in the card, not the page), so opening one answer's
+  // evidence never opens another's. The reader chooses to open it, rather than
+  // every answer unfurling a wall of raw passages on arrival.
   const [showEvidence, setShowEvidence] = useState(false)
   // Per-source AI relevance judgement is token-costing, so it does NOT run on
   // every answer. It runs once, lazily, when the reader opens "Journey through
@@ -751,7 +754,18 @@ function AssistantCard({
     score: source.relevance,
     matchedPage: source.matchedPage,
     referenceChunk: source.referenceChunk,
+    published: source.published,
+    sourceName: source.sourceName,
   }))
+
+  // What the collapsed evidence panel says about itself: enough to decide
+  // whether to open it ("7 sources · 3 cited · 1980-2010") without unfurling a
+  // wall of raw passages under every answer.
+  const citedSourceCount = message.sources.length > 0
+    ? message.sources.filter((source) =>
+      message.citations.some((citation) => citation.resourceId === source.id)
+    ).length
+    : message.citations.length
 
   // A refusal gets its own structured "no evidence" state instead of the
   // normal answer body - the guidance sentence the platform generated, what
@@ -783,7 +797,8 @@ function AssistantCard({
                 slug={slug}
                 question={question}
                 sources={evidenceSources}
-                title='Closest passages found'
+                title='the closest passages found'
+                anchorPrefix={message.id}
               />
             </div>
           )
@@ -952,147 +967,131 @@ function AssistantCard({
 
       {
         /* Sources and evidence - collapsed by default, opened on the reader's
-          choice. Grouped into clear sections (sources, the evidence table,
-          then the journey/pipeline tools) so the opened panel stays navigable. */
+          choice. Collapsed it still states its case ("7 sources · 3 cited ·
+          1980-2010") so the reader can decide without unfurling a wall of raw
+          passages under every answer; the prose and its inline [n] markers stay
+          fully visible either way. Opened, it is grouped into clear sections
+          (sources, the evidence table, then the journey/pipeline tools) so the
+          panel stays navigable - and the evidence table opens with it rather
+          than asking for a second click on the same evidence. */
       }
       {!message.pending && (message.sources.length > 0 || message.citations.length > 0)
         ? (
           <div className='mt-4 border-t border-line pt-3'>
-            <button
-              type='button'
-              onClick={() => setShowEvidence((prev) => !prev)}
-              aria-expanded={showEvidence}
-              aria-controls={`${message.id}-evidence`}
-              className='flex items-center gap-1.5 text-xs font-semibold text-ink-2 hover:text-ink'
+            <EvidenceDisclosure
+              regionId={`${message.id}-evidence`}
+              open={showEvidence}
+              onToggle={() => setShowEvidence((prev) => !prev)}
+              label='sources and evidence'
+              summary={evidenceSummary(evidenceSources, citedSourceCount)}
             >
-              <svg
-                viewBox='0 0 20 20'
-                fill='none'
-                stroke='currentColor'
-                strokeWidth='1.7'
-                strokeLinecap='round'
-                strokeLinejoin='round'
-                aria-hidden='true'
-                className={`h-3 w-3 shrink-0 transition-transform duration-150 ${
-                  showEvidence ? 'rotate-90' : ''
-                }`}
-              >
-                <path d='M7 4l6 6-6 6' />
-              </svg>
-              {showEvidence ? 'Hide sources and evidence' : 'Show sources and evidence'}
-              <span className='rounded-none bg-surface-2 px-1.5 py-0.5 text-[10px] tabular-nums text-ink-3'>
-                {message.sources.length || message.citations.length}
-              </span>
-            </button>
-
-            {showEvidence
-              ? (
-                <div id={`${message.id}-evidence`} className='mt-3 space-y-5'>
-                  {message.citations.length > 0
-                    ? (
-                      <div>
-                        <p className='text-xs font-semibold uppercase tracking-wide text-ink-3'>
-                          Sources: {message.citations.length}
-                        </p>
-                        <div className='mt-2 flex flex-wrap gap-1.5'>
-                          {message.citations.map((citation) => {
-                            const matchedPassage = message.sources.find((source) =>
-                              source.id === citation.resourceId
-                            )?.matchedPassage
-                            return (
-                              <Link
-                                key={citation.index}
-                                to={citationHref(slug, citation.resourceId, matchedPassage)}
-                                title={citation.title}
-                                className='rp-chip'
-                              >
-                                <span
-                                  className='inline-flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-semibold text-white'
-                                  style={{ backgroundColor: 'var(--rp-accent)' }}
-                                >
-                                  {citation.index}
-                                </span>
-                                <span className='rp-clamp-2 max-w-[10rem]'>{citation.title}</span>
-                              </Link>
-                            )
-                          })}
-                        </div>
-                        <CurrencyNote
-                          className='mt-3'
-                          sources={message.sources.filter((source) =>
-                            message.citations.some((citation) => citation.resourceId === source.id)
-                          )}
-                        />
-                      </div>
-                    )
-                    : null}
-
-                  {evidenceSources.length > 0
-                    ? (
-                      <EvidenceTable
-                        slug={slug}
-                        question={question}
-                        sources={evidenceSources}
-                        verdicts={message.verdicts}
-                        judging={judging}
-                        citations={message.citations}
-                        anchorPrefix={message.id}
-                      />
-                    )
-                    : null}
-
-                  {message.sources.length > 0 || message.usage
-                    ? (
-                      <div className='flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-line pt-3'>
-                        {message.sources.length > 0
-                          ? (
-                            <ContextJourney
-                              slug={slug}
-                              sources={message.sources}
-                              query={question}
-                              onOpen={requestVerdicts}
-                            />
-                          )
-                          : null}
-                        {message.sources.length > 0 || message.usage || message.quality
-                          ? (
-                            <button
-                              type='button'
-                              onClick={() =>
-                                setShowPipeline((prev) => !prev)}
-                              aria-expanded={showPipeline}
-                              className='flex items-center gap-1.5 text-xs font-medium text-ink-3 hover:text-ink'
+              <div className='space-y-5'>
+                {message.citations.length > 0
+                  ? (
+                    <div>
+                      <p className='text-xs font-semibold uppercase tracking-wide text-ink-3'>
+                        Sources: {message.citations.length}
+                      </p>
+                      <div className='mt-2 flex flex-wrap gap-1.5'>
+                        {message.citations.map((citation) => {
+                          const matchedPassage = message.sources.find((source) =>
+                            source.id === citation.resourceId
+                          )?.matchedPassage
+                          return (
+                            <Link
+                              key={citation.index}
+                              to={citationHref(slug, citation.resourceId, matchedPassage)}
+                              title={citation.title}
+                              className='rp-chip'
                             >
-                              <svg
-                                viewBox='0 0 20 20'
-                                fill='none'
-                                stroke='currentColor'
-                                strokeWidth='1.7'
-                                strokeLinecap='round'
-                                strokeLinejoin='round'
-                                aria-hidden='true'
-                                className={`h-3 w-3 shrink-0 transition-transform duration-150 ${
-                                  showPipeline ? 'rotate-90' : ''
-                                }`}
+                              <span
+                                className='inline-flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-semibold text-white'
+                                style={{ backgroundColor: 'var(--rp-accent)' }}
                               >
-                                <path d='M7 4l6 6-6 6' />
-                              </svg>
-                              {showPipeline ? 'Hide the pipeline' : 'Show the pipeline'}
-                            </button>
+                                {citation.index}
+                              </span>
+                              <span className='rp-clamp-2 max-w-[10rem]'>{citation.title}</span>
+                            </Link>
                           )
-                          : null}
-                        {message.usage
-                          ? (
-                            <p className='text-xs text-ink-3'>
-                              {message.usage.inputTokens} in / {message.usage.outputTokens}{' '}
-                              out tokens
-                            </p>
-                          )
-                          : null}
+                        })}
                       </div>
-                    )
-                    : null}
+                      <CurrencyNote
+                        className='mt-3'
+                        sources={message.sources.filter((source) =>
+                          message.citations.some((citation) => citation.resourceId === source.id)
+                        )}
+                      />
+                    </div>
+                  )
+                  : null}
 
+                {evidenceSources.length > 0
+                  ? (
+                    <EvidenceTable
+                      slug={slug}
+                      question={question}
+                      sources={evidenceSources}
+                      verdicts={message.verdicts}
+                      judging={judging}
+                      citations={message.citations}
+                      anchorPrefix={message.id}
+                      collapsible={false}
+                    />
+                  )
+                  : null}
+
+                {message.sources.length > 0 || message.usage
+                  ? (
+                    <div className='flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-line pt-3'>
+                      {message.sources.length > 0
+                        ? (
+                          <ContextJourney
+                            slug={slug}
+                            sources={message.sources}
+                            query={question}
+                            onOpen={requestVerdicts}
+                          />
+                        )
+                        : null}
+                      {message.sources.length > 0 || message.usage || message.quality
+                        ? (
+                          <button
+                            type='button'
+                            onClick={() => setShowPipeline((prev) => !prev)}
+                            aria-expanded={showPipeline}
+                            aria-controls={`${message.id}-pipeline`}
+                            className='rp-focus flex items-center gap-1.5 rounded-none text-xs font-medium text-ink-3 hover:text-ink'
+                          >
+                            <svg
+                              viewBox='0 0 20 20'
+                              fill='none'
+                              stroke='currentColor'
+                              strokeWidth='1.7'
+                              strokeLinecap='round'
+                              strokeLinejoin='round'
+                              aria-hidden='true'
+                              className={`h-3 w-3 shrink-0 transition-transform duration-150 motion-reduce:transition-none ${
+                                showPipeline ? 'rotate-90' : ''
+                              }`}
+                            >
+                              <path d='M7 4l6 6-6 6' />
+                            </svg>
+                            {showPipeline ? 'Hide the pipeline' : 'Show the pipeline'}
+                          </button>
+                        )
+                        : null}
+                      {message.usage
+                        ? (
+                          <p className='text-xs text-ink-3'>
+                            {message.usage.inputTokens} in / {message.usage.outputTokens} out tokens
+                          </p>
+                        )
+                        : null}
+                    </div>
+                  )
+                  : null}
+
+                <div id={`${message.id}-pipeline`} hidden={!showPipeline}>
                   {showPipeline
                     ? (
                       <PipelinePanel
@@ -1103,8 +1102,8 @@ function AssistantCard({
                     )
                     : null}
                 </div>
-              )
-              : null}
+              </div>
+            </EvidenceDisclosure>
           </div>
         )
         : null}
