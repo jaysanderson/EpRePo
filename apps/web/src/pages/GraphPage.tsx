@@ -1416,48 +1416,63 @@ export function GraphPage() {
               resolve to 33.6px against the header's 24px and the map's title
               would sit visibly off the logo directly above it. */
           }
-          <div className='relative py-2' style={{ paddingInline: '1.5rem' }}>
-            {
-              /* At the house heading size the title cannot share a row with the
-                five glyph controls on any phone, so it takes the row above
-                them. That also retires the nowrap this title used to carry: it
-                was there because the title had about 144px beside the controls
-                and .rp-display's `text-wrap: balance` outranks the nowrap
-                inside `truncate`, so it would have taken a second line and the
-                strip's height with it. With the row to itself it has 92px of
-                slack at 320px and 162px at 390px, so it cannot wrap at the
-                default font - and where it genuinely cannot fit, at 320px with
-                a scaled-up root font, balance taking a second line is the right
-                answer for a two-word page title where nowrap would have clipped
-                it to "Knowledge ma…". `truncate` stays for its overflow guard,
-                which still catches a single unbreakable word. */
-            }
-            <h1 className='rp-display truncate text-2xl leading-tight text-[var(--rp-on-primary)]'>
-              Knowledge map
-            </h1>
-            <div className='mt-1.5 flex items-center gap-1.5'>
-              <div className='min-w-0 flex-1'>
-                {hasGraph
-                  ? (
-                    <p className='truncate text-[11px] leading-tight text-[var(--rp-on-primary)]/75'>
-                      {
-                        /* Demoted, and demoted again on the narrowest phones:
-                          the category count the wide hero carries is dropped
-                          here (the navigator's legend names every category
-                          anyway), and the relation count follows it on a narrow
-                          screen rather than being cut off mid-word. The
-                          threshold is 390 rather than the 380 it was: this row
-                          now carries the header's 24px gutter instead of 12px,
-                          which takes 24px off the caption, and the full text
-                          measures 132px against the 131.8px a 380px screen
-                          leaves it. */
-                      }
-                      {nodeCount}
-                      <span className='hidden min-[390px]:inline'>{` · ${edgeCount}`}</span>
-                    </p>
-                  )
-                  : null}
-              </div>
+          {
+            /* The vertical rhythm is set from the INK, not the boxes. The title
+              is .rp-display at a 1.05 leading, so its line box sits 3.6px above
+              the cap of the K and its descenders fall 1.1px below the box; the
+              padding is asymmetric to absorb that and land even optical margins
+              above the title and below the controls. Measured on a phone: 7.6px
+              over the title, 6.9px between it and the controls, 8.0px under
+              them.
+
+              The counts sit on the title's baseline rather than on the row
+              below, which is where they were and where they read wrong: an 11px
+              caption centred in a 36px row of glyph buttons floats 14.4px down
+              from the row's top no matter what the margin does, so the gap under
+              the title measured 19.3px against 11.6px above it and the block sat
+              loose and bottom-heavy. No margin could close it - at zero the
+              buttons already met the descenders of "g" and "p" - so the caption
+              had to move. On its baseline it is also the house pattern for a
+              heading with a count beside it (see the Library page), it gets more
+              width than it had in the row, and the strip gets 2px shorter. */
+          }
+          <div className='relative pb-2 pt-1' style={{ paddingInline: '1.5rem' }}>
+            <div className='flex flex-wrap items-baseline justify-between gap-x-2'>
+              {
+                /* At the house heading size the title cannot share a row with
+                  the five glyph controls on any phone, so they take the row
+                  below. That also retires the nowrap this title used to carry:
+                  it was there because the title had about 144px beside the
+                  controls and .rp-display's `text-wrap: balance` outranks the
+                  nowrap inside `truncate`, so it would have taken a second line
+                  and the strip's height with it. Sharing its row with only the
+                  counts it has 34px of slack at 320px, so it cannot wrap at the
+                  default font - and where it genuinely cannot fit, at 320px with
+                  a scaled-up root font, the counts wrap below it and balance
+                  takes a second line rather than nowrap clipping a two-word page
+                  title to "Knowledge ma…". `truncate` stays for its overflow
+                  guard, which still catches a single unbreakable word. */
+              }
+              <h1 className='rp-display truncate text-2xl text-[var(--rp-on-primary)]'>
+                Knowledge map
+              </h1>
+              {hasGraph
+                ? (
+                  <p className='shrink-0 text-[11px] leading-tight text-[var(--rp-on-primary)]/75'>
+                    {
+                      /* Demoted, and demoted again on the narrowest phones: the
+                        category count the wide hero carries is dropped here (the
+                        navigator's legend names every category anyway), and the
+                        relation count follows it on a narrow screen rather than
+                        being cut off mid-word. */
+                    }
+                    {nodeCount}
+                    <span className='hidden min-[390px]:inline'>{` · ${edgeCount}`}</span>
+                  </p>
+                )
+                : null}
+            </div>
+            <div className='mt-2 flex items-center justify-end gap-1.5'>
               <button
                 type='button'
                 aria-label='Find in the map'
