@@ -33,7 +33,7 @@ function StageDot({ status }: { status: PipelineStageStatus }) {
   if (status === 'complete') {
     return (
       <span
-        className='flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--rp-ok-ink)] text-[10px] font-bold text-white'
+        className='flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--rp-ok-ink)] text-[10px] font-bold text-[var(--rp-ok-bg)]'
         aria-hidden='true'
       >
         ✓

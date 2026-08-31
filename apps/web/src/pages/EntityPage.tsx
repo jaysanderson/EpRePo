@@ -28,7 +28,7 @@ function RelationChip({ edge, slug, name }: { edge: RelationEdge; slug: string; 
       <Link
         to={`/t/${slug}/entity/${encodeURIComponent(value)}`}
         className='rp-focus rounded-none font-medium underline decoration-dotted underline-offset-2 transition-colors duration-150 hover:text-[var(--rp-ink)]'
-        style={{ color: 'var(--rp-accent)' }}
+        style={{ color: 'var(--rp-accent-fg)' }}
       >
         {value}
       </Link>

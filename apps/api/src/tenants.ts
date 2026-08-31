@@ -236,6 +236,7 @@ export class TenantStore {
       shape?: TenantConfig['branding']['shape']
       textScale?: TenantConfig['branding']['textScale']
       density?: TenantConfig['branding']['density']
+      paletteId?: TenantConfig['branding']['paletteId']
     },
   ): void {
     const base = this.get(slug)
@@ -250,6 +251,7 @@ export class TenantStore {
       ...(branding.shape ? { shape: branding.shape } : {}),
       ...(branding.textScale ? { textScale: branding.textScale } : {}),
       ...(branding.density ? { density: branding.density } : {}),
+      ...(branding.paletteId ? { paletteId: branding.paletteId } : {}),
     }
     if (this.custom[slug]) {
       this.custom[slug] = { ...this.custom[slug], branding: merged }

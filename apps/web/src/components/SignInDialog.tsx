@@ -25,7 +25,7 @@ export function SignInDialog({ onClose }: { onClose: () => void }) {
   return (
     <div
       className='rp-anim-fade fixed inset-0 z-50 flex items-center justify-center p-4'
-      style={{ backgroundColor: 'rgba(11, 34, 71, 0.55)' }}
+      style={{ backgroundColor: 'rgba(10, 10, 12, 0.55)' }}
       onClick={onClose}
     >
       <div
@@ -58,7 +58,7 @@ export function SignInDialog({ onClose }: { onClose: () => void }) {
         <div className='px-6 py-6'>
           <button
             type='button'
-            className='rp-focus flex w-full items-center justify-center gap-3 px-5 py-3.5 text-base font-semibold text-white transition-opacity duration-150 hover:opacity-90'
+            className='rp-focus flex w-full items-center justify-center gap-3 px-5 py-3.5 text-base font-semibold text-[var(--rp-on-primary)] transition-opacity duration-150 hover:opacity-90'
             style={{ backgroundColor: 'var(--rp-primary)' }}
           >
             <svg viewBox='0 0 21 21' aria-hidden='true' className='h-5 w-5'>

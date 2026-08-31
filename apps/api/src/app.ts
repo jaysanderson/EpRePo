@@ -9,6 +9,7 @@ import {
   type EnrichmentAgentStatus,
   enrichmentJsonSchema,
   GenerateKindSchema,
+  PaletteChoiceSchema,
   ShapeIdSchema,
   TextScaleIdSchema,
   TypographyChoiceSchema,
@@ -264,6 +265,7 @@ const renameTenantSchema = z.object({
   shape: ShapeIdSchema.optional(),
   textScale: TextScaleIdSchema.optional(),
   density: DensityIdSchema.optional(),
+  paletteId: PaletteChoiceSchema.optional(),
   searchPlaceholder: z.string().min(3).max(120).optional(),
 })
 const kgImplementSchema = z.object({
@@ -1517,6 +1519,7 @@ export function buildApp(opts: BuildAppOptions): Hono {
       shape: parsed.data.shape,
       textScale: parsed.data.textScale,
       density: parsed.data.density,
+      paletteId: parsed.data.paletteId,
     })
     return c.json({ ok: true })
   })

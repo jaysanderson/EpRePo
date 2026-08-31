@@ -139,7 +139,7 @@ function DocsAssistant({ slug }: { slug: string }) {
       if (!citation) return null
       const page = pageByTitle.get(citation.title.toLowerCase())
       const label = (
-        <sup className='font-semibold' style={{ color: 'var(--rp-accent)' }}>[{index}]</sup>
+        <sup className='font-semibold' style={{ color: 'var(--rp-accent-fg)' }}>[{index}]</sup>
       )
       return page
         ? (
@@ -337,7 +337,7 @@ function DocsAssistant({ slug }: { slug: string }) {
                     const chip = (
                       <>
                         <span
-                          className='inline-flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-semibold text-white'
+                          className='inline-flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-semibold text-[var(--rp-on-accent)]'
                           style={{ backgroundColor: 'var(--rp-accent)' }}
                         >
                           {citation.index}

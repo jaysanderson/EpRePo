@@ -57,8 +57,12 @@ export function RegionMap({ slug }: { slug: string }) {
               onBlur={() => setActive(null)}
               className='cursor-pointer outline-none transition-[fill,stroke] duration-200'
               style={{
-                fill: on ? 'var(--rp-accent)' : 'rgba(255,255,255,0.13)',
-                stroke: on ? '#ffffff' : 'rgba(255,255,255,0.45)',
+                fill: on
+                  ? 'var(--rp-accent)'
+                  : 'color-mix(in srgb, var(--rp-on-primary) 13%, transparent)',
+                stroke: on
+                  ? 'var(--rp-on-primary)'
+                  : 'color-mix(in srgb, var(--rp-on-primary) 45%, transparent)',
                 strokeWidth: 1.6,
                 strokeLinejoin: 'round',
               }}
@@ -77,12 +81,12 @@ export function RegionMap({ slug }: { slug: string }) {
             textAnchor='middle'
             className='pointer-events-none select-none'
             style={{
-              fill: on ? 'var(--rp-primary)' : '#ffffff',
+              fill: on ? 'var(--rp-on-accent)' : 'var(--rp-on-primary)',
               fontSize: state.id === 'tas' || state.id === 'vic' ? 24 : 30,
               fontWeight: 600,
               letterSpacing: '0.06em',
               paintOrder: 'stroke',
-              stroke: on ? 'none' : 'rgba(11,34,71,0.45)',
+              stroke: on ? 'none' : 'color-mix(in srgb, var(--rp-primary) 45%, transparent)',
               strokeWidth: on ? 0 : 4,
             }}
           >

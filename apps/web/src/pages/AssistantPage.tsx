@@ -264,7 +264,7 @@ function renderCitationMarkers(
           <Link
             to={citationHref(slug, citation.resourceId, matchedPassage)}
             className='font-semibold no-underline'
-            style={{ color: 'var(--rp-accent)' }}
+            style={{ color: 'var(--rp-accent-fg)' }}
             title={`Source ${citationIndex} - ${citation.title}; click to open, or find it in the Evidence table below`}
           >
             [{citationIndex}]
@@ -416,7 +416,7 @@ function SessionList({
                   } text-left transition-colors duration-150 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 ${
                     isActive ? 'bg-surface shadow-sm' : 'hover:bg-[var(--rp-surface-2)]'
                   }`}
-                  style={{ outlineColor: 'var(--rp-accent)' }}
+                  style={{ outlineColor: 'var(--rp-focus)' }}
                 >
                   <p className='rp-clamp-2 text-sm font-medium text-ink'>
                     {sessionTitle(session)}
@@ -1046,7 +1046,7 @@ function AssistantCard({
                               className='rp-chip'
                             >
                               <span
-                                className='inline-flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-semibold text-white'
+                                className='inline-flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-semibold text-[var(--rp-on-accent)]'
                                 style={{ backgroundColor: 'var(--rp-accent)' }}
                               >
                                 {citation.index}

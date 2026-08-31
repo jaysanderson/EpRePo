@@ -655,7 +655,7 @@ function SynthesisArtefactCard({
     <div
       id={`artefact-${artefact.id}`}
       className={`rounded-[var(--rp-radius)] border p-4 transition-colors duration-500 ${
-        highlighted ? 'border-[var(--rp-accent)] bg-[var(--rp-surface-2)]' : 'border-line'
+        highlighted ? 'border-[var(--rp-accent-fg)] bg-[var(--rp-surface-2)]' : 'border-line'
       }`}
     >
       <div className='flex flex-wrap items-center justify-between gap-2'>

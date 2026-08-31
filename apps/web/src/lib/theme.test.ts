@@ -8,6 +8,8 @@ import {
   fontStack,
   googleFontsUrl,
   PAIRING_IDS,
+  paletteMode,
+  paletteVars,
   shapeVars,
   tenantThemeVars,
   TEXT_SCALES,
@@ -101,6 +103,63 @@ describe('typographyVars', () => {
     )
     expect(headingOnly['--rp-font-display']).toContain('RP Custom Heading')
     expect(headingOnly['--rp-font-body']).toBeUndefined()
+  })
+})
+
+describe('paletteVars', () => {
+  it('derives the legacy identity exactly when no library palette is chosen - FRDC and GRDC stay untouched', () => {
+    const frdcColours = {
+      primary: '#143669',
+      accent: '#00b8a5',
+      heroFrom: '#0b2247',
+      heroTo: '#0e5f6b',
+    }
+    for (
+      const b of [
+        branding({ colours: frdcColours }),
+        branding({ colours: frdcColours, paletteId: 'default' }),
+      ]
+    ) {
+      const vars = paletteVars(b)
+      expect(vars['--rp-primary']).toBe('#143669')
+      expect(vars['--rp-accent']).toBe('#00b8a5')
+      expect(vars['--rp-hero-from']).toBe('#0b2247')
+      expect(vars['--rp-hero-to']).toBe('#0e5f6b')
+      // The roles the code used to hardcode, reproduced so nothing shifts.
+      expect(vars['--rp-on-primary']).toBe('#ffffff')
+      expect(vars['--rp-brand-fg']).toBe('#143669')
+      expect(vars['--rp-on-accent']).toBe('#ffffff')
+      expect(vars['--rp-accent-fg']).toBe('#00b8a5')
+      expect(vars['--rp-focus']).toBe('#00b8a5')
+      expect(vars['--rp-on-hero']).toBe('#ffffff')
+      // The grey suite must NOT be touched - house defaults stay in charge.
+      expect(vars['--rp-ink']).toBeUndefined()
+      expect(vars['--rp-surface']).toBeUndefined()
+      expect(vars['--rp-paper']).toBeUndefined()
+    }
+  })
+
+  it('maps a library palette onto every token including the grey suite', () => {
+    const vars = paletteVars(branding({ paletteId: 'fathom' }))
+    expect(vars['--rp-primary']).toBe('#0a3a57')
+    expect(vars['--rp-accent-fg']).toBe('#0b628f')
+    expect(vars['--rp-wash']).toBe('#e3f2fb')
+    expect(vars['--rp-paper']).toBe('#f8fafb')
+    expect(vars['--rp-ink-3']).toBe('#587082')
+    expect(vars['--rp-line']).toBe('#d8e1e8')
+    // Light palette leaves the semantic statuses on the stylesheet defaults.
+    expect(vars['--rp-ok-bg']).toBeUndefined()
+  })
+
+  it('the dark palette flips the statuses and glass with the suite', () => {
+    const vars = paletteVars(branding({ paletteId: 'observatory' }))
+    expect(vars['--rp-paper']).toBe('#131119')
+    expect(vars['--rp-ok-bg']).toBe('#0e2f24')
+    expect(vars['--rp-bad-ink']).toBe('#fb7d90')
+    expect(vars['--rp-glass-bg']).toContain('#1a1826')
+    expect(paletteMode(branding({ paletteId: 'observatory' }))).toBe('dark')
+    expect(paletteMode(branding({ paletteId: 'fathom' }))).toBe('light')
+    expect(paletteMode(branding())).toBe('light')
   })
 })
 

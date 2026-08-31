@@ -11,11 +11,22 @@
  * ------------------------------------------------------------------------- */
 
 :root {
-  /* Tenant hooks - neutral defaults until a tenant config loads. */
+  /* Tenant hooks - neutral defaults until a tenant config loads. The theme
+   * layer (lib/theme.ts paletteVars) writes all of these per tenant: either a
+   * stock library palette's twelve roles and grey suite, or values derived
+   * from the portal's seeded four-colour identity. */
   --rp-primary: #27272a;
   --rp-accent: #52525b;
   --rp-hero-from: #3f3f46;
   --rp-hero-to: #18181b;
+  --rp-on-primary: #ffffff;
+  --rp-brand-fg: #27272a;
+  --rp-on-accent: #ffffff;
+  --rp-accent-fg: #52525b;
+  --rp-focus: #52525b;
+  --rp-on-hero: #ffffff;
+  --rp-wash: color-mix(in srgb, #52525b 12%, #ffffff);
+  --rp-wash-strong: color-mix(in srgb, #52525b 22%, #ffffff);
 
   /* Typography hooks - TenantLayout overrides these from branding.typography.
    * The house faces (matching frdc.com.au: Manrope body, Inter headings) are
@@ -59,8 +70,9 @@
   --rp-shadow-lg: 0 2px 4px rgba(26, 24, 21, 0.06), 0 22px 48px -20px rgba(26, 24, 21, 0.3);
   --rp-shadow-xl: 0 4px 10px rgba(26, 24, 21, 0.08), 0 40px 80px -28px rgba(26, 24, 21, 0.4);
 
-  /* Focus ring - a white halo then the tenant accent, legible on any surface. */
-  --rp-ring: 0 0 0 2px #ffffff, 0 0 0 4px var(--rp-accent);
+  /* Focus ring - a surface-coloured halo then the focus role, legible on any
+   * surface and in either polarity. */
+  --rp-ring: 0 0 0 2px var(--rp-surface), 0 0 0 4px var(--rp-focus);
   --rp-ring-inverse: 0 0 0 2px rgba(12, 12, 12, 0.9), 0 0 0 4px rgba(255, 255, 255, 0.75);
 
   --rp-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
@@ -84,7 +96,7 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   background-color: var(--rp-paper);
-  color: var(--rp-n-900);
+  color: var(--rp-ink);
   font-feature-settings: 'calt';
 }
 
@@ -108,6 +120,8 @@ body {
    * paddings, gaps and stacks across the subtree with no call-site changes.
    * Text sizes never ride this - density is spacing relative to text. */
   --spacing: calc(0.25rem * var(--rp-density, 1));
+  /* Recomputed here so the halo and ring pick up this wrapper's palette. */
+  --rp-ring: 0 0 0 2px var(--rp-surface), 0 0 0 4px var(--rp-focus);
 }
 
 /* Pin a subtree to canonical spacing - canvas-coordinate UIs and other
@@ -549,7 +563,7 @@ li.rp-chip:hover {
 
 /* File pickers hide their input inside a label.rp-btn - surface its focus. */
 label.rp-btn:has(input:focus-visible) {
-  outline: 2px solid var(--rp-accent, var(--rp-ink));
+  outline: 2px solid var(--rp-focus, var(--rp-ink));
   outline-offset: 2px;
 }
 
@@ -616,17 +630,17 @@ label.rp-btn:has(input:focus-visible) {
   gap: calc(1.1rem * var(--rp-density, 1));
   padding: calc(1.6rem * var(--rp-density, 1)) calc(1.75rem * var(--rp-density, 1));
   border-radius: var(--rp-radius);
-  background-color: color-mix(in srgb, var(--rp-accent) 14%, #ffffff);
-  color: var(--rp-primary);
+  background-color: var(--rp-wash);
+  color: var(--rp-brand-fg);
   transition: background-color 150ms var(--rp-ease);
 }
 
 .rp-tile:hover {
-  background-color: color-mix(in srgb, var(--rp-accent) 24%, #ffffff);
+  background-color: var(--rp-wash-strong);
 }
 
 .rp-tile:focus-visible {
-  outline: 2px solid var(--rp-primary);
+  outline: 2px solid var(--rp-brand-fg);
   outline-offset: -3px;
 }
 
@@ -662,18 +676,18 @@ label.rp-btn:has(input:focus-visible) {
   font-size: 1rem;
   font-weight: 300;
   line-height: 1.35;
-  color: rgba(255, 255, 255, 0.86);
+  color: color-mix(in srgb, var(--rp-on-primary) 86%, transparent);
   white-space: nowrap;
   transition: color 150ms var(--rp-ease), background-color 150ms var(--rp-ease);
 }
 
 .rp-navlink:hover {
-  color: #ffffff;
-  background-color: rgba(255, 255, 255, 0.1);
+  color: var(--rp-on-primary);
+  background-color: color-mix(in srgb, var(--rp-on-primary) 10%, transparent);
 }
 
 .rp-navlink:focus-visible {
-  outline: 2px solid #ffffff;
+  outline: 2px solid var(--rp-on-primary);
   outline-offset: -3px;
 }
 
@@ -681,7 +695,7 @@ label.rp-btn:has(input:focus-visible) {
  * white label over an accent underline rather than the accent wash the old
  * light header used. */
 .rp-navlink-active {
-  color: #ffffff;
+  color: var(--rp-on-primary);
   font-weight: 500;
 }
 
@@ -726,7 +740,7 @@ label.rp-btn:has(input:focus-visible) {
 }
 .rp-btn-primary {
   background: var(--rp-primary);
-  color: #fff;
+  color: var(--rp-on-primary);
 }
 .rp-btn-primary:hover:not(:disabled) {
   filter: brightness(1.12);
@@ -779,9 +793,9 @@ label.rp-btn:has(input:focus-visible) {
   box-shadow: var(--rp-ring);
 }
 .rp-chip-active {
-  border-color: var(--rp-accent);
+  border-color: var(--rp-accent-fg);
   color: var(--rp-ink);
-  background: color-mix(in srgb, var(--rp-accent) 10%, var(--rp-surface));
+  background: var(--rp-wash);
 }
 .rp-input {
   width: 100%;

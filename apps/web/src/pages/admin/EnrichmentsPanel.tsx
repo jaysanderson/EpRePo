@@ -196,7 +196,7 @@ function AgentCard(
               aria-pressed={scope === value}
               className={`px-3 py-1.5 text-sm font-medium transition-colors ${
                 scope === value
-                  ? 'bg-[var(--rp-accent)] text-white'
+                  ? 'bg-[var(--rp-accent)] text-[var(--rp-on-accent)]'
                   : 'bg-surface text-ink-2 hover:text-ink'
               }`}
             >

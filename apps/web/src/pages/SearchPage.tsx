@@ -123,7 +123,7 @@ function ResultCard(
               {citedIndex !== undefined
                 ? (
                   <span
-                    className='rp-badge font-semibold text-white'
+                    className='rp-badge font-semibold text-[var(--rp-on-accent)]'
                     style={{ backgroundColor: 'var(--rp-accent)', borderColor: 'var(--rp-accent)' }}
                   >
                     Cited [{citedIndex}]
@@ -707,7 +707,7 @@ export function SearchPage() {
                   index > 0 ? 'border-l border-line' : ''
                 } ${
                   active
-                    ? 'text-white'
+                    ? 'text-[var(--rp-on-primary)]'
                     : 'text-[var(--rp-ink-2)] hover:bg-[var(--rp-surface-2)] hover:text-[var(--rp-ink)]'
                 }`}
                 style={active ? { backgroundColor: 'var(--rp-primary)' } : undefined}
@@ -979,7 +979,7 @@ export function SearchPage() {
                         index > 0 ? 'border-l border-line' : ''
                       } ${
                         active
-                          ? 'text-white'
+                          ? 'text-[var(--rp-on-primary)]'
                           : 'text-[var(--rp-ink-2)] hover:bg-[var(--rp-surface-2)] hover:text-[var(--rp-ink)]'
                       }`}
                       style={active ? { backgroundColor: 'var(--rp-primary)' } : undefined}
@@ -1121,7 +1121,7 @@ export function SearchPage() {
                                       index > 0 ? 'border-l border-line' : ''
                                     } ${
                                       active
-                                        ? 'text-white'
+                                        ? 'text-[var(--rp-on-primary)]'
                                         : 'text-[var(--rp-ink-2)] hover:bg-[var(--rp-surface-2)] hover:text-[var(--rp-ink)]'
                                     }`}
                                     style={active

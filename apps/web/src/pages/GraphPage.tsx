@@ -791,7 +791,7 @@ function ModeToggle({ mode, onChange }: { mode: Mode; onChange: (mode: Mode) => 
           onClick={() => onChange(option.value)}
           className={`rp-focus px-4 text-sm font-medium transition-colors duration-150 ${
             mode === option.value
-              ? 'text-white'
+              ? 'text-[var(--rp-on-primary)]'
               : 'text-ink-3 hover:bg-[var(--rp-surface-2)] hover:text-[var(--rp-ink)]'
           }`}
           style={mode === option.value ? { backgroundColor: 'var(--rp-primary)' } : undefined}
@@ -1104,10 +1104,12 @@ export function GraphPage() {
         />
         <div className='relative px-4 py-10 sm:px-6 sm:py-14'>
           <div className='mx-auto max-w-3xl text-center'>
-            <h1 className='rp-display text-3xl text-white sm:text-4xl'>
+            <h1 className='rp-display text-3xl text-[var(--rp-on-primary)] sm:text-4xl'>
               Knowledge map
             </h1>
-            {hasGraph ? <p className='mt-3 text-sm text-white/75'>{subtitle}</p> : null}
+            {hasGraph
+              ? <p className='mt-3 text-sm text-[var(--rp-on-primary)]/75'>{subtitle}</p>
+              : null}
           </div>
           <div className='mt-7 flex flex-wrap items-center justify-center gap-2.5'>
             <NodeSearch nodes={nodes} groupStyles={groupStyles} onPick={focusAndSelect} />

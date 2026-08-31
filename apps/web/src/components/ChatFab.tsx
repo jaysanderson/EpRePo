@@ -71,7 +71,7 @@ export function ChatFab({ slug }: { slug: string }) {
       <Link
         to={`/t/${slug}/assistant`}
         aria-label='Open AI chat'
-        className='rp-focus rp-shadow-lg rp-lift inline-flex h-12 shrink-0 items-center gap-2 rounded-full px-4 text-sm font-semibold text-white transition-colors duration-150 hover:brightness-110'
+        className='rp-focus rp-shadow-lg rp-lift inline-flex h-12 shrink-0 items-center gap-2 rounded-full px-4 text-sm font-semibold text-[var(--rp-on-primary)] transition-colors duration-150 hover:brightness-110'
         style={{ backgroundColor: 'var(--rp-primary)' }}
       >
         <svg

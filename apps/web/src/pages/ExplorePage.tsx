@@ -88,7 +88,7 @@ function Hero({
 
       <div className='rp-shell grid items-start gap-10 lg:grid-cols-[minmax(0,1fr)_22rem] lg:gap-14'>
         <div className='min-w-0'>
-          <h1 className='rp-display rp-anim-rise text-4xl text-white sm:text-5xl lg:text-6xl'>
+          <h1 className='rp-display rp-anim-rise text-4xl text-[var(--rp-on-hero)] sm:text-5xl lg:text-6xl'>
             What would you like to explore?
           </h1>
 
@@ -97,7 +97,7 @@ function Hero({
               Ask {config.branding.productName}
             </label>
             <div className='relative max-w-2xl'>
-              <div className='rp-shadow-xl flex items-center gap-2 rounded-[var(--rp-radius-input)] bg-surface p-1.5 pl-3.5 ring-1 ring-white/40 focus-within:ring-2 focus-within:ring-white'>
+              <div className='rp-shadow-xl flex items-center gap-2 rounded-[var(--rp-radius-input)] bg-surface p-1.5 pl-3.5 ring-1 ring-[var(--rp-on-hero)]/40 focus-within:ring-2 focus-within:ring-[var(--rp-on-hero)]'>
                 <svg
                   viewBox='0 0 20 20'
                   fill='none'
@@ -135,7 +135,7 @@ function Hero({
                     key={question.id}
                     type='button'
                     onClick={() => onAsk(question.text)}
-                    className='rp-focus-inverse rounded-[var(--rp-radius-chip)] border border-white/30 bg-white/12 px-3 py-1.5 text-sm text-white backdrop-blur-sm transition-colors duration-150 hover:bg-white/25'
+                    className='rp-focus-inverse rounded-[var(--rp-radius-chip)] border border-[var(--rp-on-hero)]/30 bg-[var(--rp-on-hero)]/12 px-3 py-1.5 text-sm text-[var(--rp-on-hero)] backdrop-blur-sm transition-colors duration-150 hover:bg-[var(--rp-on-hero)]/25'
                   >
                     {question.text}
                   </button>
@@ -171,22 +171,22 @@ function RecentDocuments({ slug }: { slug: string }) {
 
   return (
     <div className='rp-anim-rise rp-delay-3 hidden lg:block'>
-      <p className='rp-eyebrow text-white/60'>Recently added</p>
+      <p className='rp-eyebrow text-[var(--rp-on-primary)]/60'>Recently added</p>
       <ul className='mt-4 space-y-1'>
         {isLoading
           ? Array.from({ length: 4 }).map((_, index) => (
             <li key={index} className='flex items-center gap-3 py-2.5'>
-              <span className='rp-shimmer h-14 w-11 shrink-0 bg-white/15' />
-              <span className='rp-shimmer h-3 w-40 bg-white/15' />
+              <span className='rp-shimmer h-14 w-11 shrink-0 bg-[var(--rp-on-primary)]/15' />
+              <span className='rp-shimmer h-3 w-40 bg-[var(--rp-on-primary)]/15' />
             </li>
           ))
           : items.map((item) => (
             <li key={item.id}>
               <Link
                 to={`/t/${slug}/library/${item.id}`}
-                className='rp-focus-inverse group flex items-center gap-3 border-b border-white/15 py-2.5 transition-colors duration-150 hover:bg-white/5'
+                className='rp-focus-inverse group flex items-center gap-3 border-b border-[var(--rp-on-primary)]/15 py-2.5 transition-colors duration-150 hover:bg-[var(--rp-on-primary)]/5'
               >
-                <span className='h-14 w-11 shrink-0 overflow-hidden bg-white/10'>
+                <span className='h-14 w-11 shrink-0 overflow-hidden bg-[var(--rp-on-primary)]/10'>
                   <ResourceThumb
                     slug={slug}
                     id={item.id}
@@ -195,13 +195,13 @@ function RecentDocuments({ slug }: { slug: string }) {
                   />
                 </span>
                 <span className='min-w-0 flex-1'>
-                  <span className='rp-clamp-2 block text-sm leading-snug text-white'>
+                  <span className='rp-clamp-2 block text-sm leading-snug text-[var(--rp-on-primary)]'>
                     {item.title}
                   </span>
                 </span>
                 <span
                   aria-hidden='true'
-                  className='shrink-0 text-white/50 transition-transform duration-200 group-hover:translate-x-0.5'
+                  className='shrink-0 text-[var(--rp-on-primary)]/50 transition-transform duration-200 group-hover:translate-x-0.5'
                 >
                   &rarr;
                 </span>
@@ -300,11 +300,11 @@ function RegionBand({ slug }: { slug: string }) {
     <section style={{ backgroundColor: 'var(--rp-primary)' }}>
       <div className='rp-shell grid gap-10 py-12 md:grid-cols-2 md:items-center md:py-16'>
         <div className='min-w-0'>
-          <p className='rp-eyebrow text-white/60'>Explore by region</p>
-          <h2 className='rp-display mt-2 text-3xl text-white sm:text-4xl'>
+          <p className='rp-eyebrow text-[var(--rp-on-primary)]/60'>Explore by region</p>
+          <h2 className='rp-display mt-2 text-3xl text-[var(--rp-on-primary)] sm:text-4xl'>
             Research from every corner of the country
           </h2>
-          <p className='mt-4 max-w-md text-base leading-relaxed text-white/75'>
+          <p className='mt-4 max-w-md text-base leading-relaxed text-[var(--rp-on-primary)]/75'>
             Research and its impact are deeply regional. Pick a state or territory to see what the
             corpus holds there.
           </p>
@@ -313,7 +313,7 @@ function RegionBand({ slug }: { slug: string }) {
               <li key={region.id}>
                 <Link
                   to={`/t/${slug}/search?q=${encodeURIComponent(region.query)}`}
-                  className='rp-focus-inverse inline-flex border border-white/30 bg-white/10 px-3 py-1.5 text-sm text-white transition-colors duration-150 hover:bg-white/20'
+                  className='rp-focus-inverse inline-flex border border-[var(--rp-on-primary)]/30 bg-[var(--rp-on-primary)]/10 px-3 py-1.5 text-sm text-[var(--rp-on-primary)] transition-colors duration-150 hover:bg-[var(--rp-on-primary)]/20'
                 >
                   {region.label}
                 </Link>

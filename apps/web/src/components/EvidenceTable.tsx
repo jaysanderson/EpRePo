@@ -193,7 +193,7 @@ function EvidenceRow({
                 {citationIndices.map((n) => (
                   <span
                     key={n}
-                    className='inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full px-1 text-[10px] font-semibold text-white'
+                    className='inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full px-1 text-[10px] font-semibold text-[var(--rp-on-accent)]'
                     style={{ backgroundColor: 'var(--rp-accent)' }}
                   >
                     {n}
@@ -266,7 +266,7 @@ function EvidenceRow({
                   aria-label={expanded
                     ? `Show less of the passage from ${source.title}`
                     : `Show more of the passage from ${source.title}`}
-                  className='rp-focus mt-1 rounded-none text-xs font-medium text-[var(--rp-accent)] hover:underline'
+                  className='rp-focus mt-1 rounded-none text-xs font-medium text-[var(--rp-accent-fg)] hover:underline'
                 >
                   {expanded ? 'Show less' : 'Show more'}
                 </button>
