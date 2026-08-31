@@ -770,3 +770,51 @@ label.rp-btn:has(input:focus-visible) {
   color: var(--rp-ink-2);
   border-color: var(--rp-line);
 }
+
+/* ---------------------------------------------------------------------------
+ * Streaming indicator: three dots easing in and out in sequence, shown while an
+ * answer is still arriving. Calmer than a blinking block caret, and it reads as
+ * "working" rather than "cursor".
+ * ------------------------------------------------------------------------- */
+.rp-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  vertical-align: text-bottom;
+}
+
+.rp-dots > span {
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 9999px;
+  background-color: var(--rp-accent);
+  animation: rp-dot 1200ms var(--rp-ease) infinite;
+}
+
+.rp-dots > span:nth-child(2) {
+  animation-delay: 160ms;
+}
+
+.rp-dots > span:nth-child(3) {
+  animation-delay: 320ms;
+}
+
+@keyframes rp-dot {
+  0%,
+  60%,
+  100% {
+    opacity: 0.25;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rp-dots > span {
+    animation: none;
+    opacity: 0.6;
+  }
+}

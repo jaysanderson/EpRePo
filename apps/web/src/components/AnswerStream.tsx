@@ -325,14 +325,24 @@ export function AnswerStream({ slug, request, onSources, onRetry }: AnswerStream
         {text.length > 0
           ? renderAnswerText(text)
           : status === 'streaming'
-          ? <p className='text-ink-3'>Thinking&hellip;</p>
-          : null}
-        {status === 'streaming'
           ? (
-            <span
-              className='inline-block h-4 w-1.5 animate-pulse bg-[var(--rp-ink-3)] align-text-bottom'
-              aria-hidden='true'
-            />
+            <p className='flex items-center gap-2 text-ink-3'>
+              <span className='rp-dots' aria-hidden='true'>
+                <span />
+                <span />
+                <span />
+              </span>
+              <span className='sr-only'>Writing the answer</span>
+            </p>
+          )
+          : null}
+        {status === 'streaming' && text.length > 0
+          ? (
+            <span className='rp-dots ml-1' aria-hidden='true'>
+              <span />
+              <span />
+              <span />
+            </span>
           )
           : null}
       </div>

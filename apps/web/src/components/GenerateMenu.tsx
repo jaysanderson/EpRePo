@@ -117,14 +117,11 @@ export function GenerateMenu({ slug, active }: { slug: string; active: boolean }
             className='rp-anim-fade absolute inset-x-0 top-full z-40 border-t border-white/15'
             style={{ backgroundColor: 'var(--rp-primary)' }}
           >
-            <div
-              className='rp-shell grid gap-10 py-10 md:grid-cols-2 lg:gap-16'
-              style={{ gridTemplateColumns: 'minmax(0, 20rem) minmax(0, 1fr)' }}
-            >
-              <div className='min-w-0'>
+            <div className='rp-shell flex flex-col gap-10 py-10 md:flex-row lg:gap-16'>
+              <div className='w-full shrink-0 md:w-80'>
                 <FishMark />
                 <h2 className='rp-display mt-4 text-xl text-white'>Generate from the corpus</h2>
-                <p className='mt-2 max-w-xs text-sm leading-relaxed text-white/70'>
+                <p className='mt-2 text-sm leading-relaxed text-white/70'>
                   Turn what the portal holds into a briefing, a comparison or a timeline - every
                   artefact cited back to its sources.
                 </p>
@@ -138,7 +135,7 @@ export function GenerateMenu({ slug, active }: { slug: string; active: boolean }
                 </Link>
               </div>
 
-              <div className='grid gap-8 sm:grid-cols-2'>
+              <div className='grid min-w-0 flex-1 gap-8 sm:grid-cols-2'>
                 <div>
                   <h3 className='border-b border-white/25 pb-2.5 text-xs font-semibold uppercase tracking-[0.08em] text-white/60'>
                     Artefacts
