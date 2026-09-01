@@ -16,7 +16,7 @@ import {
   type TenantConfig,
   TenantConfigSchema,
 } from '@research-portal/core'
-import { AragApiError, type RetrievalProvider } from '@research-portal/retrieval'
+import { AragApiError, type AragProvider, type RetrievalProvider } from '@research-portal/retrieval'
 import { buildApp } from './app.ts'
 import { TenantStore } from './tenants.ts'
 import { EnrichmentStore } from './enrichments.ts'
@@ -183,6 +183,41 @@ describe('tenant slug aliases', () => {
 
     expect(response.status).toBe(404)
     expect(response.headers.get('location')).toBeNull()
+  })
+})
+
+describe('GET /api/t/:slug/resources/:id/thumbnail', () => {
+  it('keeps stable thumbnails warm and forwards validators from the platform', async () => {
+    const management = {
+      thumbnailResponse: () =>
+        Promise.resolve(
+          new Response(new Uint8Array([1, 2, 3]), {
+            headers: {
+              'content-type': 'image/webp',
+              'content-length': '3',
+              etag: '"thumb-v1"',
+              'last-modified': 'Mon, 31 Aug 2026 00:00:00 GMT',
+            },
+          }),
+        ),
+    } as unknown as AragProvider
+    const app = buildApp({
+      provider: new StubProvider(),
+      tenants: freshTenants(),
+      management,
+    })
+
+    const response = await app.request('/api/t/frdc/resources/res-1/thumbnail')
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('cache-control')).toBe(
+      'public, max-age=86400, stale-while-revalidate=604800',
+    )
+    expect(response.headers.get('content-type')).toBe('image/webp')
+    expect(response.headers.get('content-length')).toBe('3')
+    expect(response.headers.get('etag')).toBe('"thumb-v1"')
+    expect(response.headers.get('last-modified')).toBe('Mon, 31 Aug 2026 00:00:00 GMT')
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(new Uint8Array([1, 2, 3]))
   })
 })
 

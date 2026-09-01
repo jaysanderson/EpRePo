@@ -566,9 +566,13 @@ export function buildApp(opts: BuildAppOptions): Hono {
     const upstream = await opts.management.thumbnailResponse(config, c.req.param('id'))
     if (!upstream) return c.json({ error: 'not_found' }, 404)
     const headers = new Headers()
-    const type = upstream.headers.get('content-type')
-    if (type) headers.set('content-type', type)
-    headers.set('cache-control', 'public, max-age=600')
+    for (const name of ['content-type', 'content-length', 'etag', 'last-modified']) {
+      const value = upstream.headers.get(name)
+      if (value) headers.set(name, value)
+    }
+    // A processed resource's thumbnail is stable, but not strictly immutable:
+    // keep it fresh for a day, then allow a stale image while caches revalidate.
+    headers.set('cache-control', 'public, max-age=86400, stale-while-revalidate=604800')
     return new Response(upstream.body, { status: 200, headers })
   })
 

@@ -363,18 +363,117 @@ body {
   animation: rp-rise 320ms var(--rp-ease) both;
 }
 
-/* Skeleton shimmer - a travelling highlight rather than a flat pulse. */
+/* Skeleton shimmer - semantic surfaces keep the travelling highlight equally
+ * deliberate in light and dark tenant palettes. */
 .rp-shimmer {
   background-color: var(--rp-surface-3);
   background-image: linear-gradient(
     90deg,
-    rgba(255, 255, 255, 0) 20%,
-    rgba(255, 255, 255, 0.65) 50%,
-    rgba(255, 255, 255, 0) 80%
+    var(--rp-surface-3) 20%,
+    var(--rp-surface-2) 50%,
+    var(--rp-surface-3) 80%
   );
   background-size: 200% 100%;
   background-repeat: no-repeat;
   animation: rp-shimmer 1.6s linear infinite;
+}
+
+/* Resource thumbnails reserve their parent's box while the platform image is
+ * in flight. The compact folio mark is a designed loading state, not a colour
+ * block pretending to be content; every colour and shape follows tenant roles. */
+.rp-resource-thumb {
+  container-type: inline-size;
+  overflow: hidden;
+  background: var(--rp-surface-2);
+}
+
+.rp-thumb-placeholder {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: var(--rp-surface-2);
+  color: var(--rp-ink-3);
+}
+
+.rp-thumb-placeholder::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    145deg,
+    var(--rp-surface-2) 0 42%,
+    var(--rp-surface-3) 42% 100%
+  );
+  opacity: 0.72;
+}
+
+.rp-thumb-placeholder-loading::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: linear-gradient(
+    90deg,
+    transparent 20%,
+    color-mix(in srgb, var(--rp-surface) 72%, transparent) 50%,
+    transparent 80%
+  );
+  background-size: 200% 100%;
+  background-repeat: no-repeat;
+  animation: rp-shimmer 1.6s linear infinite;
+}
+
+.rp-thumb-placeholder-mark {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--rp-ink-3);
+}
+
+.rp-thumb-placeholder-icon {
+  width: clamp(1.5rem, 24cqi, 3rem);
+  height: clamp(1.5rem, 24cqi, 3rem);
+}
+
+.rp-thumb-placeholder-label {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.25rem;
+  padding-inline: 0.45rem;
+  border: 1px solid var(--rp-line);
+  border-radius: var(--rp-radius-chip);
+  background: var(--rp-surface);
+  color: var(--rp-ink-2);
+  font-size: 0.625rem;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.025em;
+}
+
+.rp-thumb-image {
+  z-index: 2;
+  opacity: 0;
+  background: var(--rp-surface);
+  transition: opacity 180ms var(--rp-ease);
+}
+
+.rp-thumb-image-loaded {
+  opacity: 1;
+}
+
+@container (max-width: 5rem) {
+  .rp-thumb-placeholder-mark {
+    gap: 0;
+  }
+
+  .rp-thumb-placeholder-label {
+    display: none;
+  }
 }
 
 /* Timed dwell bar (the answer journey footer). Paused via inline play-state. */
@@ -472,6 +571,15 @@ body {
   .rp-shimmer {
     animation: none;
     background-image: none;
+  }
+
+  .rp-thumb-placeholder-loading::after {
+    animation: none;
+    background-image: none;
+  }
+
+  .rp-thumb-image {
+    transition: none;
   }
 
   .rp-lift,
@@ -888,6 +996,9 @@ label.rp-btn:has(input:focus-visible) {
 .rp-badge {
   display: inline-flex;
   align-items: center;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
   gap: 0.25rem;
   padding: 0.125rem 0.5rem;

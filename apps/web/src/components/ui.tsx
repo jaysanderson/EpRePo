@@ -105,15 +105,6 @@ export function LiveStatus({ message }: { message: string }) {
   )
 }
 
-/** Deterministic, pleasant muted hue derived from a resource id - used for thumbnail colour blocks. */
-export function hueFromId(id: string): number {
-  let hash = 0
-  for (let i = 0; i < id.length; i++) {
-    hash = (hash * 31 + id.charCodeAt(i)) >>> 0
-  }
-  return hash % 360
-}
-
 /**
  * Human title for a platform label that may be stored as a slug
  * ("grdc-network" -> "GRDC Network"). Real display titles pass through
