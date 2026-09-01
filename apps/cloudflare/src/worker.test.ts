@@ -32,7 +32,7 @@ const workerModule = await loadWorker()
 const worker = workerModule.default
 
 Deno.test('Worker sends each portal custom domain to its tenant route', async () => {
-  for (const slug of ['frdc', 'grdc']) {
+  for (const slug of ['frdc', 'grdc', 'opax', 'new-portal']) {
     const harness = workerHarness()
     const response = await worker.fetch(
       new Request(`https://${slug}.corpuskit.org/?from=directory`),

@@ -6,17 +6,24 @@ function isPlatformHostname(hostname: string): boolean {
 }
 
 /**
- * Production portal navigation crosses origins so each portal keeps its own
- * memorable hostname. Local and preview environments retain the existing
- * relative tenant routes, which keeps development and browser tests portable.
+ * Production portal navigation crosses origins only when the tenant declares
+ * a working hostname. Tenants without one, plus local and preview environments,
+ * retain relative routes so every portal remains reachable.
  */
 export function portalHref(
   slug: string,
-  suffix = '',
-  hostname = globalThis.location?.hostname ?? '',
+  options: {
+    hostname?: string
+    suffix?: string
+    currentHostname?: string
+  } = {},
 ): string {
+  const suffix = options.suffix ?? ''
   const route = `/t/${encodeURIComponent(slug)}${suffix}`
-  return isPlatformHostname(hostname.toLowerCase())
-    ? `https://${slug}.${PLATFORM_DOMAIN}${route}`
-    : route
+  const currentHostname = options.currentHostname ?? globalThis.location?.hostname ?? ''
+  const portalHostname = options.hostname?.toLowerCase()
+  if (!portalHostname || !isPlatformHostname(currentHostname.toLowerCase())) return route
+  return portalHostname === currentHostname.toLowerCase()
+    ? route
+    : `https://${portalHostname}${route}`
 }

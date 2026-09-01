@@ -1,7 +1,12 @@
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite'
 import { expect } from '@std/expect'
 import { DEFAULT_RESEARCH_ENRICHMENT, type Enrichment } from '@research-portal/core'
-import { DurableEnrichmentStore, DurableState, type SqlStorageLike } from './state.ts'
+import {
+  DurableEnrichmentStore,
+  DurableState,
+  DurableTenantStore,
+  type SqlStorageLike,
+} from './state.ts'
 import type { McpKeyRecord } from '../../api/src/stores.ts'
 import { DurableMcpKeyStore } from './state.ts'
 
@@ -164,5 +169,21 @@ Deno.test('DurableMcpKeyStore mirrors tenant isolation and immediate revocation'
   expect(store.revoke('frdc', record.id, '2026-09-01T01:00:00.000Z')).toBe(true)
   expect(store.findByPrefix('frdc', record.prefix)?.revokedAt).toBe(
     '2026-09-01T01:00:00.000Z',
+  )
+})
+
+Deno.test('DurableTenantStore exposes hostnames for OPAX and successfully provisioned portals', () => {
+  const sql = new TestSqlStorage()
+  const state = new DurableState(sql)
+  state.migrate()
+  const store = new DurableTenantStore(state)
+
+  expect(store.add({ name: 'OPAX' }).hostname).toBe('opax.corpuskit.org')
+  store.add({ name: 'New portal' })
+  store.patch('new-portal', { hostname: 'new-portal.corpuskit.org' })
+
+  expect(store.get('new-portal')?.hostname).toBe('new-portal.corpuskit.org')
+  expect(store.list().find((tenant) => tenant.slug === 'new-portal')?.hostname).toBe(
+    'new-portal.corpuskit.org',
   )
 })

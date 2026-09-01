@@ -14,12 +14,15 @@ import {
 } from './auth.ts'
 import { DurableState, type DurableStores, durableStores, stringEnv } from './state.ts'
 import { tenantAliasLocation } from '../../api/src/tenant-aliases.ts'
+import {
+  createCloudflareDomainProvisioner,
+  portalHostnameForSlug,
+} from '../../api/src/cloudflare-domains.ts'
 
 const PORTAL_OBJECT_NAME = 'production'
 const SSO_ADMIN_HEADER = 'x-corpuskit-sso-admin'
 const SSO_USER_ID_HEADER = 'x-corpuskit-sso-user-id'
 const PLATFORM_DOMAIN = 'corpuskit.org'
-const PLATFORM_PORTALS = new Set(['frdc', 'grdc'])
 const SECURITY_HEADERS: Record<string, string> = {
   'permissions-policy': 'camera=(), microphone=(), geolocation=(), payment=()',
   'referrer-policy': 'strict-origin-when-cross-origin',
@@ -58,6 +61,7 @@ export class PortalDurableObject extends DurableObject<Env> {
       investigations: this.stores.investigations,
       suggestions: this.stores.suggestions,
       enrichments: this.stores.enrichments,
+      domainProvisioner: createCloudflareDomainProvisioner(bindings),
       kgProposals: this.stores.kgProposals,
       branding: this.stores.branding,
       mcpKeys: this.stores.mcpKeys,
@@ -171,10 +175,9 @@ function authConfig(env: Env, hostname: string): Partial<AuthConfig> {
 }
 
 /**
- * Give every provisioned portal a stable hostname while the SPA retains its
- * existing tenant-prefixed routes. Keeping the mapping explicit matches the
- * exact Custom Domains attached in Wrangler and prevents arbitrary hostnames
- * from becoming tenant selectors.
+ * Give every safely provisioned portal hostname a stable root redirect while
+ * the SPA retains its existing tenant-prefixed routes. A hostname can only
+ * reach this Worker after Cloudflare has attached its exact Custom Domain.
  */
 export function platformHostnameLocation(
   request: Pick<Request, 'method' | 'url'>,
@@ -190,7 +193,7 @@ export function platformHostnameLocation(
   const suffix = `.${PLATFORM_DOMAIN}`
   if (!hostname.endsWith(suffix)) return null
   const slug = hostname.slice(0, -suffix.length)
-  if (!PLATFORM_PORTALS.has(slug) || url.pathname !== '/') return null
+  if (portalHostnameForSlug(slug) !== hostname || url.pathname !== '/') return null
   return `/t/${slug}${url.search}`
 }
 

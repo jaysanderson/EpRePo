@@ -41,6 +41,8 @@ import {
   type TenantPatch,
   type TenantStoreApi,
   tenantSummaries,
+  tenantSummary,
+  withPlatformHostname,
 } from '../../api/src/tenants.ts'
 
 type SqlValue = ArrayBuffer | string | number | null
@@ -438,9 +440,9 @@ export class DurableTenantStore implements TenantStoreApi {
     const base = tenantConfig(slug) ?? data.custom[slug]
     if (!base) return undefined
     const override = data.overrides[slug]
-    if (!override) return base
+    if (!override) return withPlatformHostname(base)
     const { prompts: _prompts, ...configPatch } = override
-    return { ...base, ...configPatch }
+    return withPlatformHostname({ ...base, ...configPatch })
   }
 
   promptsFor(slug: string): { ask?: string; images?: boolean } {
@@ -507,12 +509,9 @@ export class DurableTenantStore implements TenantStoreApi {
     const data = this.load()
     const rows = [
       ...tenantSummaries(),
-      ...Object.values(data.custom).map((tenant) => ({
-        slug: tenant.slug,
-        organisation: tenant.branding.organisation,
-        productName: tenant.branding.productName,
-        tagline: tenant.branding.tagline,
-      })),
+      ...Object.values(data.custom).map((tenant) =>
+        tenantSummary(this.get(tenant.slug) ?? withPlatformHostname(tenant))
+      ),
     ]
     return includeDisabled ? rows : rows.filter((row) => !data.disabled.includes(row.slug))
   }
@@ -537,9 +536,10 @@ export class DurableTenantStore implements TenantStoreApi {
       entityTypes: [],
       relationTypes: [],
     })
-    data.custom[slug] = config
+    const configured = withPlatformHostname(config)
+    data.custom[slug] = configured
     this.save(data)
-    return config
+    return configured
   }
 
   remove(slug: string): boolean {

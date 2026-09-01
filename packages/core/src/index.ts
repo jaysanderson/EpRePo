@@ -205,15 +205,24 @@ export const EntityTypeSchema = z.object({
   colour: z.string(),
 })
 
+/** A lower-case public DNS hostname, without a scheme, path or port. */
+export const TenantHostnameSchema = z.string().max(253).regex(
+  /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/,
+)
+
 export const TenantSummarySchema = z.object({
   slug: z.string().min(1),
   organisation: z.string().min(1),
   productName: z.string().min(1),
   tagline: z.string().min(1),
+  /** Present only when this portal has a working dedicated hostname. */
+  hostname: TenantHostnameSchema.optional(),
 })
 
 export const TenantConfigSchema = z.object({
   slug: z.string().min(1),
+  /** Present only when this portal has a working dedicated hostname. */
+  hostname: TenantHostnameSchema.optional(),
   branding: BrandingSchema,
   searchPlaceholder: z.string(),
   topics: TopicSchema.array(),

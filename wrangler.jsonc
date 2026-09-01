@@ -23,6 +23,10 @@
       "custom_domain": true
     },
     {
+      "pattern": "opax.corpuskit.org",
+      "custom_domain": true
+    },
+    {
       "pattern": "corpuskit.noice.net.au",
       "custom_domain": true
     },

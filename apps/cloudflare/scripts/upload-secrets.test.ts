@@ -10,6 +10,8 @@ ARAG_KB_FRDC=box-id
 ARAG_KB_FRDC_TOKEN="box-token"
 ENTRA_CLIENT_SECRET=client-secret
 SESSION_SECRET=session-secret
+CLOUDFLARE_ACCOUNT_ID=cloudflare-account-id
+CLOUDFLARE_DOMAINS_TOKEN=domain-token
 `)
 
   expect(values).toEqual({
@@ -18,5 +20,7 @@ SESSION_SECRET=session-secret
     ARAG_KB_FRDC_TOKEN: 'box-token',
     ENTRA_CLIENT_SECRET: 'client-secret',
     SESSION_SECRET: 'session-secret',
+    CLOUDFLARE_ACCOUNT_ID: 'cloudflare-account-id',
+    CLOUDFLARE_DOMAINS_TOKEN: 'domain-token',
   })
 })

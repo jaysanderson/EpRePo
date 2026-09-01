@@ -194,7 +194,7 @@ export function TenantPicker() {
           {tenants.data?.map((tenant, index) => (
             <a
               key={tenant.slug}
-              href={portalHref(tenant.slug)}
+              href={portalHref(tenant.slug, { hostname: tenant.hostname })}
               className='mk-portal-card rp-focus'
             >
               <span className='mk-portal-index'>0{index + 1}</span>

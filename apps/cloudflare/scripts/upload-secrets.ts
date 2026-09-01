@@ -11,7 +11,8 @@ function isWorkerSecret(name: string): boolean {
   return name === 'ARAG_ZONE' || name === 'ADMIN_PASSCODE' ||
     name === 'ENTRA_CLIENT_SECRET' || name === 'ENTRA_ADMIN_EMAILS' ||
     name === 'SESSION_SECRET' || name === 'RATE_LIMIT_ASK_PER_MIN' ||
-    name === 'RATE_LIMIT_ESTATE_PER_MIN' || /^ARAG_KB_[A-Z0-9_]+$/.test(name)
+    name === 'RATE_LIMIT_ESTATE_PER_MIN' || name === 'CLOUDFLARE_ACCOUNT_ID' ||
+    name === 'CLOUDFLARE_DOMAINS_TOKEN' || /^ARAG_KB_[A-Z0-9_]+$/.test(name)
 }
 
 function parseDotEnv(source: string): Record<string, string> {

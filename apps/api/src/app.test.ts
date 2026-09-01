@@ -20,6 +20,7 @@ import { AragApiError, type AragProvider, type RetrievalProvider } from '@resear
 import { buildApp } from './app.ts'
 import { TenantStore } from './tenants.ts'
 import { EnrichmentStore } from './enrichments.ts'
+import type { PortalDomainProvisioner } from './cloudflare-domains.ts'
 
 // Hermetic tenant store - tests must never read the repo's live data/tenants.json.
 const freshTenants = () =>
@@ -151,6 +152,163 @@ describe('GET /api/t/:slug/config', () => {
 
     expect(response.status).toBe(404)
     expect(await response.json()).toEqual({ error: 'unknown_tenant' })
+  })
+})
+
+describe('portal domain lifecycle', () => {
+  const passcode = 'test-passcode'
+  const adminHeaders = {
+    'x-admin-passcode': passcode,
+    'content-type': 'application/json',
+  }
+  const add = (app: ReturnType<typeof buildApp>, name: string) =>
+    app.request('/api/admin/tenants', {
+      method: 'POST',
+      headers: adminHeaders,
+      body: JSON.stringify({ name }),
+    })
+
+  it('persists a hostname only after successful provisioning and removes it with the portal', async () => {
+    const tenants = freshTenants()
+    const attached: string[] = []
+    const detached: string[] = []
+    const domains: PortalDomainProvisioner = {
+      attach(hostname) {
+        attached.push(hostname)
+        return Promise.resolve({ hostname, created: true })
+      },
+      detach(hostname) {
+        detached.push(hostname)
+        return Promise.resolve({ hostname, removed: true })
+      },
+    }
+    const app = buildApp({
+      provider: new StubProvider(),
+      tenants,
+      adminPasscode: passcode,
+      domainProvisioner: domains,
+    })
+
+    const created = await add(app, 'New research portal')
+    expect(created.status).toBe(200)
+    expect(await created.json()).toEqual({
+      ok: true,
+      slug: 'new-research-portal',
+      domain: {
+        status: 'active',
+        hostname: 'new-research-portal.corpuskit.org',
+        created: true,
+      },
+    })
+    expect(attached).toEqual(['new-research-portal.corpuskit.org'])
+    expect(tenants.get('new-research-portal')?.hostname).toBe(
+      'new-research-portal.corpuskit.org',
+    )
+    expect(tenants.list().find((tenant) => tenant.slug === 'new-research-portal')?.hostname).toBe(
+      'new-research-portal.corpuskit.org',
+    )
+
+    const removed = await app.request('/api/admin/tenants/new-research-portal', {
+      method: 'DELETE',
+      headers: { 'x-admin-passcode': passcode },
+    })
+    expect(removed.status).toBe(200)
+    expect(detached).toEqual(['new-research-portal.corpuskit.org'])
+    expect(tenants.get('new-research-portal')).toBeUndefined()
+  })
+
+  it('creates a usable relative-route portal when credentials are absent or provisioning fails', async () => {
+    const withoutCredentials = freshTenants()
+    const unconfigured = buildApp({
+      provider: new StubProvider(),
+      tenants: withoutCredentials,
+      adminPasscode: passcode,
+      domainProvisioner: null,
+    })
+    const skipped = await add(unconfigured, 'Relative only')
+    expect(await skipped.json()).toMatchObject({
+      ok: true,
+      slug: 'relative-only',
+      domain: { status: 'skipped', reason: 'not_configured' },
+    })
+    expect(withoutCredentials.get('relative-only')?.hostname).toBeUndefined()
+
+    const failedStore = freshTenants()
+    const failed = buildApp({
+      provider: new StubProvider(),
+      tenants: failedStore,
+      adminPasscode: passcode,
+      domainProvisioner: {
+        attach: () => Promise.reject(new Error('Cloudflare is unavailable')),
+        detach: () => Promise.resolve({ hostname: '', removed: false }),
+      },
+    })
+    const response = await add(failed, 'Still usable')
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({
+      ok: true,
+      slug: 'still-usable',
+      domain: { status: 'failed', message: 'Cloudflare is unavailable' },
+    })
+    expect(failedStore.get('still-usable')).toBeDefined()
+    expect(failedStore.get('still-usable')?.hostname).toBeUndefined()
+  })
+
+  it('skips unsafe hostnames without failing the portal', async () => {
+    const tenants = freshTenants()
+    let called = false
+    const app = buildApp({
+      provider: new StubProvider(),
+      tenants,
+      adminPasscode: passcode,
+      domainProvisioner: {
+        attach: () => {
+          called = true
+          return Promise.resolve({ hostname: '', created: false })
+        },
+        detach: () => Promise.resolve({ hostname: '', removed: false }),
+      },
+    })
+
+    const response = await add(app, 'API')
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      ok: true,
+      slug: 'api',
+      domain: { status: 'skipped', reason: 'unsafe_slug' },
+    })
+    expect(called).toBe(false)
+    expect(tenants.get('api')).toBeDefined()
+  })
+
+  it('keeps the tenant when its attached domain cannot be removed', async () => {
+    const tenants = freshTenants()
+    tenants.add({ name: 'Removal retry' })
+    tenants.patch('removal-retry', { hostname: 'removal-retry.corpuskit.org' })
+    const app = buildApp({
+      provider: new StubProvider(),
+      tenants,
+      adminPasscode: passcode,
+      domainProvisioner: {
+        attach: (hostname) => Promise.resolve({ hostname, created: false }),
+        detach: () => Promise.reject(new Error('Cloudflare is unavailable')),
+      },
+    })
+
+    const response = await app.request('/api/admin/tenants/removal-retry', {
+      method: 'DELETE',
+      headers: { 'x-admin-passcode': passcode },
+    })
+    expect(response.status).toBe(502)
+    expect(tenants.get('removal-retry')).toBeDefined()
+  })
+
+  it('upgrades the existing OPAX runtime config to its configured hostname', () => {
+    const tenants = freshTenants()
+    expect(tenants.add({ name: 'OPAX' }).hostname).toBe('opax.corpuskit.org')
+    expect(tenants.list().find((tenant) => tenant.slug === 'opax')?.hostname).toBe(
+      'opax.corpuskit.org',
+    )
   })
 })
 

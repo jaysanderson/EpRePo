@@ -88,6 +88,11 @@ import { generateFollowUpQuestions } from './follow-up-questions.ts'
 import { generateSuggestedQuestions, SUGGESTED_QUESTIONS_SCHEMA_ID } from './suggested-questions.ts'
 import { tenantAliasLocation } from './tenant-aliases.ts'
 import { registerMcpRoutes, type TrustedPortalUser } from './mcp.ts'
+import {
+  createCloudflareDomainProvisioner,
+  type PortalDomainProvisioner,
+  portalHostnameForSlug,
+} from './cloudflare-domains.ts'
 
 const searchQuerySchema = z.object({ q: z.string().min(1) })
 const MAX_ENRICHMENT_IMPORT_BYTES = 8 * 1024 * 1024
@@ -542,6 +547,8 @@ export interface BuildAppOptions {
   kgProposals?: KgProposalStoreApi
   /** Merchandising enrichment cache; a fresh store when omitted (tests). */
   enrichments?: EnrichmentStoreApi
+  /** Runtime adapter for optional per-portal Worker custom domains. */
+  domainProvisioner?: PortalDomainProvisioner | null
   zone?: string
   adminPasscode?: string
   /** A platform adapter may authenticate an administrator before the request reaches Hono. */
@@ -581,6 +588,9 @@ export function buildApp(opts: BuildAppOptions): Hono {
   const suggestions = opts.suggestions ?? new SuggestionStore()
   const kgProposals = opts.kgProposals ?? new KgProposalStore()
   const enrichments = opts.enrichments ?? new EnrichmentStore()
+  const domains = opts.domainProvisioner === undefined
+    ? createCloudflareDomainProvisioner(process.env)
+    : opts.domainProvisioner
   const clientId = (c: Context): string => c.req.header('x-rp-client') ?? 'anonymous'
   const app = new Hono()
 
@@ -1635,20 +1645,84 @@ export function buildApp(opts: BuildAppOptions): Hono {
     if (!parsed.success) return c.json({ error: 'invalid_request' }, 400)
     try {
       const config = tenants.add(parsed.data as NewTenantInput)
-      return c.json({ ok: true, slug: config.slug })
+      if (config.hostname) {
+        return c.json({
+          ok: true,
+          slug: config.slug,
+          domain: { status: 'active', hostname: config.hostname, created: false },
+        })
+      }
+
+      const hostname = portalHostnameForSlug(config.slug)
+      if (!hostname) {
+        return c.json({
+          ok: true,
+          slug: config.slug,
+          domain: { status: 'skipped', reason: 'unsafe_slug' },
+        })
+      }
+      if (!domains) {
+        return c.json({
+          ok: true,
+          slug: config.slug,
+          domain: { status: 'skipped', hostname, reason: 'not_configured' },
+        })
+      }
+
+      try {
+        const attached = await domains.attach(hostname)
+        try {
+          tenants.patch(config.slug, { hostname: attached.hostname })
+        } catch (error) {
+          if (attached.created) await domains.detach(attached.hostname).catch(() => {})
+          throw error
+        }
+        return c.json({
+          ok: true,
+          slug: config.slug,
+          domain: { status: 'active', ...attached },
+        })
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'domain provisioning failed'
+        return c.json({
+          ok: true,
+          slug: config.slug,
+          domain: { status: 'failed', hostname, message },
+        })
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'could not add the portal'
       return c.json({ error: 'invalid_request', message }, 400)
     }
   })
 
-  app.delete('/api/admin/tenants/:slug', (c) => {
+  app.delete('/api/admin/tenants/:slug', async (c) => {
     const slug = c.req.param('slug')
     if (!tenants.isCustom(slug)) return c.json({ error: 'not_removable' }, 400)
+    const config = tenants.get(slug)
+    if (config?.hostname) {
+      if (!domains) {
+        return c.json({
+          error: 'domain_removal_unavailable',
+          message: 'Domain removal is not configured. The portal has not been removed.',
+        }, 503)
+      }
+      try {
+        await domains.detach(config.hostname)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'domain removal failed'
+        return c.json({ error: 'domain_removal_failed', message }, 502)
+      }
+    }
     tenants.remove(slug)
     bindings.remove(slug)
     opts.invalidate?.(slug)
-    return c.json({ ok: true })
+    return c.json({
+      ok: true,
+      domain: config?.hostname
+        ? { status: 'removed', hostname: config.hostname }
+        : { status: 'not_configured' },
+    })
   })
 
   app.post('/api/admin/t/:slug/knowledge-box/create', async (c) => {

@@ -9,8 +9,35 @@ import { readJsonSafe, writeJsonAtomic } from './persist.ts'
 // no SQLite or embedded databases unless absolutely unavoidable).
 // ---------------------------------------------------------------------------
 
+const PLATFORM_HOSTNAMES: Readonly<Record<string, string>> = {
+  frdc: 'frdc.corpuskit.org',
+  grdc: 'grdc.corpuskit.org',
+  opax: 'opax.corpuskit.org',
+}
+
+/**
+ * Compatibility for portals whose custom domains pre-date persisted hostname
+ * metadata. OPAX was created at runtime, so its stored config needs the same
+ * read-time upgrade as the two seeded portals.
+ */
+export function withPlatformHostname(config: TenantConfig): TenantConfig {
+  const hostname = config.hostname ?? PLATFORM_HOSTNAMES[config.slug]
+  return hostname ? { ...config, hostname } : config
+}
+
+export function tenantSummary(config: TenantConfig): TenantSummary {
+  return {
+    slug: config.slug,
+    organisation: config.branding.organisation,
+    productName: config.branding.productName,
+    tagline: config.branding.tagline,
+    ...(config.hostname ? { hostname: config.hostname } : {}),
+  }
+}
+
 const grdc: TenantConfig = TenantConfigSchema.parse({
   slug: 'grdc',
+  hostname: PLATFORM_HOSTNAMES.grdc,
   branding: {
     productName: 'GRDC Knowledge Hub',
     organisation: 'Grains Research and Development Corporation',
@@ -65,6 +92,7 @@ const grdc: TenantConfig = TenantConfigSchema.parse({
 
 const frdc: TenantConfig = TenantConfigSchema.parse({
   slug: 'frdc',
+  hostname: PLATFORM_HOSTNAMES.frdc,
   branding: {
     productName: 'FRDC Knowledge Hub',
     organisation: 'Fisheries Research and Development Corporation',
@@ -132,16 +160,12 @@ const tenantsBySlug: Record<string, TenantConfig> = {
 }
 
 export function tenantConfig(slug: string): TenantConfig | undefined {
-  return tenantsBySlug[slug]
+  const config = tenantsBySlug[slug]
+  return config ? withPlatformHostname(config) : undefined
 }
 
 export function tenantSummaries(): TenantSummary[] {
-  return Object.values(tenantsBySlug).map((tenant) => ({
-    slug: tenant.slug,
-    organisation: tenant.branding.organisation,
-    productName: tenant.branding.productName,
-    tagline: tenant.branding.tagline,
-  }))
+  return Object.values(tenantsBySlug).map((tenant) => tenantSummary(withPlatformHostname(tenant)))
 }
 
 // ---------------------------------------------------------------------------
@@ -165,6 +189,7 @@ export interface NewTenantInput {
 
 /** Config fields corpus analysis is allowed to rewrite. */
 export interface TenantPatch {
+  hostname?: TenantConfig['hostname']
   topics?: TenantConfig['topics']
   suggestedQuestions?: TenantConfig['suggestedQuestions']
   searchPlaceholder?: string
@@ -201,9 +226,9 @@ export class TenantStore {
     const base = tenantsBySlug[slug] ?? this.custom[slug]
     if (!base) return undefined
     const override = this.overrides[slug]
-    if (!override) return base
+    if (!override) return withPlatformHostname(base)
     const { prompts: _prompts, ...configPatch } = override
-    return { ...base, ...configPatch }
+    return withPlatformHostname({ ...base, ...configPatch })
   }
 
   /** App-side settings that never reach the public config payload. */
@@ -271,12 +296,9 @@ export class TenantStore {
   list(includeDisabled = false): TenantSummary[] {
     const all = [
       ...tenantSummaries(),
-      ...Object.values(this.custom).map((tenant) => ({
-        slug: tenant.slug,
-        organisation: tenant.branding.organisation,
-        productName: tenant.branding.productName,
-        tagline: tenant.branding.tagline,
-      })),
+      ...Object.values(this.custom).map((tenant) =>
+        tenantSummary(this.get(tenant.slug) ?? withPlatformHostname(tenant))
+      ),
     ]
     return includeDisabled ? all : all.filter((t) => !this.disabled.has(t.slug))
   }
@@ -300,9 +322,10 @@ export class TenantStore {
       entityTypes: [],
       relationTypes: [],
     })
-    this.custom[slug] = config
+    const configured = withPlatformHostname(config)
+    this.custom[slug] = configured
     this.persist()
-    return config
+    return configured
   }
 
   remove(slug: string): boolean {

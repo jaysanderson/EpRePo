@@ -1,7 +1,7 @@
 import { type KeyboardEvent, useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import type { KnowledgeBoxStatus, TenantConfig } from '@research-portal/core'
+import type { KnowledgeBoxStatus, TenantConfig, TenantSummary } from '@research-portal/core'
 import { getKnowledgeBoxStatus, getTenants } from '../api/client.ts'
 import { portalHref } from '../lib/portal-url.ts'
 
@@ -99,12 +99,16 @@ export function KbSwitcher({ config }: { config: TenantConfig }) {
     items[next]?.focus()
   }
 
-  const switchTo = (slug: string) => {
+  const switchTo = (target: TenantSummary) => {
     setOpen(false)
+    const slug = target.slug
     if (slug === config.slug) return
     // Keep the current section when switching boxes, e.g. /search stays /search.
     const section = location.pathname.replace(new RegExp(`^/t/${config.slug}`), '')
-    const destination = portalHref(slug, `${section}${location.search}`)
+    const destination = portalHref(slug, {
+      hostname: target.hostname,
+      suffix: `${section}${location.search}`,
+    })
     if (/^https:\/\//.test(destination)) {
       globalThis.location.assign(destination)
       return
@@ -164,7 +168,7 @@ export function KbSwitcher({ config }: { config: TenantConfig }) {
                   type='button'
                   role='menuitem'
                   tabIndex={-1}
-                  onClick={() => switchTo(t.slug)}
+                  onClick={() => switchTo(t)}
                   className={`rp-focus flex w-full items-center gap-3 rounded-[var(--rp-radius-btn)] px-2.5 py-2 text-left transition-colors duration-150 hover:bg-[var(--rp-surface-2)] ${
                     current ? 'bg-surface-2' : ''
                   }`}
