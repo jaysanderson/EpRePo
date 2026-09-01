@@ -8,6 +8,7 @@ import {
   type RelationsGraph,
   searchTenantFull,
 } from '../api/client.ts'
+import { ResourceThumb } from '../components/ResourceThumb.tsx'
 import { EmptyState, ErrorCard } from '../components/ui.tsx'
 import {
   buildDegrees,
@@ -352,12 +353,25 @@ function EvidenceList({ slug, name }: { slug: string; name: string }) {
         <li key={resource.id}>
           <Link
             to={`/t/${slug}/library/${resource.id}`}
-            className='block rounded-[var(--rp-radius)] border border-line bg-surface p-2.5 transition-colors hover:bg-[var(--rp-surface-2)]'
+            className='rp-focus flex gap-2.5 rounded-[var(--rp-radius)] border border-line bg-surface p-2.5 transition-colors hover:bg-[var(--rp-surface-2)]'
           >
-            <p className='rp-clamp-2 text-xs font-medium text-ink'>{resource.title}</p>
-            {resource.matchedPassage
-              ? <p className='rp-clamp-2 mt-1 text-xs text-ink-3'>{resource.matchedPassage}</p>
-              : null}
+            <div
+              className='relative aspect-[210/297] w-[4.5rem] shrink-0 self-start overflow-hidden border border-line'
+              aria-hidden='true'
+            >
+              <ResourceThumb
+                slug={slug}
+                id={resource.id}
+                type={resource.type}
+                imgClassName='object-top'
+              />
+            </div>
+            <div className='min-w-0 flex-1'>
+              <p className='rp-clamp-2 text-xs font-medium text-ink'>{resource.title}</p>
+              {resource.matchedPassage
+                ? <p className='rp-clamp-2 mt-1 text-xs text-ink-3'>{resource.matchedPassage}</p>
+                : null}
+            </div>
           </Link>
         </li>
       ))}

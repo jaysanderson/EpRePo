@@ -51,8 +51,16 @@ function MentionCard({ resource, slug }: { resource: ScoredResource; slug: strin
       to={`/t/${slug}/library/${resource.id}`}
       className='rp-card rp-lift rp-focus flex gap-3.5 p-4'
     >
-      <div className='hidden h-16 w-24 shrink-0 overflow-hidden rounded-[var(--rp-radius)] border border-line sm:block'>
-        <ResourceThumb slug={slug} id={resource.id} type={resource.type} />
+      <div
+        className='relative aspect-[210/297] w-[4.5rem] shrink-0 self-start overflow-hidden border border-line'
+        aria-hidden='true'
+      >
+        <ResourceThumb
+          slug={slug}
+          id={resource.id}
+          type={resource.type}
+          imgClassName='object-top'
+        />
       </div>
       <div className='min-w-0 flex-1'>
         <TypeBadge type={resource.type} />
