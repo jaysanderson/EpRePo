@@ -16,8 +16,7 @@ import {
   type SearchResults,
   type TenantConfig,
 } from '@research-portal/core'
-import { overlayEnrichment } from '@research-portal/retrieval'
-import type { AragProvider } from '@research-portal/retrieval'
+import { AragApiError, type AragProvider, overlayEnrichment } from '@research-portal/retrieval'
 import { readJsonSafe, writeJsonAtomic } from './persist.ts'
 
 /**
@@ -341,7 +340,14 @@ export async function generateEnrichment(
 ): Promise<Enrichment> {
   // Read the resource first: this is both the grounding text for generation
   // and the fallback source for graceful degradation.
-  const content = await management.resourceContent(config, resourceId).catch(() => null)
+  const content = await management.resourceContent(config, resourceId).catch((err) => {
+    // Do not turn a busy platform into a degraded enrichment. A 429/timeout
+    // means "try this resource later", not "this resource has no content".
+    // The corpus runner recognises the typed error and applies bounded
+    // back-off; swallowing it here was what made a strained run look empty.
+    if (isEnrichmentStrain(err)) throw err
+    return null
+  })
   const pageSummary = content?.pageSummary?.trim()
   const documentText = documentTextFor(content, pageSummary)
 
@@ -355,7 +361,8 @@ export async function generateEnrichment(
         buildEnrichmentQuery(agent, documentText),
       )
       data = result.object != null ? parseEnrichmentData(agent, result.object) : null
-    } catch {
+    } catch (err) {
+      if (isEnrichmentStrain(err)) throw err
       // A platform hiccup (a transient 5xx, "no structured answer") is not a
       // hard failure while we have the resource's own content to fall back
       // on - see degradedEnrichment below.
@@ -390,6 +397,113 @@ export async function generateEnrichment(
 /** Concurrency for corpus runs - bounded so a run never hammers the ARAG account. */
 const RUN_CONCURRENCY = 4
 
+/** Calls slower than this are a useful early warning that the shared box is strained. */
+const STRAIN_LATENCY_MS = 5_000
+/** Extra attempts for a call which explicitly reports transient strain. */
+const STRAIN_MAX_RETRIES = 2
+/** Exponential back-off floor and hard ceiling. */
+const STRAIN_BACKOFF_BASE_MS = 1_000
+const STRAIN_BACKOFF_MAX_MS = 10_000
+
+interface EnrichmentBackoffOptions {
+  /** Extra attempts after the first call. */
+  maxRetries: number
+  latencyThresholdMs: number
+  baseDelayMs: number
+  maxDelayMs: number
+  now: () => number
+  sleep: (ms: number) => Promise<void>
+}
+
+type EnrichmentRunOptions = {
+  scope: 'all' | 'missing'
+  limit?: number
+  agent?: EnrichmentAgent
+  /** Test/operations seam; HTTP callers cannot set these values. */
+  backoff?: Partial<EnrichmentBackoffOptions>
+}
+
+function resolvedBackoff(
+  override: Partial<EnrichmentBackoffOptions> | undefined,
+): EnrichmentBackoffOptions {
+  return {
+    maxRetries: override?.maxRetries ?? STRAIN_MAX_RETRIES,
+    latencyThresholdMs: override?.latencyThresholdMs ?? STRAIN_LATENCY_MS,
+    baseDelayMs: override?.baseDelayMs ?? STRAIN_BACKOFF_BASE_MS,
+    maxDelayMs: override?.maxDelayMs ?? STRAIN_BACKOFF_MAX_MS,
+    now: override?.now ?? Date.now,
+    sleep: override?.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms))),
+  }
+}
+
+/**
+ * Strain has more than one platform shape. Ingestion back-pressure has a
+ * structured body, while generation may return a plain 429, a gateway
+ * timeout, or an aborted fetch. All are retryable here, but only inside the
+ * small bounded budget above.
+ */
+function isEnrichmentStrain(err: unknown): boolean {
+  if (err instanceof AragApiError) {
+    return err.status === 408 || err.status === 429 || err.status === 503 || err.status === 504
+  }
+  if (!(err instanceof Error)) return false
+  return err.name === 'AbortError' || err.name === 'TimeoutError' ||
+    /timed?\s*out|too many requests|rate.?limit/i.test(err.message)
+}
+
+function retryDelayMs(
+  err: unknown,
+  retry: number,
+  options: EnrichmentBackoffOptions,
+): number {
+  const exponential = options.baseDelayMs * 2 ** retry
+  const hinted = err instanceof AragApiError && err.backpressure
+    ? Math.max(0, err.backpressure.tryAfter * 1_000 - options.now())
+    : 0
+  return Math.min(options.maxDelayMs, Math.max(exponential, hinted))
+}
+
+/** One shared gate prevents concurrent workers from each starting a retry immediately. */
+class EnrichmentBackoffGate {
+  private notBefore = 0
+
+  constructor(private readonly options: EnrichmentBackoffOptions) {}
+
+  defer(ms: number): void {
+    this.notBefore = Math.max(this.notBefore, this.options.now() + ms)
+  }
+
+  async wait(): Promise<void> {
+    const remaining = this.notBefore - this.options.now()
+    if (remaining > 0) await this.options.sleep(remaining)
+  }
+}
+
+async function withEnrichmentBackoff<T>(
+  operation: () => Promise<T>,
+  gate: EnrichmentBackoffGate,
+  options: EnrichmentBackoffOptions,
+): Promise<T> {
+  for (let attempt = 0;; attempt++) {
+    await gate.wait()
+    const started = options.now()
+    try {
+      const value = await operation()
+      const elapsed = options.now() - started
+      if (elapsed >= options.latencyThresholdMs) {
+        // A slow success still signals contention. Keep the useful result,
+        // but pause every worker before another platform call begins.
+        gate.defer(retryDelayMs(null, attempt, options))
+        await gate.wait()
+      }
+      return value
+    } catch (err) {
+      if (!isEnrichmentStrain(err) || attempt >= options.maxRetries) throw err
+      gate.defer(retryDelayMs(err, attempt, options))
+    }
+  }
+}
+
 /**
  * Run an enrichment agent over the corpus, streaming progress as each resource
  * completes. `scope: 'missing'` only enriches resources without an enrichment
@@ -401,13 +515,19 @@ export async function* runEnrichmentOverCorpus(
   management: AragProvider,
   store: EnrichmentStore,
   config: TenantConfig,
-  opts: { scope: 'all' | 'missing'; limit?: number; agent?: EnrichmentAgent },
+  opts: EnrichmentRunOptions,
 ): AsyncGenerator<EnrichmentRunEvent> {
   const agent = opts.agent ?? DEFAULT_RESEARCH_ENRICHMENT
   const titleKey = agent.fields.find((f) => f.kind === 'title')?.key
+  const backoff = resolvedBackoff(opts.backoff)
+  const gate = new EnrichmentBackoffGate(backoff)
   let catalogue: ResourceSummary[]
   try {
-    catalogue = await management.listResources(config)
+    catalogue = await withEnrichmentBackoff(
+      () => management.listResources(config),
+      gate,
+      backoff,
+    )
   } catch (err) {
     yield {
       type: 'error',
@@ -415,9 +535,44 @@ export async function* runEnrichmentOverCorpus(
     }
     return
   }
-  const targets = opts.scope === 'all'
+  let targets = opts.scope === 'all'
     ? catalogue
     : catalogue.filter((r) => !store.get(config.slug, r.id, agent.id))
+
+  if (opts.scope === 'missing' && targets.length === 0) {
+    // A zero from a cached or strained catalogue is not authoritative. Drop
+    // the provider cache and make the issue's cheap `scope:missing limit:1`
+    // probe: finding even one outstanding resource proves this run is not
+    // caught up. Only a fresh, non-empty catalogue whose every resource is in
+    // the store is allowed to report `done: 0`.
+    management.invalidate(config.slug)
+    if (catalogue.length === 0) {
+      gate.defer(retryDelayMs(null, 0, backoff))
+    }
+    try {
+      const fresh = await withEnrichmentBackoff(
+        () => management.listResources(config),
+        gate,
+        backoff,
+      )
+      targets = fresh.filter((r) => !store.get(config.slug, r.id, agent.id)).slice(0, 1)
+      if (fresh.length === 0) {
+        yield {
+          type: 'error',
+          message:
+            'The knowledge box returned an empty catalogue, so enrichment could not confirm that the corpus is caught up.',
+        }
+        return
+      }
+    } catch (err) {
+      yield {
+        type: 'error',
+        message: err instanceof Error ? err.message : 'Could not confirm outstanding enrichments',
+      }
+      return
+    }
+  }
+
   const limited = typeof opts.limit === 'number' ? targets.slice(0, opts.limit) : targets
 
   yield { type: 'start', total: limited.length }
@@ -442,13 +597,18 @@ export async function* runEnrichmentOverCorpus(
   let index = 0
   let enriched = 0
   let errors = 0
+  let strained = false
   const worker = async () => {
     for (;;) {
       const i = index++
       if (i >= limited.length) return
       const resource = limited[i]!
       try {
-        const enrichment = await generateEnrichment(management, config, resource.id, agent)
+        const enrichment = await withEnrichmentBackoff(
+          () => generateEnrichment(management, config, resource.id, agent),
+          gate,
+          backoff,
+        )
         store.put(config.slug, resource.id, enrichment)
         enriched++
         const generatedTitle = titleKey && typeof enrichment.data[titleKey] === 'string'
@@ -462,6 +622,7 @@ export async function* runEnrichmentOverCorpus(
         })
       } catch (err) {
         errors++
+        strained ||= isEnrichmentStrain(err)
         push({
           type: 'item',
           id: resource.id,
@@ -495,5 +656,19 @@ export async function* runEnrichmentOverCorpus(
     })
   }
   await pool
+  if (strained || (limited.length > 0 && enriched === 0)) {
+    // A zero-yield run had outstanding work at `start`, so it is never
+    // "caught up". Pause once before returning a distinct error event; the
+    // caller or next scheduler cycle can safely retry the still-missing set.
+    gate.defer(retryDelayMs(null, 0, backoff))
+    await gate.wait()
+    yield {
+      type: 'error',
+      message: strained
+        ? 'The knowledge box remained busy after bounded retries. Outstanding enrichments were left for a later run.'
+        : 'The run yielded no enrichments despite outstanding work. It stopped without marking the corpus caught up.',
+    }
+    return
+  }
   yield { type: 'done', enriched, errors }
 }

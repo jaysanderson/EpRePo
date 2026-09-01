@@ -8,6 +8,7 @@ import {
   looksLikeChallengePage,
 } from './crawl.ts'
 import { type Source, SourceStore, WatchStore } from './stores.ts'
+import { type EnrichmentStore, runEnrichmentOverCorpus } from './enrichments.ts'
 import type { TenantStore } from './tenants.ts'
 
 // ---------------------------------------------------------------------------
@@ -235,6 +236,64 @@ export async function runWatches(
   }
 }
 
+/** Merchandise up to this many still-unenriched resources per portal, per run. */
+const AUTO_ENRICH_CAP = 400
+
+/** Daily by default; operators may safely choose an hourly-to-monthly cadence. */
+export const DEFAULT_AUTO_ENRICH_CADENCE_MS = 24 * 3600 * 1000
+const MIN_AUTO_ENRICH_CADENCE_HOURS = 1
+const MAX_AUTO_ENRICH_CADENCE_HOURS = 24 * 31
+
+/** Parse AUTO_ENRICH_CADENCE_HOURS without allowing a typo to create a hot loop. */
+export function autoEnrichmentCadenceMs(raw: string | undefined): number {
+  if (raw == null || raw.trim() === '') return DEFAULT_AUTO_ENRICH_CADENCE_MS
+  const requested = Number(raw)
+  if (!Number.isFinite(requested) || requested <= 0) return DEFAULT_AUTO_ENRICH_CADENCE_MS
+  const hours = Math.min(
+    Math.max(requested, MIN_AUTO_ENRICH_CADENCE_HOURS),
+    MAX_AUTO_ENRICH_CADENCE_HOURS,
+  )
+  return hours * 3600 * 1000
+}
+
+/**
+ * Work through a bounded slice of missing merchandising for every portal.
+ * `runEnrichmentOverCorpus` owns the bounded strain retries and never reports
+ * an outstanding zero-yield run as done; anything left stays missing and is
+ * naturally selected by the next cadence.
+ */
+export async function runAutoEnrichments(
+  management: AragProvider,
+  tenants: TenantStore,
+  enrichments: EnrichmentStore,
+): Promise<void> {
+  for (const summary of tenants.list()) {
+    const config = tenants.get(summary.slug)
+    if (!config) continue
+    try {
+      let problem: string | undefined
+      for await (
+        const event of runEnrichmentOverCorpus(management, enrichments, config, {
+          scope: 'missing',
+          limit: AUTO_ENRICH_CAP,
+        })
+      ) {
+        if (event.type === 'error') problem = event.message
+      }
+      if (problem) {
+        console.warn(`[scheduler] auto-enrichment paused for ${config.slug}: ${problem}`)
+        // Tenants share the platform account. Once one box says it is
+        // strained, moving straight to the next box would only transfer the
+        // pressure; leave every remaining portal for the next cadence.
+        return
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'unknown error'
+      console.error(`[scheduler] auto-enrichment failed for ${config.slug}: ${message}`)
+    }
+  }
+}
+
 /** Sync every auto source across all portals (daily job). */
 export async function runAutoSyncs(
   management: AragProvider,
@@ -262,9 +321,9 @@ export async function runAutoSyncs(
 /**
  * Start the daily upkeep timer; returns a stop function.
  *
- * `sources` and `watches` must be the SAME store instances buildApp uses for
- * its HTTP routes (POST /watches, the sources admin endpoints), not fresh
- * ones. Both stores do a whole-file read-modify-write on each mutation,
+ * `sources`, `watches` and `enrichments` must be the SAME store instances
+ * buildApp uses for its HTTP routes, not fresh ones. The stores do a whole-file
+ * read-modify-write on each mutation,
  * so a scheduled sync and a concurrent HTTP write against two separate
  * instances can each read the file before the other's write lands and
  * silently drop it. Sharing instances doesn't remove that race by itself,
@@ -276,16 +335,36 @@ export function startScheduler(
   tenants: TenantStore,
   sources: SourceStore,
   watches: WatchStore,
+  enrichments: EnrichmentStore,
 ): () => void {
-  const run = async () => {
+  const runDaily = async () => {
     await runAutoSyncs(management, tenants, sources).catch(() => {})
     await runWatches(management, tenants, watches).catch(() => {})
   }
-  // First pass shortly after boot (machines may sleep between requests), then daily.
-  const boot = setTimeout(() => run(), 90_000)
-  const daily = setInterval(() => run(), 24 * 3600 * 1000)
+  const runEnrichments = () => runAutoEnrichments(management, tenants, enrichments)
+
+  // Serialise scheduled platform work. A configurable enrichment timer must
+  // never overlap the daily ingest pass and recreate the contention this
+  // scheduler is meant to avoid.
+  let stopped = false
+  let queue = Promise.resolve()
+  const enqueue = (task: () => Promise<void>) => {
+    queue = queue.then(() => stopped ? undefined : task()).catch(() => {})
+  }
+
+  // First pass shortly after boot (machines may sleep between requests).
+  const boot = setTimeout(() =>
+    enqueue(async () => {
+      await runDaily()
+      await runEnrichments()
+    }), 90_000)
+  const daily = setInterval(() => enqueue(runDaily), 24 * 3600 * 1000)
+  const cadence = autoEnrichmentCadenceMs(Deno.env.get('AUTO_ENRICH_CADENCE_HOURS'))
+  const enrichment = setInterval(() => enqueue(runEnrichments), cadence)
   return () => {
+    stopped = true
     clearTimeout(boot)
     clearInterval(daily)
+    clearInterval(enrichment)
   }
 }

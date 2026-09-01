@@ -169,11 +169,15 @@ function management(
     pageSummary?: string
     bodyText?: string
     askShouldFail?: boolean
+    askFailures?: number
+    catalogues?: Record<string, unknown>[]
     noAnswer?: boolean
     resourceShouldFail?: boolean
   } = {},
   askBodies?: Record<string, unknown>[],
 ): AragProvider {
+  let askFailures = opts.askFailures ?? 0
+  let catalogueCall = 0
   const pageSummary = opts.pageSummary ??
     'This document outlines a series of courses for professional fishers in 1985.'
   const answer = opts.answer ?? {
@@ -187,8 +191,11 @@ function management(
     fetchImpl: (input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input.toString()
       if (url.includes('/catalog')) {
+        const configured = opts.catalogues?.[
+          Math.min(catalogueCall++, Math.max(0, opts.catalogues.length - 1))
+        ]
         return Promise.resolve(json({
-          resources: {
+          resources: configured ?? {
             r1: { title: '1981-071-DLD.pdf', metadata: { status: 'PROCESSED' } },
             r2: { title: '1984-065-DLD.pdf', metadata: { status: 'PROCESSED' } },
           },
@@ -210,6 +217,10 @@ function management(
       }
       if (url.endsWith('/ask')) {
         if (askBodies && init?.body) askBodies.push(JSON.parse(init.body as string))
+        if (askFailures > 0) {
+          askFailures--
+          return Promise.resolve(new Response('rate limited', { status: 429 }))
+        }
         if (opts.askShouldFail) return Promise.resolve(new Response('boom', { status: 500 }))
         return Promise.resolve(ndjson([
           { item: { type: 'retrieval', results: { resources: {} } } },
@@ -394,6 +405,155 @@ describe('runEnrichmentOverCorpus', () => {
     expect(events[0]).toEqual({ type: 'start', total: 1 })
   })
 
+  it('reports done with zero only after a fresh one-item missing probe confirms caught up', async () => {
+    const store = new EnrichmentStore(tmp())
+    store.put('frdc-2', 'r1', enrichment())
+    store.put('frdc-2', 'r2', enrichment())
+    const events = await collect(
+      runEnrichmentOverCorpus(management(), store, config, { scope: 'missing' }),
+    )
+    expect(events).toEqual([
+      { type: 'start', total: 0 },
+      { type: 'done', enriched: 0, errors: 0 },
+    ])
+  })
+
+  it('a fresh limit-one probe finds work hidden by an optimistic cached zero', async () => {
+    const store = new EnrichmentStore(tmp())
+    store.put('frdc-2', 'r1', enrichment())
+    const events = await collect(
+      runEnrichmentOverCorpus(
+        management({
+          catalogues: [
+            { r1: { title: 'Already enriched', metadata: { status: 'PROCESSED' } } },
+            {
+              r1: { title: 'Already enriched', metadata: { status: 'PROCESSED' } },
+              r2: { title: 'Still outstanding', metadata: { status: 'PROCESSED' } },
+            },
+          ],
+        }),
+        store,
+        config,
+        { scope: 'missing' },
+      ),
+    )
+    expect(events[0]).toEqual({ type: 'start', total: 1 })
+    expect(events.at(-1)).toEqual({ type: 'done', enriched: 1, errors: 0 })
+    expect(store.get('frdc-2', 'r2')).toBeDefined()
+  })
+
+  it('an empty catalogue response remains distinct from caught up', async () => {
+    const events = await collect(
+      runEnrichmentOverCorpus(
+        management({ catalogues: [{}, {}] }),
+        new EnrichmentStore(tmp()),
+        config,
+        {
+          scope: 'missing',
+          backoff: {
+            baseDelayMs: 0,
+            maxDelayMs: 0,
+            sleep: () => Promise.resolve(),
+          },
+        },
+      ),
+    )
+    expect(events.some((event) => event.type === 'done')).toBe(false)
+    expect(events.at(-1)?.type).toBe('error')
+  })
+
+  it('retries a 429 with bounded back-off and enriches instead of reporting caught up', async () => {
+    const store = new EnrichmentStore(tmp())
+    const waits: number[] = []
+    const events = await collect(
+      runEnrichmentOverCorpus(management({ askFailures: 1 }), store, config, {
+        scope: 'all',
+        limit: 1,
+        backoff: {
+          maxRetries: 1,
+          baseDelayMs: 10,
+          maxDelayMs: 10,
+          sleep: (ms) => {
+            waits.push(ms)
+            return Promise.resolve()
+          },
+        },
+      }),
+    )
+    expect(waits).toEqual([10])
+    expect(events.at(-1)).toEqual({ type: 'done', enriched: 1, errors: 0 })
+    expect(store.get('frdc-2', 'r1')).toBeDefined()
+  })
+
+  it('stops with an error, never done zero, when 429 strain outlasts the retry budget', async () => {
+    const store = new EnrichmentStore(tmp())
+    const events = await collect(
+      runEnrichmentOverCorpus(management({ askFailures: 3 }), store, config, {
+        scope: 'all',
+        limit: 1,
+        backoff: {
+          maxRetries: 1,
+          baseDelayMs: 0,
+          maxDelayMs: 0,
+          sleep: () => Promise.resolve(),
+        },
+      }),
+    )
+    expect(events.some((event) => event.type === 'done')).toBe(false)
+    const final = events.at(-1)
+    expect(final?.type).toBe('error')
+    if (final?.type === 'error') {
+      expect(final.message).toContain('bounded retries')
+    }
+  })
+
+  it('backs off after elevated catalogue latency before generating', async () => {
+    let clock = 0
+    const waits: number[] = []
+    const slow = {
+      listResources: () => {
+        clock += 6_000
+        return Promise.resolve([baseSummary()])
+      },
+      resourceContent: () =>
+        Promise.resolve({
+          id: 'r1',
+          title: 'A report',
+          summary: 'A useful source summary with enough detail to merchandise the report.',
+          slug: 'a-report',
+          kind: 'text',
+          texts: [{ fieldId: 'body', text: 'Grounding text for the report.' }],
+          topicIds: [],
+        }),
+      askStructured: () =>
+        Promise.resolve({
+          object: {
+            title: 'A real report title',
+            summary: 'A useful source summary with enough detail to merchandise the report.',
+            keyTakeaways: [],
+            quotesOfInterest: [],
+          },
+        }),
+    } as unknown as AragProvider
+    const events = await collect(
+      runEnrichmentOverCorpus(slow, new EnrichmentStore(tmp()), config, {
+        scope: 'all',
+        backoff: {
+          now: () => clock,
+          baseDelayMs: 25,
+          maxDelayMs: 25,
+          sleep: (ms) => {
+            waits.push(ms)
+            clock += ms
+            return Promise.resolve()
+          },
+        },
+      }),
+    )
+    expect(waits).toContain(25)
+    expect(events.at(-1)).toEqual({ type: 'done', enriched: 1, errors: 0 })
+  })
+
   it(
     'a structured-generation failure degrades gracefully rather than erroring the run ' +
       '(the page summary is still available)',
@@ -414,20 +574,21 @@ describe('runEnrichmentOverCorpus', () => {
   )
 
   it(
-    'reports per-item errors without aborting the run, only when there is genuinely ' +
-      'nothing to work with',
+    'does not report done zero when every outstanding resource yields an error',
     async () => {
       const store = new EnrichmentStore(tmp())
       const events = await collect(
         runEnrichmentOverCorpus(management({ resourceShouldFail: true }), store, config, {
           scope: 'all',
+          backoff: {
+            baseDelayMs: 0,
+            maxDelayMs: 0,
+            sleep: () => Promise.resolve(),
+          },
         }),
       )
-      const done = events.at(-1)
-      if (done?.type === 'done') {
-        expect(done.errors).toBe(2)
-        expect(done.enriched).toBe(0)
-      }
+      expect(events.some((event) => event.type === 'done')).toBe(false)
+      expect(events.at(-1)?.type).toBe('error')
     },
   )
 })

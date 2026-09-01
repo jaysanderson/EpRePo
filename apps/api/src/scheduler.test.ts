@@ -28,8 +28,15 @@ const dir = await Deno.makeTempDir()
 Deno.env.set('DATA_DIR', dir)
 
 const { buildApp } = await import('./app.ts')
-const { runAutoSyncs, runWatches } = await import('./scheduler.ts')
+const {
+  autoEnrichmentCadenceMs,
+  DEFAULT_AUTO_ENRICH_CADENCE_MS,
+  runAutoEnrichments,
+  runAutoSyncs,
+  runWatches,
+} = await import('./scheduler.ts')
 const { SourceStore, WatchStore } = await import('./stores.ts')
+const { EnrichmentStore } = await import('./enrichments.ts')
 const { TenantStore } = await import('./tenants.ts')
 
 const freshTenants = () =>
@@ -134,6 +141,42 @@ Deno.test(
     expect(ours!.lastRun).not.toBeNull()
   },
 )
+
+class SpyEnrichmentStore extends EnrichmentStore {
+  calls: string[] = []
+  override get(
+    ...args: Parameters<InstanceType<typeof EnrichmentStore>['get']>
+  ): ReturnType<InstanceType<typeof EnrichmentStore>['get']> {
+    this.calls.push('get')
+    void args
+    return {} as ReturnType<InstanceType<typeof EnrichmentStore>['get']>
+  }
+}
+
+Deno.test(
+  'runAutoEnrichments reads through the shared EnrichmentStore instance',
+  async () => {
+    const enrichments = new SpyEnrichmentStore()
+    const management = {
+      listResources: () => Promise.resolve([{ id: 'r1', title: 'A report', summary: '' }]),
+      invalidate: () => {},
+    } as unknown as AragProvider
+
+    await runAutoEnrichments(management, freshTenants(), enrichments)
+
+    expect(enrichments.calls).toContain('get')
+  },
+)
+
+Deno.test('auto-enrichment cadence is daily by default and safely configurable in hours', () => {
+  expect(autoEnrichmentCadenceMs(undefined)).toBe(DEFAULT_AUTO_ENRICH_CADENCE_MS)
+  expect(autoEnrichmentCadenceMs('6')).toBe(6 * 3600 * 1000)
+  expect(autoEnrichmentCadenceMs('0')).toBe(DEFAULT_AUTO_ENRICH_CADENCE_MS)
+  expect(autoEnrichmentCadenceMs('not-a-number')).toBe(DEFAULT_AUTO_ENRICH_CADENCE_MS)
+  // Operational mistakes cannot create a hot loop or a timer beyond one month.
+  expect(autoEnrichmentCadenceMs('0.1')).toBe(3600 * 1000)
+  expect(autoEnrichmentCadenceMs('10000')).toBe(24 * 31 * 3600 * 1000)
+})
 
 Deno.test(
   'runAutoSyncs (the scheduler auto-sync pass) reads sources through the shared SourceStore instance',
