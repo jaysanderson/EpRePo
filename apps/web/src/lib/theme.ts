@@ -67,15 +67,34 @@ export const TEXT_SCALES: Record<TextScaleId, string | null> = {
   larger: '106.25%',
 }
 
-/** Apply the tenant's text scale to the document root (no-op for default). */
+/** A modest desktop step: the browser-default 16px root becomes 17px. */
+export const DESKTOP_TEXT_SCALE_FACTOR = 1.0625
+
+/**
+ * CSS variables for a tenant's text scale. The stylesheet chooses the mobile
+ * or desktop value at its breakpoint, while the values here precompose the
+ * tenant choice with the desktop uplift. Keeping `font-size` out of the inline
+ * style lets the media query work for every tenant, not only the default one.
+ */
+export function textScaleVars(scale: TextScaleId): Record<string, string> {
+  const value = TEXT_SCALES[scale]
+  if (!value) return {}
+  return {
+    '--rp-text-scale': value,
+    '--rp-text-scale-desktop': `${Number.parseFloat(value) * DESKTOP_TEXT_SCALE_FACTOR}%`,
+  }
+}
+
+/** Apply the tenant's text scale variables to the document root. */
 export function useTextScale(branding: Branding | undefined): void {
   const scale = branding?.textScale ?? 'default'
   useEffect(() => {
-    const value = TEXT_SCALES[scale]
-    if (value) document.documentElement.style.fontSize = value
-    else document.documentElement.style.removeProperty('font-size')
+    const root = document.documentElement
+    const vars = textScaleVars(scale)
+    for (const [property, value] of Object.entries(vars)) root.style.setProperty(property, value)
     return () => {
-      document.documentElement.style.removeProperty('font-size')
+      root.style.removeProperty('--rp-text-scale')
+      root.style.removeProperty('--rp-text-scale-desktop')
     }
   }, [scale])
 }

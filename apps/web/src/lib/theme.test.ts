@@ -5,6 +5,7 @@ import {
   customFontCss,
   DENSITY_DIALS,
   densityVars,
+  DESKTOP_TEXT_SCALE_FACTOR,
   fontStack,
   googleFontsUrl,
   PAIRING_IDS,
@@ -13,8 +14,11 @@ import {
   shapeVars,
   tenantThemeVars,
   TEXT_SCALES,
+  textScaleVars,
   typographyVars,
 } from './theme.ts'
+
+const styles = await Deno.readTextFile(new URL('../styles.css', import.meta.url))
 
 const branding = (over: Partial<TenantConfig['branding']> = {}): TenantConfig['branding'] => ({
   productName: 'Test Portal',
@@ -220,6 +224,25 @@ describe('TEXT_SCALES', () => {
     expect(TEXT_SCALES.default).toBeNull()
     expect(TEXT_SCALES.smaller).toBe('93.75%')
     expect(TEXT_SCALES.larger).toBe('106.25%')
+  })
+
+  it('composes each tenant choice with the desktop uplift', () => {
+    expect(DESKTOP_TEXT_SCALE_FACTOR).toBe(1.0625)
+    expect(textScaleVars('default')).toEqual({})
+    expect(textScaleVars('smaller')).toEqual({
+      '--rp-text-scale': '93.75%',
+      '--rp-text-scale-desktop': '99.609375%',
+    })
+    expect(textScaleVars('larger')).toEqual({
+      '--rp-text-scale': '106.25%',
+      '--rp-text-scale-desktop': '112.890625%',
+    })
+  })
+
+  it('lets the desktop media query choose the precomposed tenant value', () => {
+    expect(styles).toContain('font-size: var(--rp-text-scale, 100%);')
+    expect(styles).toContain('@media (min-width: 1024px)')
+    expect(styles).toContain('font-size: var(--rp-text-scale-desktop, 106.25%);')
   })
 })
 

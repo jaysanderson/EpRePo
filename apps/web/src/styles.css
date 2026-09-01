@@ -89,6 +89,16 @@
 html {
   /* Rubber-band overscroll shows the html background - keep it on-theme. */
   background-color: var(--rp-paper);
+  /* Tenant choices are written as custom properties rather than an inline
+   * font-size so the desktop media query can compose with every choice. */
+  font-size: var(--rp-text-scale, 100%);
+}
+
+@media (min-width: 1024px) {
+  html {
+    /* 106.25% lifts the browser-default 16px root to a comfortable 17px. */
+    font-size: var(--rp-text-scale-desktop, 106.25%);
+  }
 }
 
 body {
