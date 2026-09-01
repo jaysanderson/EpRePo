@@ -378,7 +378,7 @@ export function LibraryBrowser(
             id='library-sort-bare'
             value={sort}
             onChange={(event) => setSort(event.target.value as SortValue)}
-            className='rp-focus h-[calc(2.25rem*var(--rp-density-ctl,1))] rounded-[var(--rp-radius-input)] border border-line bg-surface px-3 text-sm text-ink'
+            className='rp-focus rp-select h-[calc(2.25rem*var(--rp-density-ctl,1))] rounded-[var(--rp-radius-input)] border border-line bg-surface px-3 text-sm text-ink'
           >
             {SORT_VALUES.map((value) => (
               <option key={value} value={value}>
@@ -422,7 +422,7 @@ export function LibraryBrowser(
             id='library-sort'
             value={sort}
             onChange={(event) => setSort(event.target.value as SortValue)}
-            className='rp-focus h-[calc(2.25rem*var(--rp-density-ctl,1))] rounded-[var(--rp-radius-input)] border border-line bg-surface px-3 text-sm text-ink'
+            className='rp-focus rp-select h-[calc(2.25rem*var(--rp-density-ctl,1))] rounded-[var(--rp-radius-input)] border border-line bg-surface px-3 text-sm text-ink'
           >
             {SORT_VALUES.map((value) => (
               <option key={value} value={value}>

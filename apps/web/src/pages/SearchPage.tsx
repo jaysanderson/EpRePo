@@ -813,7 +813,7 @@ export function SearchPage() {
                 id='search-sort'
                 value={librarySort}
                 onChange={(event) => setLibrarySort(event.target.value as SortValue)}
-                className='rp-focus rounded-[var(--rp-radius)] border border-line bg-surface px-2.5 py-1.5 text-xs text-ink'
+                className='rp-focus rp-select rounded-[var(--rp-radius-input)] border border-line bg-surface px-2.5 py-1.5 text-xs text-ink'
               >
                 {SORT_VALUES.map((value) => (
                   <option key={value} value={value}>{SORT_OPTIONS[value].label}</option>

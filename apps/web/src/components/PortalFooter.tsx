@@ -222,7 +222,7 @@ export function PortalFooter({ slug }: { slug: string }) {
             href={content.subscribe.href}
             target='_blank'
             rel='noreferrer noopener'
-            className='rp-focus-inverse mt-7 inline-flex items-center rounded-[var(--rp-radius-btn)] bg-[var(--rp-on-primary)] px-7 py-3 text-sm font-semibold transition-colors duration-150 hover:bg-[var(--rp-on-primary)]/90'
+            className='rp-focus-inverse mt-7 inline-flex h-[calc(2.25rem*var(--rp-density-ctl,1))] items-center rounded-[var(--rp-radius-btn)] bg-[var(--rp-on-primary)] px-[var(--rp-btn-px,0.875rem)] text-sm font-semibold transition-colors duration-150 hover:bg-[var(--rp-on-primary)]/90'
             style={{ color: 'var(--rp-primary)' }}
           >
             {content.subscribe.label}
