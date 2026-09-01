@@ -9,6 +9,10 @@
     {
       "pattern": "corpuskit.noice.net.au",
       "custom_domain": true
+    },
+    {
+      "pattern": "fisheries-demo.noice.net.au",
+      "custom_domain": true
     }
   ],
   "assets": {
