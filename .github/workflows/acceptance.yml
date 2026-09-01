@@ -27,7 +27,7 @@ jobs:
       # A repository variable can move the scheduled check to renamed tenants
       # without changing this workflow. Manual runs can override it per run.
       ACCEPTANCE_TENANTS: ${{ inputs.tenant_slugs || vars.ACCEPTANCE_TENANTS || 'frdc-2 gdrc' }}
-      ACCEPTANCE_BASE_URL: https://arag-research-portal.fly.dev
+      ACCEPTANCE_BASE_URL: https://corpuskit.noice.net.au
     steps:
       - uses: actions/checkout@v4
       - uses: denoland/setup-deno@v2
