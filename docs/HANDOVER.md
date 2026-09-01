@@ -99,14 +99,15 @@ Read `docs/ARAG-DEV.md` before writing any retrieval/provisioning code. The esse
 
 **Live and working** (verified in-browser on the deployed app, both tenants): Explore, Search
 (results + cited Ask AI, hybrid/semantic/keyword modes, facets, watch-search), Library (merchandised
-cards, sorts, filters), Assistant (cited answers, confidence + REMi quality, evidence table,
-sessions, deep research), Investigations, Generate (6 artefact types), Assessment, Graph (Entity
-graph + Concept map + a built-in-entities toggle), Help (scoped docs + a docs-only assistant).
+cards, sorts, filters), Ask (cited answers, confidence + REMi quality, evidence table, sessions,
+deep research), Investigations, Assessment, Graph (Entity graph + Concept map + a
+built-in-entities toggle), Tools (placeholder), Help (scoped docs + a docs-only assistant).
+The legacy Generate artefact routes remain available by direct URL but are no longer in navigation.
 
 **Recently shipped:**
 - Per-source AI verdict/rationale now generates **only on "Journey through the context"**, not on
   every answer (token saving). — `apps/web/src/components/EvidenceTable.tsx`, `AnswerStream.tsx`,
-  `pages/AssistantPage.tsx`.
+  `pages/AskPage.tsx`.
 - A **not-found page** for unmatched routes (previously any unknown URL rendered a blank screen —
   the router had no catch-all). — `apps/web/src/pages/NotFoundPage.tsx`, `main.tsx`.
 - **GRDC fully merchandised** (all ~1,070 resources enriched with DA titles/summaries).

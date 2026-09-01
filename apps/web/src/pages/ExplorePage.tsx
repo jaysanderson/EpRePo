@@ -218,7 +218,7 @@ function RecentDocuments({ slug }: { slug: string }) {
 
 const TILE_ICONS = {
   library: <path d='M4 4.5h7v6H4zM4 13.5h7v6H4zM15 4.5h5v15h-5z' />,
-  assistant: <path d='M4 5.5h16v11H9l-5 4z' />,
+  ask: <path d='M4 5.5h16v11H9l-5 4z' />,
   graph: (
     <>
       <circle cx='6' cy='6.5' r='2.5' />
@@ -256,7 +256,7 @@ function TileIcon({ name }: { name: keyof typeof TILE_ICONS }) {
 function QuickEntry({ slug }: { slug: string }) {
   const tiles = [
     { to: 'library', label: 'Browse the library', icon: 'library' },
-    { to: 'assistant', label: 'Ask the assistant', icon: 'assistant' },
+    { to: 'ask', label: 'Ask a question', icon: 'ask' },
     { to: 'graph', label: 'Explore the graph', icon: 'graph' },
     { to: 'investigations', label: 'Run an investigation', icon: 'investigations' },
   ] as const
@@ -497,9 +497,9 @@ export function ExplorePage() {
 
   // The hero asks rather than searches - Search no longer answers questions,
   // so a question the reader types (or picks from the suggestions) goes
-  // straight to the assistant with the question pre-filled and auto-sent.
+  // straight to Ask with the question pre-filled and auto-sent.
   const ask = useCallback(
-    (text: string) => navigate(`/t/${config.slug}/assistant?ask=${encodeURIComponent(text)}`),
+    (text: string) => navigate(`/t/${config.slug}/ask?ask=${encodeURIComponent(text)}`),
     [navigate, config.slug],
   )
 

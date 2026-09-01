@@ -8,7 +8,6 @@ import { CommandPalette } from '../components/CommandPalette.tsx'
 import { KbSwitcher } from '../components/KbSwitcher.tsx'
 import { PortalFooter } from '../components/PortalFooter.tsx'
 import { SignInDialog } from '../components/SignInDialog.tsx'
-import { GenerateMenu } from '../components/GenerateMenu.tsx'
 
 export type TenantOutletContext = {
   config: TenantConfig
@@ -27,23 +26,17 @@ function FullPageSpinner() {
   )
 }
 
-// Explore is reached by the logo, Help by its own icon, and Investigations and
-// Self assessment live under the Generate menu.
+// Explore is reached by the logo and Help by its own icon.
 const NAV_ITEMS: { path: string; label: string; end: boolean }[] = [
   { path: '/library', label: 'Library', end: false },
-  { path: '/assistant', label: 'Assistant', end: false },
-  // Generate is rendered as a menu, not a plain link - it carries the artefact
-  // kinds plus the Investigations and Self assessment workspaces.
+  { path: '/ask', label: 'Ask', end: false },
   { path: '/graph', label: 'Graph', end: false },
+  { path: '/tools', label: 'Tools', end: false },
 ]
 
 // The phone sheet lists the same four destinations as the desktop nav band.
-// Generate is a mega-menu up there and a plain link down here: the Generate
-// page carries its own artefact-kind picker, so one row reaches every kind
-// without stacking six more of them under the primary navigation.
 const MOBILE_NAV_ITEMS: { path: string; label: string; end: boolean }[] = [
   ...NAV_ITEMS,
-  { path: '/generate', label: 'Generate', end: false },
 ]
 
 // One name each for the help and account controls, read by both the header
@@ -262,7 +255,7 @@ export function TenantLayout() {
   })
 
   // Routes whose page owns the full viewport height.
-  const isViewportHeightRoute = /\/(assistant|graph)(\/|$)/.test(location.pathname)
+  const isViewportHeightRoute = /\/(ask|graph)(\/|$)/.test(location.pathname)
 
   const { data: kbStatus } = useQuery({
     queryKey: ['kb-status', slug],
@@ -292,12 +285,19 @@ export function TenantLayout() {
 
   useEffect(() => {
     if (config) {
-      document.title = config.branding.productName
+      const surface = /\/ask(?:\/|$)/.test(location.pathname)
+        ? 'Ask'
+        : /\/tools(?:\/|$)/.test(location.pathname)
+        ? 'Tools'
+        : null
+      document.title = surface
+        ? `${surface} | ${config.branding.productName}`
+        : config.branding.productName
     }
     return () => {
       document.title = 'Research Portal'
     }
-  }, [config])
+  }, [config, location.pathname])
 
   // Load the faces for the tenant's typography choice, apply its text scale,
   // and mirror the theme onto <body> so portaled overlays follow it too (all
@@ -530,10 +530,6 @@ export function TenantLayout() {
                   {item.label}
                 </NavLink>
               ))}
-              <GenerateMenu
-                slug={config.slug}
-                active={/\/(generate|investigations|assessment)/.test(location.pathname)}
-              />
             </nav>
           </div>
         </div>
@@ -653,7 +649,7 @@ export function TenantLayout() {
       </div>
 
       {
-        /* Assistant and Graph size themselves to the viewport and scroll
+        /* Ask and Graph size themselves to the viewport and scroll
         * internally, so there is no room beneath them for a footer. On iOS the
         * dynamic viewport grows as the URL bar collapses, the panel grows with
         * it, and it overruns anything stacked below - which is exactly the

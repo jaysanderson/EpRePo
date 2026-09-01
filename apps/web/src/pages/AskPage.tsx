@@ -744,7 +744,7 @@ function tailStyle(index: number): CSSProperties {
   return { '--rp-stage-i': index } as CSSProperties
 }
 
-function AssistantCard({
+function AnswerCard({
   message,
   slug,
   question,
@@ -1276,7 +1276,7 @@ ${turnsHtml}
 // Page
 // ---------------------------------------------------------------------------
 
-export function AssistantPage() {
+export function AskPage() {
   const { config } = useOutletContext<TenantOutletContext>()
   const [searchParams, setSearchParams] = useSearchParams()
 
@@ -1715,7 +1715,7 @@ export function AssistantPage() {
     followUpAbortRef.current?.abort()
     followUpAbortRef.current = null
     setFollowUps(null)
-    const assistantId = makeId()
+    const answerId = makeId()
     // baseMessages ends with the question being asked (as a USER message) - the
     // request sends that as `query`, so prior turns exclude it here.
     const contextTurns = baseMessages
@@ -1726,7 +1726,7 @@ export function AssistantPage() {
     let working: ChatMessage[] = [
       ...baseMessages,
       {
-        id: assistantId,
+        id: answerId,
         author: 'AGENT',
         text: '',
         citations: [],
@@ -1745,7 +1745,7 @@ export function AssistantPage() {
     abortRef.current = controller
 
     function update(mutate: (message: ChatMessage) => ChatMessage) {
-      working = working.map((message) => message.id === assistantId ? mutate(message) : message)
+      working = working.map((message) => message.id === answerId ? mutate(message) : message)
       setMessages(working)
     }
 
@@ -1784,7 +1784,7 @@ export function AssistantPage() {
             case 'searched':
               // The platform auto-decomposed the question into sub-queries it
               // researched alongside the main one - attach them to the
-              // preceding USER message (immediately before this assistant
+              // preceding USER message (immediately before this answer
               // placeholder in `working`), the same slot deep research fills
               // in before the ask even starts, so they render the same way.
               working = working.map((message, index) =>
@@ -1852,7 +1852,7 @@ export function AssistantPage() {
       } else {
         const message = thrown instanceof Error
           ? thrown.message
-          : 'The assistant could not complete this answer.'
+          : 'We could not complete this answer - try again.'
         update((existing) => ({ ...existing, pending: false, error: message }))
       }
     } finally {
@@ -1864,7 +1864,7 @@ export function AssistantPage() {
       // After the answer, never during it - and never after a Stop, which is
       // the reader saying they have finished with this question.
       if (!controller.signal.aborted) {
-        void requestFollowUps(working.find((message) => message.id === assistantId), query)
+        void requestFollowUps(working.find((message) => message.id === answerId), query)
       }
     }
   }
@@ -1924,7 +1924,7 @@ export function AssistantPage() {
   }
 
   function retry(forMessageId: string) {
-    // Find the user message immediately preceding the failed assistant message.
+    // Find the user message immediately preceding the failed answer message.
     const index = messages.findIndex((message) => message.id === forMessageId)
     if (index <= 0) return
     const userMessage = messages[index - 1]
@@ -2052,7 +2052,7 @@ export function AssistantPage() {
 
   return (
     <main
-      aria-label='Research assistant'
+      aria-label='Ask'
       className='mx-auto flex h-[calc(100dvh-var(--rp-header-h,126px))] max-w-[100rem] flex-col gap-3 px-4 pt-4 pb-0 sm:px-6 sm:pt-6 lg:flex-row lg:gap-6 lg:pb-6 2xl:gap-8'
     >
       <aside
@@ -2180,10 +2180,16 @@ export function AssistantPage() {
           >
             {isEmpty
               ? (
-                <div className='space-y-4'>
+                <div className='space-y-4 pt-6 sm:pt-10'>
+                  <div className='mx-auto max-w-2xl text-center'>
+                    <h1 className='rp-display text-3xl text-ink sm:text-4xl'>Ask</h1>
+                    <p className='mt-2 text-sm leading-relaxed text-ink-2 sm:text-base'>
+                      Ask a question and get an answer grounded in this portal's research.
+                    </p>
+                  </div>
                   {suggestions && suggestions.length > 0
                     ? (
-                      <div className='pt-10'>
+                      <div className='pt-3'>
                         <p className='rp-eyebrow text-center text-ink-3'>Try a question</p>
                         {
                           /* Chips on a phone, where a grid of cards would stack into
@@ -2232,7 +2238,7 @@ export function AssistantPage() {
                       />
                     )
                     : (
-                      <AssistantCard
+                      <AnswerCard
                         key={message.id}
                         message={message}
                         slug={config.slug}
@@ -2408,7 +2414,7 @@ export function AssistantPage() {
                 : null}
             </div>
             <div className='flex items-end gap-2 rounded-[calc(var(--rp-radius)+4px)] border border-line bg-surface p-2 shadow-sm'>
-              <label htmlFor='assistant-composer' className='sr-only'>
+              <label htmlFor='ask-composer' className='sr-only'>
                 Ask a question
               </label>
               {
@@ -2432,13 +2438,13 @@ export function AssistantPage() {
                 </svg>
               </span>
               <textarea
-                id='assistant-composer'
+                id='ask-composer'
                 value={draft}
                 onChange={(event) => setDraft(event.target.value)}
                 onKeyDown={handleKeyDown}
                 disabled={isStreaming}
                 rows={1}
-                placeholder={isCompact ? undefined : config.searchPlaceholder}
+                placeholder={isCompact ? undefined : 'Ask a question about this research'}
                 className='max-h-40 min-w-0 flex-1 resize-none rounded-[var(--rp-radius)] border-0 bg-transparent px-2 py-2 text-sm text-ink placeholder:text-[var(--rp-ink-3)] focus:outline-none disabled:opacity-60 lg:px-3'
               />
               {isStreaming

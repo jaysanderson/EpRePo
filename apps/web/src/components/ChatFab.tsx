@@ -3,10 +3,10 @@ import { Link, useLocation } from 'react-router-dom'
 
 const DISMISS_KEY_PREFIX = 'rp-chat-fab-dismissed:'
 
-/** Routes where the assistant already has its own entry point, so the
- * floating button would be redundant - the assistant itself, and search,
+/** Routes where Ask already has its own entry point, so the
+ * floating button would be redundant - Ask itself, and search,
  * which now carries its own AI answer panel. */
-const HIDE_ROUTE = /\/(assistant|search)(\/|$)/
+const HIDE_ROUTE = /\/(ask|search)(\/|$)/
 
 function readDismissed(slug: string): boolean {
   try {
@@ -28,8 +28,8 @@ function writeDismissed(slug: string) {
 }
 
 /**
- * Floating "Open AI chat" action for the browse surfaces, so a reader is
- * always one tap from the assistant. Hidden on the assistant itself and on
+ * Floating "Ask a question" action for the browse surfaces, so a reader is
+ * always one tap from Ask. Hidden on Ask itself and on
  * search (which already surfaces an AI answer inline), dismissible for the
  * session, and safe-area aware so it never sits under a device's home
  * indicator or a browser chrome overlay on mobile.
@@ -61,7 +61,7 @@ export function ChatFab({ slug }: { slug: string }) {
       <button
         type='button'
         onClick={dismiss}
-        aria-label='Dismiss the AI chat button for this session'
+        aria-label='Dismiss the Ask button for this session'
         className='rp-focus rp-shadow-md flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-line bg-surface text-ink-3 transition-colors duration-150 hover:text-ink'
       >
         <svg viewBox='0 0 20 20' fill='currentColor' aria-hidden='true' className='h-3 w-3'>
@@ -69,8 +69,8 @@ export function ChatFab({ slug }: { slug: string }) {
         </svg>
       </button>
       <Link
-        to={`/t/${slug}/assistant`}
-        aria-label='Open AI chat'
+        to={`/t/${slug}/ask`}
+        aria-label='Ask a question'
         className='rp-focus rp-shadow-lg rp-lift inline-flex h-12 shrink-0 items-center gap-2 rounded-full px-4 text-sm font-semibold text-[var(--rp-on-primary)] transition-colors duration-150 hover:brightness-110'
         style={{ backgroundColor: 'var(--rp-primary)' }}
       >
@@ -86,7 +86,7 @@ export function ChatFab({ slug }: { slug: string }) {
         >
           <path d='M3 4.5h14v9H8.5L5 16.5v-3H3z' />
         </svg>
-        <span className='hidden sm:inline'>Open AI chat</span>
+        <span className='hidden sm:inline'>Ask a question</span>
       </Link>
     </div>
   )

@@ -86,6 +86,16 @@ export class DoubleProvider implements RetrievalProvider {
     })
   }
 
+  topicResources(
+    _tenant: TenantConfig,
+    topicId: string,
+    limit = this.resources.length,
+  ): Promise<ResourceSummary[]> {
+    return Promise.resolve(
+      this.resources.filter((resource) => resource.topicIds.includes(topicId)).slice(0, limit),
+    )
+  }
+
   facets(_tenant: TenantConfig, labelsets: string[]): Promise<FacetCounts> {
     const counts: FacetCounts = {}
     for (const ls of labelsets) {

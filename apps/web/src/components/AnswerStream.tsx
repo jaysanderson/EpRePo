@@ -262,7 +262,7 @@ export interface ContextJourneyProps {
 /**
  * "Journey through the context" - the quiet trigger that opens the cinematic
  * walk through the sources behind an answer. Standalone and reusable so
- * Search/Ask, the assistant and the agentic pipeline all offer the same
+ * Search, Ask and the agentic pipeline all offer the same
  * experience from the same one-line call.
  */
 export function ContextJourney({ slug, sources, query = '', onOpen }: ContextJourneyProps) {
@@ -418,7 +418,7 @@ export function AnswerStream(
           // and splices `[n]` at its citation char-offsets, numbered to match
           // the citation events just received. Without this the prose carries
           // the model's unbound numbering, which is what a marker click would
-          // have to trust. SearchAnswer and AssistantPage already do this.
+          // have to trust. SearchAnswer and AskPage already do this.
           if (event.text !== undefined) setText(event.text)
           setStatus('done')
           break

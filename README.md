@@ -41,11 +41,11 @@ way to explore and question their entire research estate.
 |---|---|
 | **Explore** | The front door. One ask box, questions generated from your own corpus, and topic rows built from the taxonomy the portal designed. |
 | **Search** | Hybrid, semantic or keyword, with faceted filters, matched passages and a cited answer alongside the ranked results. |
-| **Assistant** | A conversation over the whole corpus. Streamed, numbered citations, per-source confidence, and an evidence table that persists. |
+| **Ask** | A conversation over the whole corpus. Streamed, numbered citations, per-source confidence, and an evidence table that persists. |
 | **Library** | Every resource with a real title, a summary and key takeaways. Open one and ask questions of that document alone. |
 | **Knowledge graph** | Entities and the relations between them, extracted from the corpus and explorable. A fisheries portal and a grains portal look different. |
 | **Investigations** | A named research question that accumulates evidence over weeks, with provenance on every piece of it. |
-| **Generate** | Six artefacts written from your corpus: briefing, comparison, timeline, pros and cons, FAQ, assessment. |
+| **Tools** | A dedicated home for focused research tools as they become available. |
 | **Manage** | Corpus health, enrichments, taxonomy, graph strategy and the knowledge box binding, all in the app. |
 
 ## An answer you can check

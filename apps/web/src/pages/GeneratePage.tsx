@@ -879,7 +879,7 @@ function SuggestedTopicChips({
  */
 export function GeneratePage() {
   const { config } = useOutletContext<TenantOutletContext>()
-  // The Generate menu links straight at a kind (?kind=briefing).
+  // Direct links can select a kind (?kind=briefing).
   const [searchParams] = useSearchParams()
   const requestedKind = searchParams.get('kind')
   const [kind, setKind] = useState<GenerateKind>(

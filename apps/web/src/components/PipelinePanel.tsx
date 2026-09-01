@@ -3,11 +3,11 @@ import { type QualityScores, TrustSignals } from './QualityGauge.tsx'
 
 // ---------------------------------------------------------------------------
 // Pipeline panel - the retrieval/generation visualisation ported out of the
-// old standalone Agentic surface so the single Assistant surface can offer
+// old standalone Agentic surface so the single Ask surface can offer
 // the same "how did we get this answer" view as a collapsible disclosure
 // under a completed answer. Its per-stage timeline only makes sense while a
 // question is actually streaming, so `statuses` is optional: pass it live
-// from a running ask, or omit it entirely (as the Assistant surface does,
+// from a running ask, or omit it entirely (as the Ask surface does,
 // since a completed message doesn't keep per-stage timing) and the panel
 // falls back to just the retrieved sources and generation numbers.
 // ---------------------------------------------------------------------------
@@ -131,7 +131,7 @@ export interface PipelinePanelProps {
  * `statuses` is supplied) with the retrieved sources and their relevance
  * bars nested under the retrieval stage, plus generation token/timing and
  * REMi trust signals nested under the generation stage. Without `statuses`
- * (a completed Assistant answer, which doesn't keep per-stage timing) it
+ * (a completed Ask answer, which doesn't keep per-stage timing) it
  * renders the same retrieved-sources and generation sections without the
  * timeline chrome around them.
  */

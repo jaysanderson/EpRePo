@@ -221,6 +221,34 @@ describe('GET /api/t/:slug/resources/:id/thumbnail', () => {
   })
 })
 
+describe('tenant route aliases', () => {
+  it('permanently redirects Assistant bookmarks to Ask and preserves the query string', async () => {
+    const app = makeApp()
+    const response = await app.request('/t/frdc/assistant?ask=abalone%20recovery')
+
+    expect(response.status).toBe(308)
+    expect(response.headers.get('location')).toBe('/t/frdc/ask?ask=abalone%20recovery')
+  })
+
+  it('preserves sub-paths when redirecting renamed routes', async () => {
+    const app = makeApp()
+    const response = await app.request('/t/frdc/assistant/sessions/report-42?view=evidence')
+
+    expect(response.status).toBe(308)
+    expect(response.headers.get('location')).toBe(
+      '/t/frdc/ask/sessions/report-42?view=evidence',
+    )
+  })
+
+  it('applies tenant and route aliases in one redirect', async () => {
+    const app = makeApp()
+    const response = await app.request('/t/gdrc/assistant?ask=soil')
+
+    expect(response.status).toBe(308)
+    expect(response.headers.get('location')).toBe('/t/grdc/ask?ask=soil')
+  })
+})
+
 describe('GET /api/t/:slug/search', () => {
   it('returns a SearchResultsSchema-valid payload', async () => {
     const app = makeApp()

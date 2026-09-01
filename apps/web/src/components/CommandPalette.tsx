@@ -26,7 +26,7 @@ const FOCUSABLE_SELECTOR =
 /**
  * The ⌘K palette: search-or-ask over the tenant's corpus. Enter with text
  * typed goes to search results by default (the first option, pre-highlighted);
- * "Ask the assistant" hands the same text to the assistant instead; the
+ * "Ask" hands the same text to the Ask conversation instead; the
  * tenant's suggested questions are always browsable as quick options. Full
  * dialog a11y - focus moves to the input on open and back to the trigger on
  * close, Escape closes, Tab is trapped inside the dialog, and arrow keys walk
@@ -79,9 +79,9 @@ export function CommandPalette({
     if (option.kind === 'search') {
       navigate(`/t/${slug}/search?q=${encodeURIComponent(option.text)}`)
     } else if (option.kind === 'ask') {
-      navigate(`/t/${slug}/assistant?ask=${encodeURIComponent(option.text)}`)
+      navigate(`/t/${slug}/ask?ask=${encodeURIComponent(option.text)}`)
     } else {
-      navigate(`/t/${slug}/assistant?ask=${encodeURIComponent(option.question.text)}`)
+      navigate(`/t/${slug}/ask?ask=${encodeURIComponent(option.question.text)}`)
     }
     onClose()
   }
@@ -268,8 +268,7 @@ export function CommandPalette({
                       <path d='M3 4.5h14v9H8.5L5 16.5v-3H3z' />
                     </svg>
                     <span className='min-w-0 truncate'>
-                      Ask the assistant{' '}
-                      <span className='font-medium text-ink'>&ldquo;{option.text}&rdquo;</span>
+                      Ask <span className='font-medium text-ink'>&ldquo;{option.text}&rdquo;</span>
                     </span>
                   </>
                 )

@@ -119,11 +119,9 @@ export const DOC_PAGES: DocPage[] = [
           '- **Explore** - the home surface: a question box, suggested questions and topic rows.\n' +
           '- **Search** - find documents fast, or ask for a short cited answer over them.\n' +
           '- **Library** - browse, sort and filter the whole corpus.\n' +
-          '- **Assistant** - a full conversational research assistant with saved sessions.\n' +
-          '- **Investigations** - gather evidence around a research question over time.\n' +
-          '- **Generate** - draft structured artefacts grounded in the corpus.\n' +
-          '- **Assessment** - build a knowledge check to test yourself on the corpus.\n' +
+          '- **Ask** - a full, grounded conversation with saved sessions.\n' +
           '- **Graph** - a visual map of the corpus (titled the Knowledge map in the app).\n' +
+          '- **Tools** - the home for focused research tools as they become available.\n' +
           '- **Help** - this documentation, with its own scoped search.\n' +
           '- **Manage** - administration (connecting content, taxonomy, enrichments and health).\n\n' +
           'Press **Cmd/Ctrl+K** anywhere to open the command palette and jump straight to a ' +
@@ -148,7 +146,7 @@ export const DOC_PAGES: DocPage[] = [
           'matched, so you can judge a source and open it yourself.\n\n' +
           '**Results only** turns the answer off when you just want the document list - it is ' +
           'instant and answer-free. Press it again to bring the answer back. From an answer you ' +
-          'can **Continue in Assistant** to keep asking follow-ups.',
+          'can **Continue in Ask** to keep asking follow-ups.',
       },
       {
         heading: 'Retrieved and cited - the difference',
@@ -198,12 +196,12 @@ export const DOC_PAGES: DocPage[] = [
   {
     id: 'assistant',
     category: 'Finding answers',
-    title: 'The research assistant',
+    title: 'Ask',
     summary: 'Ask questions conversationally, keep sessions, and run deep research.',
     sections: [
       {
         heading: 'A grounded, cited conversation',
-        body: 'The Assistant answers questions in plain language and grounds every answer in the ' +
+        body: 'Ask answers questions in plain language and grounds every answer in the ' +
           'corpus. As an answer streams in you see the stages it moves through - interpreting the ' +
           'question, retrieving sources, writing and checking - then the finished answer with ' +
           'numbered citations you can click straight through to the source passage. It also shows ' +
@@ -225,7 +223,7 @@ export const DOC_PAGES: DocPage[] = [
           '(That judgement is only worked out when you open the journey, so it is never generated ' +
           'for answers you do not choose to dig into.) **Show the pipeline** reveals the retrieve, ' +
           'write and check stages behind it.\n\n' +
-          'When an answer comes back thinly grounded, the Assistant offers to **re-answer it ' +
+          'When an answer comes back thinly grounded, Ask offers to **re-answer it ' +
           'deeply** - re-running your question against the full text of the matching documents ' +
           'rather than the retrieved passages alone - so a weak first pass has a one-tap path to a ' +
           'stronger one.',
@@ -280,7 +278,7 @@ export const DOC_PAGES: DocPage[] = [
           'answer, check the citations before relying on it." A weakly supported answer is never ' +
           'presented as authoritative; the banner is your cue to read the sources before you use ' +
           'it.\n\n' +
-          'When confidence is low, the Assistant also offers to **re-answer the question deeply**, ' +
+          'When confidence is low, Ask also offers to **re-answer the question deeply**, ' +
           'against the full text of the matching documents, so a thinly grounded first answer has ' +
           'a direct path to a firmer one rather than leaving you at a dead end.',
       },
@@ -320,7 +318,7 @@ export const DOC_PAGES: DocPage[] = [
         body:
           'Explore is the portal home. A prominent question box lets you ask straight away, and ' +
           'suggested questions - drawn from the corpus itself - give you a starting point when you ' +
-          'are not sure what to ask. Selecting a suggested question hands it to the Assistant.\n\n' +
+          'are not sure what to ask. Selecting a suggested question hands it to Ask.\n\n' +
           'A row of figures underneath gives you a quick sense of the corpus behind the portal - ' +
           'how many resources it holds, and its scale in paragraphs, sentences and index size.',
       },
@@ -446,34 +444,14 @@ export const DOC_PAGES: DocPage[] = [
   {
     id: 'generate',
     category: 'Working with the portal',
-    title: 'Generate',
-    summary: 'Draft structured artefacts grounded in the corpus.',
+    title: 'Tools',
+    summary: "The home for focused ways to work with the portal's research.",
     sections: [
       {
-        heading: 'Six kinds of artefact',
-        body: 'Generate writes to a defined shape, grounded in retrieved corpus content, so you ' +
-          'get a structured piece rather than a wall of text. Pick a type, describe what you ' +
-          'want (or use a suggested chip), and generate:\n\n' +
-          '- **Comparison** - a side-by-side matrix scoring options against the dimensions that ' +
-          'matter.\n' +
-          '- **Briefing** - a concise brief on a topic.\n' +
-          '- **Timeline** - how something developed over time.\n' +
-          '- **Pros and cons** - the case for and against.\n' +
-          '- **FAQ** - the common questions and their answers.\n' +
-          '- **Assessment** - a set of questions to test understanding.',
-      },
-      {
-        heading: 'Grounding gate',
-        body:
-          'Generation is gated on real grounding. If the corpus does not hold relevant enough ' +
-          'material, the portal declines to fabricate an artefact and tells you the grounding was ' +
-          'insufficient, rather than producing something plausible but unsupported. When ' +
-          'grounding is partial, only the sources that genuinely support the content are cited.',
-      },
-      {
-        heading: 'Using what you generate',
-        body: 'A generated artefact carries its sources with it, and can be exported to a Word-' +
-          'compatible document so it drops straight into your own work.',
+        heading: 'A place for research tools',
+        body: "Tools is where focused ways to work with this portal's research will be listed. " +
+          'There are no tools to choose yet. As tools become available, they will appear together ' +
+          'on this page.',
       },
     ],
   },
@@ -516,11 +494,11 @@ export const DOC_PAGES: DocPage[] = [
           'the **research question** it is trying to answer, then **Start investigation**. Mark ' +
           'one as your **current** investigation with **Make current**, and **Close** or ' +
           '**Delete** it when you are done. **Ask this question** hands the research question ' +
-          'straight to the Assistant.',
+          'straight to Ask.',
       },
       {
         heading: 'Gathering evidence',
-        body: 'As you find passages that bear on the question - from Search, the Assistant or a ' +
+        body: 'As you find passages that bear on the question - from Search, Ask or a ' +
           'document - **Save** them into the investigation. Each piece keeps its provenance: the ' +
           'source it came from and the query it was retrieved for. The evidence is persistent, so ' +
           'the case you are building does not vanish when you move on.',
@@ -632,7 +610,7 @@ export const DOC_PAGES: DocPage[] = [
         body: 'This Help section has its own search and its own AI assistant that answer "how do ' +
           'I..." questions about using the portal. It retrieves only from this documentation.\n\n' +
           'Crucially, the documentation is kept entirely separate from research content: normal ' +
-          'Search and the research Assistant never retrieve or cite these help pages, and the ' +
+          'Search and Ask never retrieve or cite these help pages, and the ' +
           'Help search never reaches into the research corpus. The two are isolated by dedicated, ' +
           'centrally-managed search configurations on the knowledge box, with a server-side ' +
           'cross-check as a safety net, so a question about the portal and a question about the ' +

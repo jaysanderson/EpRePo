@@ -60,6 +60,18 @@ describe('documentation content integrity', () => {
       }
     }
   })
+
+  it('uses the current Ask and Tools surface names', () => {
+    const gettingStarted = docPageToPlainText(docPageById('getting-started')!)
+    const ask = docPageById('assistant')
+
+    expect(gettingStarted).toContain('Ask - a full, grounded conversation')
+    expect(gettingStarted).toContain('Tools - the home for focused research tools')
+    expect(gettingStarted).not.toContain('Assistant -')
+    expect(ask?.title).toBe('Ask')
+    expect(docPageToPlainText(ask!)).not.toContain('Assistant')
+    expect(docPageById('generate')?.title).toBe('Tools')
+  })
 })
 
 describe('docPagesByCategory()', () => {

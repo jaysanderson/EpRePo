@@ -119,7 +119,7 @@ export function EntityPage() {
       .sort((a, b) => a.label.localeCompare(b.label))
   }, [data, name])
 
-  const askHref = `/t/${config.slug}/assistant?ask=${
+  const askHref = `/t/${config.slug}/ask?ask=${
     encodeURIComponent(`What does the research say about ${name}?`)
   }`
 

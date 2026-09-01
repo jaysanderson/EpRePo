@@ -69,6 +69,54 @@ describe('explore page', () => {
   })
 })
 
+describe('Ask and Tools navigation', () => {
+  it('redirects an old Assistant bookmark to Ask and presents the renamed surface', async () => {
+    const page = await browser.newPage(`${server.url}/t/frdc/assistant`)
+    try {
+      await page.waitForSelector('main[aria-label="Ask"]', { timeout: 15_000 })
+
+      const state = await page.evaluate(() => ({
+        pathname: location.pathname,
+        title: document.title,
+        text: document.body.innerText,
+      }))
+      expect(state.pathname).toBe('/t/frdc/ask')
+      expect(state.title).toBe('Ask | FRDC Knowledge Hub')
+      expect(state.text).toContain('Ask a question and get an answer grounded in this portal')
+    } finally {
+      await page.close()
+    }
+  })
+
+  it('lists Tools as one navigation destination and renders its placeholder', async () => {
+    const page = await browser.newPage(`${server.url}/t/frdc/tools`)
+    try {
+      await page.waitForSelector('h1', { timeout: 15_000 })
+
+      const state = await page.evaluate(() => {
+        const primaryLinks = Array.from(
+          document.querySelectorAll<HTMLAnchorElement>('header nav[aria-label="Primary"] a'),
+        ).map((link) => ({ href: link.getAttribute('href'), label: link.textContent?.trim() }))
+        return {
+          title: document.title,
+          heading: document.querySelector('h1')?.textContent?.trim(),
+          text: document.body.innerText,
+          primaryLinks,
+        }
+      })
+
+      expect(state.title).toBe('Tools | FRDC Knowledge Hub')
+      expect(state.heading).toBe('Tools')
+      expect(state.text).toContain('No tools available yet')
+      expect(state.primaryLinks).toContainEqual({ href: '/t/frdc/ask', label: 'Ask' })
+      expect(state.primaryLinks).toContainEqual({ href: '/t/frdc/tools', label: 'Tools' })
+      expect(state.primaryLinks.some((link) => link.href === '/t/frdc/generate')).toBe(false)
+    } finally {
+      await page.close()
+    }
+  })
+})
+
 describe('search - AI answer panel and citations', () => {
   it('shows the AI Answer panel with an inline citation marker, the resources/cited header and the toggle', async () => {
     const page = await browser.newPage(`${server.url}/t/frdc/search?q=abalone`)

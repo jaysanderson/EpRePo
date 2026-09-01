@@ -241,7 +241,7 @@ function InvestigationHeader(
         {investigation.question.length > 0
           ? (
             <Link
-              to={`/t/${slug}/assistant?ask=${encodeURIComponent(investigation.question)}`}
+              to={`/t/${slug}/ask?ask=${encodeURIComponent(investigation.question)}`}
               className='rp-btn rp-btn-primary'
             >
               Ask this question
@@ -436,7 +436,7 @@ function EvidenceCard(
     encodeURIComponent(item.passage.slice(0, 200))
   }`
   const askQuestion = item.question || `What does the research say about ${item.resourceTitle}?`
-  const askHref = `/t/${slug}/assistant?ask=${encodeURIComponent(askQuestion)}`
+  const askHref = `/t/${slug}/ask?ask=${encodeURIComponent(askQuestion)}`
 
   return (
     <div className='rp-card p-4'>
@@ -1159,7 +1159,7 @@ export function InvestigationDetailPage() {
             ? (
               <EmptyState
                 title='No evidence yet'
-                description="Save passages from Search, the Assistant's sources, or the document reader."
+                description='Save passages from Search, Ask answers, or the document reader.'
               />
             )
             : filteredEvidence.length === 0
@@ -1219,7 +1219,7 @@ export function InvestigationDetailPage() {
             ? (
               <EmptyState
                 title='No artefacts yet'
-                description='Outputs saved from Generate and other tools will appear here.'
+                description='Outputs saved from research tools will appear here.'
               />
             )
             : (

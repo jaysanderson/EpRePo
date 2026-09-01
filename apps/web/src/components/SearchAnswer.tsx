@@ -18,7 +18,7 @@ import { StageTimeline, statusesFor, useAnswerPhase } from './StageTimeline.tsx'
 const RATE_LIMIT_MESSAGE =
   'You are asking faster than the portal can answer - please wait a moment and try again.'
 
-/** Matches AssistantPage's own stage copy, duplicated here (not exported there). */
+/** Matches AskPage's own stage copy, duplicated here (not exported there). */
 const STAGE_LABELS: Record<string, string> = {
   preprocessing: 'Preparing your question…',
   retrieval: 'Retrieving sources…',
@@ -53,7 +53,7 @@ export interface SearchAnswerProps {
 /**
  * Replaces `[n]` markers in a plain-text run with superscript, accent-
  * coloured links to the matching citation's deep link - the same treatment
- * AssistantPage gives its own streamed answers. Duplicated here (a small
+ * AskPage gives its own streamed answers. Duplicated here (a small
  * pure function, not exported there) so this panel's prose matches it.
  */
 function renderCitationMarkers(
@@ -130,7 +130,7 @@ function renderAnswer(
  * still streams nothing, so the unsearched page spends no LLM call. Collapsible,
  * honest about refusal (the portal's "no direct evidence" pattern rather than a
  * fake answer), surfaces rate-limiting plainly, and always offers a path to
- * continue the same question in the full Assistant.
+ * continue the same question in Ask.
  *
  * Deliberately its own small stream state machine rather than reusing
  * `AnswerStream` - this panel needs to branch on `refused` and turn a 429
@@ -217,7 +217,7 @@ export function SearchAnswer({ slug, query, onResult }: SearchAnswerProps) {
           setStageLabel(null)
           // The deterministically citation-bound text (server-spliced [n]
           // markers) replaces the streamed accumulation, same as
-          // AssistantPage - falls back to the streamed text when absent
+          // AskPage - falls back to the streamed text when absent
           // (a refusal carries no citations to bind).
           if (event.text !== undefined) setText(event.text)
           setRefused(event.refused ?? false)
@@ -281,7 +281,7 @@ export function SearchAnswer({ slug, query, onResult }: SearchAnswerProps) {
     ? 'No direct evidence found'
     : `${citations.length} ${citations.length === 1 ? 'citation' : 'citations'}`
 
-  const askHref = `/t/${slug}/assistant?ask=${encodeURIComponent(trimmed)}`
+  const askHref = `/t/${slug}/ask?ask=${encodeURIComponent(trimmed)}`
 
   return (
     <section className='rp-card p-5' aria-label='AI answer'>
@@ -383,7 +383,7 @@ export function SearchAnswer({ slug, query, onResult }: SearchAnswerProps) {
                 to={askHref}
                 className='rp-chip inline-flex h-9 items-center gap-1.5 font-semibold sm:h-7'
               >
-                Continue in Assistant
+                Continue in Ask
                 <span aria-hidden='true'>&rarr;</span>
               </Link>
             </div>

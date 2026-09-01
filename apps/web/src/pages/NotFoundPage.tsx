@@ -21,7 +21,7 @@ export function NotFoundPage() {
     { to: base, label: 'Explore' },
     { to: `${base}/search`, label: 'Search' },
     { to: `${base}/library`, label: 'Library' },
-    { to: `${base}/assistant`, label: 'Assistant' },
+    { to: `${base}/ask`, label: 'Ask' },
     { to: `${base}/help`, label: 'Help' },
   ]
 

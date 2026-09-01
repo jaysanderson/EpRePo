@@ -1285,7 +1285,7 @@ label.rp-btn:has(input:focus-visible) {
 }
 
 /* ---------------------------------------------------------------------------
- * Suggested-question cards on the empty Assistant. Chips are right on a phone
+ * Suggested-question cards on empty Ask. Chips are right on a phone
  * but read as an afterthought on a wide screen, where there is room to make
  * them a real choice.
  * ------------------------------------------------------------------------- */

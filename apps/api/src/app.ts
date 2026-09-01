@@ -73,6 +73,10 @@ const TENANT_SLUG_ALIASES: ReadonlyMap<string, string> = new Map([
   ['gdrc', 'grdc'],
 ])
 
+const TENANT_ROUTE_ALIASES: ReadonlyMap<string, string> = new Map([
+  ['assistant', 'ask'],
+])
+
 const searchQuerySchema = z.object({ q: z.string().min(1) })
 const askBodySchema = z.object({
   query: z.string().min(1),
@@ -410,9 +414,9 @@ export function buildApp(opts: BuildAppOptions): Hono {
 
   const tenant = (slug: string): TenantConfig | undefined => tenants.get(slug)
 
-  // Keep bookmarks for renamed portals working without disrupting a rename in progress.
-  // While the old tenant still exists it remains authoritative; once it is retired, public
-  // portal routes permanently redirect to the canonical slug. API calls stay untouched.
+  // Keep bookmarks for renamed portals and routes working. While an old tenant still exists it
+  // remains authoritative; once it is retired, public portal routes permanently redirect to the
+  // canonical slug. Renamed route segments redirect immediately. API calls stay untouched.
   app.use('/t/*', async (c, next) => {
     if (c.req.method !== 'GET') {
       await next()
@@ -421,13 +425,30 @@ export function buildApp(opts: BuildAppOptions): Hono {
 
     const slug = /^\/t\/([^/]+)(?:\/|$)/.exec(c.req.path)?.[1]
     const canonicalSlug = slug ? TENANT_SLUG_ALIASES.get(slug) : undefined
-    if (!slug || !canonicalSlug || tenant(slug) || !tenant(canonicalSlug)) {
+    const url = new URL(c.req.url)
+
+    let redirected = false
+    if (slug && canonicalSlug && !tenant(slug) && tenant(canonicalSlug)) {
+      url.pathname = url.pathname.replace(/^\/t\/[^/]*/, `/t/${canonicalSlug}`)
+      redirected = true
+    }
+
+    const routeMatch = /^\/t\/[^/]+\/([^/]+)(?:\/|$)/.exec(url.pathname)
+    const route = routeMatch?.[1]
+    const canonicalRoute = route ? TENANT_ROUTE_ALIASES.get(route) : undefined
+    if (canonicalRoute) {
+      url.pathname = url.pathname.replace(
+        /^\/t\/([^/]+)\/[^/]+/,
+        `/t/$1/${canonicalRoute}`,
+      )
+      redirected = true
+    }
+
+    if (!redirected) {
       await next()
       return
     }
 
-    const url = new URL(c.req.url)
-    url.pathname = url.pathname.replace(/^\/t\/[^/]*/, `/t/${canonicalSlug}`)
     return c.redirect(`${url.pathname}${url.search}`, 308)
   })
 
