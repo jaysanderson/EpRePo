@@ -183,7 +183,7 @@ function RecentDocuments({ slug }: { slug: string }) {
             <li key={item.id}>
               <Link
                 to={`/t/${slug}/library/${item.id}`}
-                className='rp-focus-inverse group flex items-center gap-3 border-b border-[var(--rp-on-primary)]/15 py-2.5 transition-colors duration-150 hover:bg-[var(--rp-on-primary)]/5'
+                className='rp-focus-inverse group -mx-2.5 flex items-center gap-3 rounded-[var(--rp-radius-btn)] border-b border-[var(--rp-on-primary)]/15 px-2.5 py-2.5 transition-colors duration-150 hover:bg-[var(--rp-on-primary)]/10'
               >
                 <span className='h-14 w-11 shrink-0 overflow-hidden bg-[var(--rp-on-primary)]/10'>
                   <ResourceThumb

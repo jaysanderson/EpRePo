@@ -235,7 +235,7 @@ function NodeSearch({
   onPick,
   autoFocus = false,
   onDismiss,
-  className = 'h-11',
+  className = 'h-[calc(2.75rem*var(--rp-density-ctl,1))]',
 }: {
   nodes: MapNode[]
   groupStyles: Map<string, GroupStyle>
@@ -1044,7 +1044,7 @@ function ModeToggle({
     <div
       role='group'
       aria-label='Graph mode'
-      className='inline-flex h-11 shrink-0 items-center overflow-hidden rounded-[var(--rp-radius-btn)] border border-[var(--rp-on-primary)]/30'
+      className='inline-flex h-[calc(2.75rem*var(--rp-density-ctl,1))] shrink-0 items-center overflow-hidden rounded-[var(--rp-radius-btn)] border border-[var(--rp-on-primary)]/30'
     >
       <span className='px-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--rp-on-primary)]/60'>
         View
@@ -1104,7 +1104,7 @@ function LayoutToggle({
     <div
       role='group'
       aria-label='Map layout'
-      className='inline-flex h-11 shrink-0 items-center overflow-hidden rounded-[var(--rp-radius-btn)] border border-[var(--rp-on-primary)]/30'
+      className='inline-flex h-[calc(2.75rem*var(--rp-density-ctl,1))] shrink-0 items-center overflow-hidden rounded-[var(--rp-radius-btn)] border border-[var(--rp-on-primary)]/30'
     >
       <span className='px-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--rp-on-primary)]/60'>
         Layout

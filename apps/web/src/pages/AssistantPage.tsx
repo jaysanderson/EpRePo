@@ -451,9 +451,19 @@ function SessionList({
                   }}
                   aria-label={`Delete "${sessionTitle(session)}"`}
                   title='Delete session'
-                  className='rp-focus absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-[var(--rp-radius-btn)] text-ink-3 opacity-0 transition-opacity duration-150 hover:bg-[var(--rp-surface-2)] hover:text-[var(--rp-bad-ink)] group-hover:opacity-100 focus-visible:opacity-100'
+                  className='rp-focus absolute right-1.5 top-1.5 flex h-7 w-7 items-center justify-center rounded-[var(--rp-radius-btn)] text-ink-3 opacity-0 transition-opacity duration-150 hover:bg-[var(--rp-surface-2)] hover:text-[var(--rp-bad-ink)] group-hover:opacity-100 focus-visible:opacity-100'
                 >
-                  &times;
+                  <svg
+                    viewBox='0 0 20 20'
+                    fill='none'
+                    stroke='currentColor'
+                    strokeWidth='1.7'
+                    strokeLinecap='round'
+                    aria-hidden='true'
+                    className='h-4 w-4'
+                  >
+                    <path d='M5.5 5.5l9 9M14.5 5.5l-9 9' />
+                  </svg>
                 </button>
               </div>
             )
