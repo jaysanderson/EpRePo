@@ -22,6 +22,8 @@ import type {
   Investigation,
   InvestigationArtefact,
   InvestigationStoreApi,
+  McpKeyRecord,
+  McpKeyStoreApi,
   SessionsStoreApi,
   Source,
   SourceStoreApi,
@@ -808,6 +810,41 @@ export class DurableBrandingStore implements BrandingAssetStore {
   }
 }
 
+export class DurableMcpKeyStore implements McpKeyStoreApi {
+  constructor(private readonly state: DurableState) {}
+
+  private storageKey(slug: string): string {
+    return key('mcp-keys', slug)
+  }
+
+  list(slug: string): McpKeyRecord[] {
+    return this.state.get<McpKeyRecord[]>(this.storageKey(slug), [])
+      .filter((record) => record.tenant === slug)
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+  }
+
+  findByPrefix(slug: string, prefix: string): McpKeyRecord | undefined {
+    return this.list(slug).find((record) => record.prefix === prefix)
+  }
+
+  add(record: McpKeyRecord): void {
+    const all = this.list(record.tenant)
+    if (all.some((existing) => existing.id === record.id || existing.prefix === record.prefix)) {
+      throw new Error('MCP credential identifier collision')
+    }
+    this.state.put(this.storageKey(record.tenant), [...all, record])
+  }
+
+  revoke(slug: string, id: string, revokedAt: string): boolean {
+    const all = this.list(slug)
+    const found = all.find((record) => record.id === id)
+    if (!found) return false
+    if (!found.revokedAt) found.revokedAt = revokedAt
+    this.state.put(this.storageKey(slug), all)
+    return true
+  }
+}
+
 export interface DurableStores {
   bindings: DurableBindingStore
   tenants: DurableTenantStore
@@ -820,6 +857,7 @@ export interface DurableStores {
   enrichments: DurableEnrichmentStore
   kgProposals: DurableKgProposalStore
   branding: DurableBrandingStore
+  mcpKeys: DurableMcpKeyStore
 }
 
 export function durableStores(
@@ -838,5 +876,6 @@ export function durableStores(
     enrichments: new DurableEnrichmentStore(state),
     kgProposals: new DurableKgProposalStore(state),
     branding: new DurableBrandingStore(state),
+    mcpKeys: new DurableMcpKeyStore(state),
   }
 }

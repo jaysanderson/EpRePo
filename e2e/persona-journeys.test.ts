@@ -107,7 +107,11 @@ describe('Ask and Tools navigation', () => {
 
       expect(state.title).toBe('Tools | FRDC Knowledge Hub')
       expect(state.heading).toBe('Tools')
-      expect(state.text).toContain('No tools available yet')
+      // The Tools page now leads with the MCP connector rather than the
+      // placeholder it shipped with. Assert on the tool itself, which is
+      // described to every visitor; only provisioning is admin-gated, and the
+      // E2E double has no admin session.
+      expect(state.text).toContain('Knowledge box MCP connector')
       expect(state.primaryLinks).toContainEqual({ href: '/t/frdc/ask', label: 'Ask' })
       expect(state.primaryLinks).toContainEqual({ href: '/t/frdc/tools', label: 'Tools' })
       expect(state.primaryLinks.some((link) => link.href === '/t/frdc/generate')).toBe(false)

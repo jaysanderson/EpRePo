@@ -7,13 +7,29 @@ type WorkerHandler = {
   fetch(request: Request, env: Env): Promise<Response>
 }
 
+type WorkerModule = {
+  default: WorkerHandler
+  forwardPortalRequest(
+    request: Request,
+    user: {
+      id: string
+      tenantId: string
+      name: string
+      email: string
+      roles: string[]
+      isAdmin: boolean
+    } | null,
+  ): Request
+}
+
 type WorkerHarness = {
   env: Env
   assetRequests: Request[]
   portalRequests: Request[]
 }
 
-const worker = await loadWorker()
+const workerModule = await loadWorker()
+const worker = workerModule.default
 
 Deno.test('Worker permanently redirects the Assistant route alias for GET and HEAD', async () => {
   for (const method of ['GET', 'HEAD']) {
@@ -81,6 +97,45 @@ Deno.test('Worker keeps API requests routed through the Durable Object', async (
   ])
 })
 
+Deno.test('Worker removes caller-supplied identity markers before forwarding API requests', async () => {
+  const harness = workerHarness()
+
+  await worker.fetch(
+    new Request('https://corpuskit.test/api/t/frdc/mcp/keys', {
+      headers: {
+        'x-corpuskit-sso-admin': '1',
+        'x-corpuskit-sso-user-id': 'spoofed-user',
+      },
+    }),
+    harness.env,
+  )
+
+  expect(harness.portalRequests[0]?.headers.get('x-corpuskit-sso-admin')).toBeNull()
+  expect(harness.portalRequests[0]?.headers.get('x-corpuskit-sso-user-id')).toBeNull()
+})
+
+Deno.test('Worker forwards identity only from a validated session user', () => {
+  const forwarded = workerModule.forwardPortalRequest(
+    new Request('https://corpuskit.test/api/t/frdc/mcp/keys', {
+      headers: {
+        'x-corpuskit-sso-admin': 'spoofed',
+        'x-corpuskit-sso-user-id': 'spoofed-user',
+      },
+    }),
+    {
+      id: 'entra-object-id',
+      tenantId: 'entra-tenant-id',
+      name: 'Portal administrator',
+      email: 'admin@example.test',
+      roles: ['CorpusKit.Admin'],
+      isAdmin: true,
+    },
+  )
+
+  expect(forwarded.headers.get('x-corpuskit-sso-user-id')).toBe('entra-object-id')
+  expect(forwarded.headers.get('x-corpuskit-sso-admin')).toBe('1')
+})
+
 function workerHarness(): WorkerHarness {
   const assetRequests: Request[] = []
   const portalRequests: Request[] = []
@@ -115,7 +170,7 @@ function workerHarness(): WorkerHarness {
  * Replace only that platform base class, then import the actual worker module
  * so these tests execute its exported default fetch handler.
  */
-async function loadWorker(): Promise<WorkerHandler> {
+async function loadWorker(): Promise<WorkerModule> {
   const workerUrl = new URL('./worker.ts', import.meta.url)
   const durableObjectShim =
     'data:application/javascript,export class DurableObject { constructor(ctx, env) { this.ctx = ctx; this.env = env } }'
@@ -126,6 +181,5 @@ async function loadWorker(): Promise<WorkerHandler> {
       (_match, specifier: string) => `from '${new URL(specifier, workerUrl).href}'`,
     )
   const moduleUrl = `data:application/typescript,${encodeURIComponent(source)}`
-  const module = await import(moduleUrl) as { default: WorkerHandler }
-  return module.default
+  return await import(moduleUrl) as WorkerModule
 }

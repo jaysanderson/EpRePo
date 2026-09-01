@@ -5,11 +5,19 @@ import { DurableObject } from 'cloudflare:workers'
 import { buildApp } from '../../api/src/app.ts'
 import { runAutoEnrichments, runAutoSyncs, runWatches } from '../../api/src/scheduler.ts'
 import { AragProvider } from '@research-portal/retrieval'
-import { type AuthConfig, authConfigured, authUser, handleAuthRequest } from './auth.ts'
+import {
+  type AuthConfig,
+  authConfigured,
+  type AuthUser,
+  authUser,
+  handleAuthRequest,
+} from './auth.ts'
 import { DurableState, type DurableStores, durableStores, stringEnv } from './state.ts'
 import { tenantAliasLocation } from '../../api/src/tenant-aliases.ts'
 
 const PORTAL_OBJECT_NAME = 'production'
+const SSO_ADMIN_HEADER = 'x-corpuskit-sso-admin'
+const SSO_USER_ID_HEADER = 'x-corpuskit-sso-user-id'
 const SECURITY_HEADERS: Record<string, string> = {
   'permissions-policy': 'camera=(), microphone=(), geolocation=(), payment=()',
   'referrer-policy': 'strict-origin-when-cross-origin',
@@ -50,9 +58,14 @@ export class PortalDurableObject extends DurableObject<Env> {
       enrichments: this.stores.enrichments,
       kgProposals: this.stores.kgProposals,
       branding: this.stores.branding,
+      mcpKeys: this.stores.mcpKeys,
       zone: bindings.ARAG_ZONE,
       adminPasscode: bindings.ADMIN_PASSCODE,
-      trustedAdmin: (request) => request.headers.get('x-corpuskit-sso-admin') === '1',
+      trustedAdmin: (request) => request.headers.get(SSO_ADMIN_HEADER) === '1',
+      trustedUser: (request) => {
+        const id = request.headers.get(SSO_USER_ID_HEADER)
+        return id ? { id, isAdmin: request.headers.get(SSO_ADMIN_HEADER) === '1' } : null
+      },
       invalidate: (slug) => this.provider.invalidate(slug),
       webAvailable: true,
       buildSha: env.CF_VERSION_METADATA?.id ?? 'cloudflare',
@@ -94,15 +107,8 @@ export default {
     }
 
     if (url.pathname.startsWith('/api/')) {
-      const headers = new Headers(request.headers)
-      // This marker is trusted only when the outer Worker adds it after
-      // validating an encrypted session. Never forward a caller-supplied copy.
-      headers.delete('x-corpuskit-sso-admin')
-      if (authConfigured(auth)) {
-        const user = await authUser(request, auth)
-        if (user?.isAdmin) headers.set('x-corpuskit-sso-admin', '1')
-      }
-      const forwarded = new Request(request, { headers })
+      const user = authConfigured(auth) ? await authUser(request, auth) : null
+      const forwarded = forwardPortalRequest(request, user)
       return env.PORTAL.getByName(PORTAL_OBJECT_NAME, { locationHint: 'oc' }).fetch(forwarded)
     }
 
@@ -122,6 +128,22 @@ export default {
     )
   },
 } satisfies ExportedHandler<Env>
+
+/**
+ * Forward only identity markers derived from a validated encrypted session.
+ * Caller-supplied copies are always removed before the Durable Object sees the
+ * request, so its role and issuer checks can trust these headers.
+ */
+export function forwardPortalRequest(request: Request, user: AuthUser | null): Request {
+  const headers = new Headers(request.headers)
+  headers.delete(SSO_ADMIN_HEADER)
+  headers.delete(SSO_USER_ID_HEADER)
+  if (user) {
+    headers.set(SSO_USER_ID_HEADER, user.id)
+    if (user.isAdmin) headers.set(SSO_ADMIN_HEADER, '1')
+  }
+  return new Request(request, { headers })
+}
 
 function authConfig(env: Env): Partial<AuthConfig> {
   const values = stringEnv(env)

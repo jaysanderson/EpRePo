@@ -532,9 +532,63 @@ export class InvestigationStore {
   }
 }
 
+// --- MCP credentials --------------------------------------------------------
+
+/**
+ * The server-side representation of one CorpusKit-issued MCP credential.
+ * `hash` is a SHA-256 digest of the complete credential. The complete value is
+ * returned only by the minting response and is never persisted.
+ */
+export interface McpKeyRecord {
+  id: string
+  tenant: string
+  issuerUserId: string
+  label: string
+  prefix: string
+  hash: string
+  createdAt: string
+  revokedAt: string | null
+}
+
+export class McpKeyStore {
+  constructor(private readonly dataDir = DATA_DIR) {}
+
+  private pathFor(slug: string): string {
+    return join(this.dataDir, 'mcp-keys', `${safeSegment(slug)}.json`)
+  }
+
+  list(slug: string): McpKeyRecord[] {
+    return readJson<McpKeyRecord[]>(this.pathFor(slug), [])
+      .filter((record) => record.tenant === slug)
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+  }
+
+  findByPrefix(slug: string, prefix: string): McpKeyRecord | undefined {
+    return this.list(slug).find((record) => record.prefix === prefix)
+  }
+
+  add(record: McpKeyRecord): void {
+    const all = this.list(record.tenant)
+    if (all.some((existing) => existing.id === record.id || existing.prefix === record.prefix)) {
+      throw new Error('MCP credential identifier collision')
+    }
+    writeJson(this.pathFor(record.tenant), [...all, record])
+  }
+
+  revoke(slug: string, id: string, revokedAt: string): boolean {
+    const all = this.list(slug)
+    const found = all.find((record) => record.id === id)
+    if (!found) return false
+    if (!found.revokedAt) found.revokedAt = revokedAt
+    writeJson(this.pathFor(slug), all)
+    return true
+  }
+}
+
 /** Public store contracts used by runtimes without a local filesystem. */
 export type InsightsStoreApi = Pick<InsightsStore, keyof InsightsStore>
 export type SessionsStoreApi = Pick<SessionsStore, keyof SessionsStore>
 export type WatchStoreApi = Pick<WatchStore, keyof WatchStore>
 export type SourceStoreApi = Pick<SourceStore, keyof SourceStore>
 export type InvestigationStoreApi = Pick<InvestigationStore, keyof InvestigationStore>
+export type McpKeyStoreApi = Pick<McpKeyStore, keyof McpKeyStore>

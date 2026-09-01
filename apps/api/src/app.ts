@@ -50,6 +50,8 @@ import {
   type InsightsStoreApi,
   InvestigationStore,
   type InvestigationStoreApi,
+  McpKeyStore,
+  type McpKeyStoreApi,
   SessionsStore,
   type SessionsStoreApi,
   SourceStore,
@@ -81,6 +83,7 @@ import {
 import { generateFollowUpQuestions } from './follow-up-questions.ts'
 import { generateSuggestedQuestions, SUGGESTED_QUESTIONS_SCHEMA_ID } from './suggested-questions.ts'
 import { tenantAliasLocation } from './tenant-aliases.ts'
+import { registerMcpRoutes, type TrustedPortalUser } from './mcp.ts'
 
 const searchQuerySchema = z.object({ q: z.string().min(1) })
 const askBodySchema = z.object({
@@ -374,6 +377,7 @@ export interface BuildAppOptions {
   /** Watch registry; same sharing rationale as `sources`. */
   watches?: WatchStoreApi
   investigations?: InvestigationStoreApi
+  mcpKeys?: McpKeyStoreApi
   suggestions?: SuggestionStoreApi
   kgProposals?: KgProposalStoreApi
   /** Merchandising enrichment cache; a fresh store when omitted (tests). */
@@ -382,6 +386,8 @@ export interface BuildAppOptions {
   adminPasscode?: string
   /** A platform adapter may authenticate an administrator before the request reaches Hono. */
   trustedAdmin?: (request: Request) => boolean
+  /** Authenticated portal identity forwarded by a trusted platform adapter. */
+  trustedUser?: (request: Request) => TrustedPortalUser | null
   /** Where the built SPA lives; overridable in tests. Defaults to ./apps/web/dist. */
   webDistPath?: string
   /** Runtime adapters that serve assets outside the local filesystem set this explicitly. */
@@ -398,6 +404,8 @@ export interface BuildAppOptions {
   /** Requests/min/IP for POST /api/ask-estate, which fans one request across every tenant.
    *  Defaults to env RATE_LIMIT_ESTATE_PER_MIN, or 6. 0 disables. */
   rateLimitEstatePerMin?: number
+  /** Authentication attempts/min/IP at the MCP endpoint. Defaults to 60. 0 disables. */
+  rateLimitMcpAuthPerMin?: number
 }
 
 export function buildApp(opts: BuildAppOptions): Hono {
@@ -409,6 +417,7 @@ export function buildApp(opts: BuildAppOptions): Hono {
   const watches = opts.watches ?? new WatchStore()
   const sources = opts.sources ?? new SourceStore()
   const investigations = opts.investigations ?? new InvestigationStore()
+  const mcpKeys = opts.mcpKeys ?? new McpKeyStore()
   const suggestions = opts.suggestions ?? new SuggestionStore()
   const kgProposals = opts.kgProposals ?? new KgProposalStore()
   const enrichments = opts.enrichments ?? new EnrichmentStore()
@@ -457,6 +466,14 @@ export function buildApp(opts: BuildAppOptions): Hono {
   })
 
   const tenant = (slug: string): TenantConfig | undefined => tenants.get(slug)
+
+  registerMcpRoutes(app, {
+    provider,
+    tenant,
+    keys: mcpKeys,
+    trustedUser: opts.trustedUser,
+    rateLimitPerMin: opts.rateLimitMcpAuthPerMin,
+  })
 
   // Keep bookmarks for renamed portals and routes working. While an old tenant still exists it
   // remains authoritative; once it is retired, public portal routes permanently redirect to the

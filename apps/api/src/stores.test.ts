@@ -5,7 +5,9 @@ import { expect } from '@std/expect'
 // DATA_DIR is read at module load, so point it at a temp dir before importing.
 const dir = await Deno.makeTempDir()
 Deno.env.set('DATA_DIR', dir)
-const { InsightsStore, SessionsStore, SourceStore, WatchStore } = await import('./stores.ts')
+const { InsightsStore, McpKeyStore, SessionsStore, SourceStore, WatchStore } = await import(
+  './stores.ts'
+)
 const { readJsonSafe, writeFileAtomic, writeJsonAtomic } = await import('./persist.ts')
 const { BindingStore } = await import('./bindings.ts')
 
@@ -86,6 +88,29 @@ Deno.test('sources persist across a fresh store instance (read/write round-trip)
   const reopened = new SourceStore().list('roundtrip')
   expect(reopened.length).toEqual(1)
   expect(reopened[0]!.url).toEqual('https://example.org/roundtrip')
+})
+
+Deno.test('MCP keys persist only hashes and stay isolated by tenant', () => {
+  const store = new McpKeyStore(dir)
+  const record = {
+    id: 'key-1',
+    tenant: 'frdc',
+    issuerUserId: 'user-1',
+    label: 'Research client',
+    prefix: 'ck_mcp_abcdefghijkl',
+    hash: 'a'.repeat(64),
+    createdAt: '2026-09-01T00:00:00.000Z',
+    revokedAt: null,
+  }
+  store.add(record)
+
+  expect(new McpKeyStore(dir).findByPrefix('frdc', record.prefix)?.hash).toBe(record.hash)
+  expect(store.findByPrefix('grdc', record.prefix)).toBeUndefined()
+  expect(readFileSync(join(dir, 'mcp-keys', 'frdc.json'), 'utf8')).not.toContain(
+    'a-working-secret',
+  )
+  expect(store.revoke('frdc', record.id, '2026-09-01T01:00:00.000Z')).toBe(true)
+  expect(store.list('frdc')[0]?.revokedAt).toBe('2026-09-01T01:00:00.000Z')
 })
 
 // --- Atomic write helper (persist.ts) ---------------------------------------
