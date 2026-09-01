@@ -2120,7 +2120,7 @@ export function AskPage() {
         }
         <div
           ref={scrollWrapRef}
-          className='flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain lg:overflow-visible'
+          className='rp-scroll flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain lg:overflow-visible'
         >
           {
             /* The title and Export bar. It lives INSIDE the scroll container
@@ -2176,7 +2176,7 @@ export function AskPage() {
 
           <section
             aria-label='Conversation'
-            className='flex-1 space-y-4 pb-4 lg:overflow-y-auto'
+            className='rp-scroll flex-1 space-y-4 pb-4 lg:overflow-y-auto'
           >
             {isEmpty
               ? (
@@ -2190,7 +2190,6 @@ export function AskPage() {
                   {suggestions && suggestions.length > 0
                     ? (
                       <div className='pt-3'>
-                        <p className='rp-eyebrow text-center text-ink-3'>Try a question</p>
                         {
                           /* Chips on a phone, where a grid of cards would stack into
                           * a wall; proper cards from sm up. */
