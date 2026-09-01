@@ -75,7 +75,10 @@ jobs:
           key: astral-chromium-${{ runner.os }}-${{ hashFiles('deno.json') }}
 
       - name: Browser E2E persona journeys
-        continue-on-error: true
+        env:
+          # GitHub-hosted runners do not expose Chromium's setuid sandbox.
+          # Astral appends this to the browser process it launches in CI.
+          ASTRAL_BIN_ARGS: --no-sandbox
         run: deno task test:e2e
 
       - name: Preserve deployment package

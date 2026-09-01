@@ -55,3 +55,16 @@ jobs:
 
       - name: Gate
         run: deno task check
+
+      - name: Cache Chromium (astral/e2e)
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/astral
+          key: astral-chromium-${{ runner.os }}-${{ hashFiles('deno.json') }}
+
+      - name: Browser E2E persona journeys
+        env:
+          # GitHub-hosted runners do not expose Chromium's setuid sandbox.
+          # Astral appends this to the browser process it launches in CI.
+          ASTRAL_BIN_ARGS: --no-sandbox
+        run: deno task test:e2e
