@@ -10,7 +10,7 @@
 // Journeys assert what docs/PERSONAS.md's persona gates require of the
 // researcher journey: the portal picker, the explore page's topic rows, the
 // search page's cited AI Answer panel (inline [n] markers, resources/cited
-// header, Resources/Citations toggle), a citation marker's click-through to
+// header, Retrieved/Cited toggle), a citation marker's click-through to
 // its source, the Self Assessment page's knowledge-area cards, and that the
 // search journey stays usable at a 390px mobile viewport.
 //
@@ -46,7 +46,7 @@ describe('portal picker', () => {
       const bodyText = await page.evaluate(() => document.body.innerText)
       expect(bodyText).toContain('Choose a portal')
       expect(bodyText).toContain('FRDC Knowledge Hub')
-      expect(bodyText).toContain('GRDC Research Portal')
+      expect(bodyText).toContain('GRDC Knowledge Hub')
     } finally {
       await page.close()
     }
@@ -57,11 +57,11 @@ describe('explore page', () => {
   it('renders topic rows with resource cards', async () => {
     const page = await browser.newPage(`${server.url}/t/frdc`)
     try {
-      // Topic row heading for the topic the double's resources are filed
-      // against ("stock-assessment" -> "Fisheries stock assessment").
+      // Topic row heading for the current topic the double's resources are
+      // filed against ("research-development").
       await page.waitForSelector('h2', { timeout: 15_000 })
       const bodyText = await page.evaluate(() => document.body.innerText)
-      expect(bodyText).toContain('Fisheries stock assessment')
+      expect(bodyText).toContain('Research and development')
       expect(bodyText).toContain(RESOURCE_ONE.title)
     } finally {
       await page.close()
@@ -132,10 +132,10 @@ describe('search - AI answer panel and citations', () => {
       // to have been reported up to the results list ("1 cited").
       await page.waitForFunction(() => document.body.innerText.includes('1 cited'))
 
-      // Resources/Citations toggle (role=radiogroup, aria-label="Results view").
+      // Retrieved/Cited toggle (role=radiogroup, aria-label="Results view").
       const bodyText = await page.evaluate(() => document.body.innerText)
-      expect(bodyText).toMatch(/Resources \(\d+\)/)
-      expect(bodyText).toMatch(/Citations \(\d+\)/)
+      expect(bodyText).toMatch(/Retrieved \(\d+\)/)
+      expect(bodyText).toMatch(/Cited \(\d+\)/)
     } finally {
       await page.close()
     }
@@ -175,8 +175,8 @@ describe('assessment page', () => {
 
       const bodyText = await page.evaluate(() => document.body.innerText)
       // One card per configured frdc topic.
-      expect(bodyText).toContain('Fisheries stock assessment')
-      expect(bodyText).toContain('Aquaculture biosecurity')
+      expect(bodyText).toContain('Research and development')
+      expect(bodyText).toContain('Carp control')
       expect(bodyText).toContain('Build an assessment')
     } finally {
       await page.close()
@@ -199,27 +199,25 @@ describe('390px mobile viewport', () => {
       }))
       expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth + 1)
 
-      // The search input and submit button stay within the viewport and are
-      // reachable tap targets (non-zero size, left/right edges in bounds).
-      const rects = await page.evaluate(() => {
-        const input = document.getElementById('search-input')
-        const button = input?.closest('form')?.querySelector('button[type="submit"]')
+      // The page-level search input stays within the viewport and remains a
+      // reachable tap target. On mobile, the keyboard Search action submits
+      // this form; the desktop header's submit button is intentionally hidden.
+      const field = await page.evaluate(() => {
+        const input = document.getElementById('search-query') as HTMLInputElement | null
         const rectOf = (el: Element | null | undefined) => {
           if (!el) return null
           const r = el.getBoundingClientRect()
           return { x: r.x, right: r.right, width: r.width, height: r.height }
         }
-        return { input: rectOf(input), button: rectOf(button) }
+        return { rect: rectOf(input), enterKeyHint: input?.enterKeyHint }
       })
 
-      expect(rects.input).not.toBeNull()
-      expect(rects.button).not.toBeNull()
-      expect(rects.input!.x).toBeGreaterThanOrEqual(0)
-      expect(rects.input!.right).toBeLessThanOrEqual(390)
-      expect(rects.input!.width).toBeGreaterThan(0)
-      expect(rects.button!.x).toBeGreaterThanOrEqual(0)
-      expect(rects.button!.right).toBeLessThanOrEqual(390)
-      expect(rects.button!.height).toBeGreaterThan(0)
+      expect(field.rect).not.toBeNull()
+      expect(field.rect!.x).toBeGreaterThanOrEqual(0)
+      expect(field.rect!.right).toBeLessThanOrEqual(390)
+      expect(field.rect!.width).toBeGreaterThan(0)
+      expect(field.rect!.height).toBeGreaterThan(0)
+      expect(field.enterKeyHint).toBe('search')
 
       // The citation marker link is likewise on-screen and clickable.
       const markerRect = await page.evaluate(() => {

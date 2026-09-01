@@ -25,7 +25,7 @@ export const RESOURCE_ONE: ResourceSummary = {
   title: 'Abalone stock health in southern waters',
   summary: 'An overview of abalone population trends and stressors across southern fisheries.',
   type: 'pdf',
-  topicIds: ['stock-assessment', 'crop-protection'],
+  topicIds: ['research-development', 'standards'],
   keyFacts: [
     'Populations have declined 12% since 2019.',
     'Marine heatwaves are the leading stressor identified.',
@@ -38,7 +38,7 @@ export const RESOURCE_TWO: ResourceSummary = {
   title: 'Marine heatwave impacts on rock lobster',
   summary: 'Field study of thermal stress on rock lobster fisheries in temperate waters.',
   type: 'web',
-  topicIds: ['marine-sustainability', 'soils-nutrition'],
+  topicIds: ['stakeholder-engagement'],
   keyFacts: ['Heatwave events correlate with reduced catch rates.'],
 }
 
@@ -100,7 +100,7 @@ export class DoubleProvider implements RetrievalProvider {
     const counts: FacetCounts = {}
     for (const ls of labelsets) {
       if (ls === 'topic') {
-        counts.topic = { 'stock-assessment': 1, 'crop-protection': 1, 'marine-sustainability': 1 }
+        counts.topic = { 'research-development': 1, standards: 1, 'stakeholder-engagement': 1 }
       } else if (ls === 'kind') {
         counts.kind = { pdf: 1, web: 1 }
       }
@@ -110,7 +110,7 @@ export class DoubleProvider implements RetrievalProvider {
 
   labelsets(_tenant: TenantConfig): Promise<Labelset[]> {
     return Promise.resolve([
-      { id: 'topic', title: 'Topic', multiple: true, labels: ['stock-assessment'] },
+      { id: 'topic', title: 'Topic', multiple: true, labels: ['research-development'] },
       { id: 'kind', title: 'Kind', multiple: false, labels: ['pdf', 'web'] },
     ])
   }
