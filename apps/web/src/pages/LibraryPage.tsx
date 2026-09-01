@@ -117,20 +117,21 @@ function LibraryCard(
           {item.title}
         </h3>
         {
-          /* Two lines is the right budget almost everywhere, but a phone's list
-          * row is the exception: the text column is barely 230px, so two lines
-          * is about eight words and every summary breaks mid-sentence. Four
-          * lines there costs nothing - the row is only as tall as the text it
-          * actually has - and is what makes the row worth reading. A desktop
-          * list row is the opposite case: its column runs the best part of a
-          * thousand pixels, so two lines already carry a couple of hundred
+          /* Three lines is the budget almost everywhere: two clipped most grid
+          * summaries mid-sentence, and the third line is what lets a card read
+          * as a description rather than a truncated fragment. A phone's list
+          * row still wants more - its text column is barely 230px, so three
+          * lines is about a dozen words - and four costs nothing there, since
+          * the row is only as tall as the text it actually has. A desktop list
+          * row is the opposite case: its column runs the best part of a
+          * thousand pixels, so three lines already carry a few hundred
           * characters and a four-line clamp would mostly buy whitespace. */
         }
         {item.summary && item.summary !== item.title
           ? (
             <p
               className={`text-xs leading-relaxed text-ink-3 ${
-                list && compact ? 'rp-clamp-4' : 'rp-clamp-2'
+                list && compact ? 'rp-clamp-4' : 'rp-clamp-3'
               }`}
             >
               {item.summary}
