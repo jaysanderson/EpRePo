@@ -153,4 +153,72 @@ describe('junk/failed-ingest filtering (defect #2)', () => {
     const result = await provider.listResources(TENANT)
     expect(result.map((r) => r.id)).toEqual(['res-abalone'])
   })
+
+  it('keeps the recovered 1995-167 resource and drops its ERROR-status predecessor', async () => {
+    const recovered = {
+      ...GOOD_RESOURCE,
+      title: '1995-167-DLD.pdf',
+    }
+    const failedVision = {
+      ...recovered,
+      metadata: { status: 'ERROR' },
+    }
+    const provider = providerWith({}, {
+      'res-failed-vision': failedVision,
+      'res-recovered': recovered,
+    })
+
+    const result = await provider.catalog(TENANT, {})
+    expect(result.items.map((item) => item.id)).toEqual(['res-recovered'])
+  })
+})
+
+describe('multi-part resource cards (issue #47)', () => {
+  const main = {
+    ...GOOD_RESOURCE,
+    title: '2017-215-DLD.pdf',
+    fields: {
+      a: { paragraphs: { p1: { score: 0.62, text: 'The main project report.' } } },
+    },
+  }
+  const appendix1 = {
+    ...GOOD_RESOURCE,
+    title: '2017-215-App-1',
+    fields: {
+      a: { paragraphs: { p1: { score: 0.71, text: 'Methods in appendix one.' } } },
+    },
+  }
+  const appendix2 = {
+    ...GOOD_RESOURCE,
+    title: '2017-215-App-2',
+    fields: {
+      a: { paragraphs: { p1: { score: 0.96, text: 'Findings unique to appendix two.' } } },
+    },
+  }
+
+  it('keeps one canonical card in an unfiltered browse response', async () => {
+    const provider = providerWith({}, {
+      'res-app-2': appendix2,
+      'res-main': main,
+      'res-app-1': appendix1,
+    })
+
+    const result = await provider.catalog(TENANT, {})
+    expect(result.items.map((item) => item.id)).toEqual(['res-main'])
+  })
+
+  it('keeps the highest-scoring part reachable in search and filtered browse', async () => {
+    const provider = providerWith({
+      'res-main': main,
+      'res-app-1': appendix1,
+      'res-app-2': appendix2,
+    })
+
+    const [searchResult, catalogResult] = await Promise.all([
+      provider.search(TENANT, 'appendix two findings'),
+      provider.catalog(TENANT, { query: 'appendix two findings' }),
+    ])
+    expect(searchResult.resources.map((resource) => resource.id)).toEqual(['res-app-2'])
+    expect(catalogResult.items.map((item) => item.id)).toEqual(['res-app-2'])
+  })
 })

@@ -36,6 +36,7 @@ import type {
 import { baselineMerchandising, extractPageSummary } from '../../merchandise.ts'
 import { AragApiError, type KbBinding, KbClient, ndjson } from './client.ts'
 import { spliceCitationMarkers, stripInlineMarkers } from './citations.ts'
+import { dedupeResourceFamilies } from './resource-groups.ts'
 
 const CATALOG_TTL_MS = 60_000
 /** Catalogue paging: 200 per call, up to 40 calls - 8,000 resources. */
@@ -947,18 +948,35 @@ export class AragProvider implements RetrievalProvider {
         const reference = passage ? looksLikeReferenceChunk(passage) : false
         // A reference-list match is citation-title noise - keep it findable
         // but never let it outrank body text.
-        return { id, raw, best: reference ? best * 0.4 : best, passage, page, reference }
+        return {
+          id,
+          title: raw.title,
+          raw,
+          best: reference ? best * 0.4 : best,
+          passage,
+          page,
+          reference,
+        }
       })
       .filter((s) => s.best >= MIN_SCORE)
     // Near-duplicate suppression: crawled pages repeat nav/footer chrome, so
     // two results opening with the same 120 characters are the same content.
     const seenSignatures = new Set<string>()
-    const deduped = scored.sort((a, b) => b.best - a.best).filter((s) => {
+    const contentDeduped = scored.sort((a, b) => b.best - a.best).filter((s) => {
       const signature = (s.passage ?? s.raw.title ?? s.id).slice(0, 120).toLowerCase()
       if (seenSignatures.has(signature)) return false
       seenSignatures.add(signature)
       return true
     })
+    // Multi-part scans and project-code variants are one logical report in a
+    // card list. Search keeps the highest-scoring member, rather than always
+    // the primary, so a query specific to Part B can still reach Part B.
+    const deduped = opts.docScope
+      ? contentDeduped
+      : dedupeResourceFamilies(contentDeduped.map((resource) => ({
+        ...resource,
+        priority: resource.best,
+      })))
     // Calibrated relevance, comparable across queries: semantic scores are
     // already 0-1; BM25 scores (>1) are squashed logistically. Never
     // normalised to the top hit - a weak best match must LOOK weak.
@@ -1042,10 +1060,13 @@ export class AragProvider implements RetrievalProvider {
     // Failed ingests and junk (hash/bot-challenge) titles never surface in
     // the library - see isDisplayableResource. In-app documentation is
     // research-invisible: it never surfaces in the research library.
-    const entries = Object.entries(raw.resources ?? {}).filter(([, r]) =>
-      isDisplayableResource(r) && !isDocumentationResource(r)
-    )
-    const items: CatalogItem[] = entries.map(([id, r]) => catalogItemFromRaw(id, r))
+    const entries = Object.entries(raw.resources ?? {})
+      .filter(([, r]) => isDisplayableResource(r) && !isDocumentationResource(r))
+      .map(([id, raw]) => ({ id, title: raw.title, raw }))
+    // Plain browse keeps the canonical report (or Part A/Part 1 when no
+    // primary exists). Resource detail routes still resolve every member.
+    const items: CatalogItem[] = dedupeResourceFamilies(entries)
+      .map(({ id, raw }) => catalogItemFromRaw(id, raw))
     return { items, total: raw.fulltext?.total ?? raw.total ?? items.length }
   }
 
@@ -1092,13 +1113,15 @@ export class AragProvider implements RetrievalProvider {
     // behind it yet, so its card would be an empty placeholder - browse rows
     // wait for it. The library still lists them, badged, so a curator can watch
     // the load progress.
-    return Object.entries(raw.resources ?? {})
+    const entries = Object.entries(raw.resources ?? {})
       .filter(([, r]) =>
         isDisplayableResource(r) && !isDocumentationResource(r) &&
         (r.metadata?.status ?? '').toUpperCase() === 'PROCESSED'
       )
+      .map(([id, raw]) => ({ id, title: raw.title, raw }))
+    return dedupeResourceFamilies(entries)
       .slice(0, limit)
-      .map(([id, r]) => this.toSummary(id, r))
+      .map(({ id, raw }) => this.toSummary(id, raw))
   }
 
   /**
@@ -1136,11 +1159,12 @@ export class AragProvider implements RetrievalProvider {
             best = Math.max(best, paragraph.score ?? 0)
           }
         }
-        return { id, raw, best }
+        return { id, title: raw.title, raw, best, priority: best }
       })
       .filter((s) => s.best >= MIN_SCORE)
       .sort((a, b) => b.best - a.best)
-    const items = scored.map(({ id, raw }) => catalogItemFromRaw(id, raw))
+    const items = dedupeResourceFamilies(scored)
+      .map(({ id, raw }) => catalogItemFromRaw(id, raw))
     const page = opts.page ?? 0
     const pageSize = opts.pageSize ?? 24
     const start = page * pageSize

@@ -93,6 +93,21 @@ describe('topicResources()', () => {
     expect(items.map((r) => r.id)).toEqual(['res-good'])
   })
 
+  it('shows one primary card for a report and its appendix resources', async () => {
+    const provider = providerWithFetch(() =>
+      Promise.resolve(jsonResponse({
+        resources: {
+          'res-app-2': { title: '2017-215-App-2', metadata: { status: 'PROCESSED' } },
+          'res-main': { title: '2017-215-DLD.pdf', metadata: { status: 'PROCESSED' } },
+          'res-app-1': { title: '2017-215-App-1', metadata: { status: 'PROCESSED' } },
+        },
+      }))
+    )
+
+    const items = await provider.topicResources(TENANT, 'research-development')
+    expect(items.map((resource) => resource.id)).toEqual(['res-main'])
+  })
+
   it('still returns real resources when the newest page is all documentation', async () => {
     // The GRDC box sorts its own help articles newest-first, so asking for
     // exactly `limit` returned a page of documentation that filtered to zero
