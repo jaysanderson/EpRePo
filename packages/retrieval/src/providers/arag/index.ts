@@ -54,6 +54,17 @@ const BACKPRESSURE_MAX_RETRIES = 2
 const BACKPRESSURE_MAX_WAIT_MS = 20_000
 /** Floor for the wait even when try_after is already in the past. */
 const BACKPRESSURE_MIN_WAIT_MS = 1_000
+/** Cheap extraction-tier model for high-volume data-augmentation work. */
+export const DEFAULT_DA_AGENT_MODEL = 'gemini-2.5-flash-lite'
+
+function envValue(name: string): string | undefined {
+  try {
+    return Deno.env.get(name)
+  } catch {
+    // Library consumers without environment permission still get the safe default.
+    return undefined
+  }
+}
 
 /**
  * Retry a single ingestion write (createText/createLink) across the
@@ -572,6 +583,11 @@ export interface AragProviderOptions {
   /** Resolve the current binding for a tenant slug - called per request so bindings can change at runtime. */
   resolveBinding: (slug: string) => KbBinding | undefined
   fetchImpl?: typeof fetch
+  /**
+   * Model for bulk DA agents. Defaults to ARAG_DA_AGENT_MODEL, then the cheap
+   * extraction tier - never to the knowledge box's user-facing answer model.
+   */
+  augmentationModel?: string
 }
 
 /**
@@ -582,8 +598,14 @@ export interface AragProviderOptions {
 export class AragProvider implements RetrievalProvider {
   private readonly clients = new Map<string, KbClient>()
   private readonly catalogCache = new Map<string, { at: number; resources: ResourceSummary[] }>()
+  private readonly augmentationModelId: string
 
-  constructor(private readonly opts: AragProviderOptions) {}
+  constructor(private readonly opts: AragProviderOptions) {
+    const configured = opts.augmentationModel === undefined
+      ? envValue('ARAG_DA_AGENT_MODEL')
+      : opts.augmentationModel
+    this.augmentationModelId = configured?.trim() || DEFAULT_DA_AGENT_MODEL
+  }
 
   private client(tenant: TenantConfig): KbClient {
     const binding = this.opts.resolveBinding(tenant.slug)
@@ -1379,7 +1401,7 @@ export class AragProvider implements RetrievalProvider {
   // Data-augmentation agents (DA tasks on the data-plane host).
   // -------------------------------------------------------------------------
 
-  /** The box's configured generative model - DA tasks must pin it. */
+  /** The box's configured user-facing answer model. DA tasks must not inherit it. */
   async generativeModel(tenant: TenantConfig): Promise<string> {
     try {
       const cfg = await this.client(tenant).getJson<{ generative_model?: string }>(
@@ -1389,6 +1411,11 @@ export class AragProvider implements RetrievalProvider {
     } catch {
       return ''
     }
+  }
+
+  /** The independently configured cheap model that bulk DA tasks must pin. */
+  async augmentationModel(_tenant: TenantConfig): Promise<string> {
+    return this.augmentationModelId
   }
 
   async listAgents(tenant: TenantConfig): Promise<KbAgent[]> {

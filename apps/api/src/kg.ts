@@ -187,11 +187,11 @@ export async function* implementKgStrategy(
   proposal: KgProposal,
   opts: { applyExisting: boolean; includeSummaries: boolean; includeMemory?: boolean },
 ): AsyncGenerator<KgImplementEvent> {
-  yield { type: 'stage', label: 'Resolving the box generative model' }
-  const model = await management.generativeModel(config)
+  yield { type: 'stage', label: 'Resolving the data-augmentation model' }
+  const model = await management.augmentationModel(config)
   yield {
     type: 'item',
-    label: model ? `Model pinned: ${model}` : 'No model configured - using the platform default',
+    label: `DA model pinned: ${model}`,
   }
 
   const slugify = (raw: string) =>
@@ -348,15 +348,6 @@ export async function* implementKgStrategy(
     }
   }
 
-  const questionsTitle = `questions-${slugify(config.slug)}`
-  if (existingByTitle.has(questionsTitle)) {
-    agents += 1
-    yield { type: 'item', label: 'Question generator already registered - keeping it' }
-  } else {
-    yield* tryStart('Question generator', 'synthetic-questions', questionsTitle, [{
-      qa: { max_questions: 3 },
-    }])
-  }
   const summariesTitle = `summaries-${slugify(config.slug)}`
   if (opts.includeSummaries && existingByTitle.has(summariesTitle)) {
     agents += 1
@@ -474,7 +465,7 @@ export async function* replaceGraphStrategy(
     yield { type: 'error', message: problems.join(' ') }
     return
   }
-  const model = await management.generativeModel(config)
+  const model = await management.augmentationModel(config)
   const title = `kg-${slugifyName(config.slug)}`
 
   yield { type: 'stage', label: 'Replacing the knowledge graph agent' }
