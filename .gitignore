@@ -26,3 +26,6 @@ build/
 npm-debug.log*
 data/
 .claude/worktrees/
+
+# Persona evaluation transcripts - regenerate with --out, never committed
+persona-eval-*.json
