@@ -69,6 +69,10 @@ import {
 import { generateFollowUpQuestions } from './follow-up-questions.ts'
 import { generateSuggestedQuestions, SUGGESTED_QUESTIONS_SCHEMA_ID } from './suggested-questions.ts'
 
+const TENANT_SLUG_ALIASES: ReadonlyMap<string, string> = new Map([
+  ['gdrc', 'grdc'],
+])
+
 const searchQuerySchema = z.object({ q: z.string().min(1) })
 const askBodySchema = z.object({
   query: z.string().min(1),
@@ -405,6 +409,27 @@ export function buildApp(opts: BuildAppOptions): Hono {
   })
 
   const tenant = (slug: string): TenantConfig | undefined => tenants.get(slug)
+
+  // Keep bookmarks for renamed portals working without disrupting a rename in progress.
+  // While the old tenant still exists it remains authoritative; once it is retired, public
+  // portal routes permanently redirect to the canonical slug. API calls stay untouched.
+  app.use('/t/*', async (c, next) => {
+    if (c.req.method !== 'GET') {
+      await next()
+      return
+    }
+
+    const slug = /^\/t\/([^/]+)(?:\/|$)/.exec(c.req.path)?.[1]
+    const canonicalSlug = slug ? TENANT_SLUG_ALIASES.get(slug) : undefined
+    if (!slug || !canonicalSlug || tenant(slug) || !tenant(canonicalSlug)) {
+      await next()
+      return
+    }
+
+    const url = new URL(c.req.url)
+    url.pathname = url.pathname.replace(/^\/t\/[^/]*/, `/t/${canonicalSlug}`)
+    return c.redirect(`${url.pathname}${url.search}`, 308)
+  })
 
   /** Streamed errors must never carry internal URLs, box ids or upstream bodies. */
   const publicErrorMessage = (err: unknown): string => {

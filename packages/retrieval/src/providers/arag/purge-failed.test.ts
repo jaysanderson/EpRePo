@@ -12,7 +12,7 @@ import { AragProvider, isPurgeEligible } from './index.ts'
  */
 
 const TENANT: TenantConfig = {
-  slug: 'gdrc',
+  slug: 'grdc',
   branding: {
     productName: 'GRDC Research Portal',
     organisation: 'GRDC',

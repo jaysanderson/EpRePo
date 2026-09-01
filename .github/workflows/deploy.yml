@@ -115,6 +115,6 @@ jobs:
         env:
           BASE_URL: https://arag-research-portal.fly.dev
           # The live tenant carrying real, connected content. frdc-2 is the
-          # 2,604-document FRDC corpus; add gdrc here once it holds real
+          # 2,604-document FRDC corpus; add grdc here once it holds real
           # grains content so the smoke gates on it too.
           PERSONA_SMOKE_TENANTS: frdc-2

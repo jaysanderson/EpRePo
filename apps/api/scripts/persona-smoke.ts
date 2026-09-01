@@ -58,20 +58,14 @@ const ALL_TENANTS: TenantJourney[] = [
     goodAsk: 'What are the best rotation strategies for managing herbicide-resistant ryegrass?',
     outOfCorpusAsk: OUT_OF_CORPUS_ASK,
   },
-  {
-    slug: 'gdrc',
-    searchTerm: 'grain',
-    goodAsk: 'What are the best rotation strategies for managing herbicide-resistant ryegrass?',
-    outOfCorpusAsk: OUT_OF_CORPUS_ASK,
-  },
 ]
 
 // Which tenant slugs to actually exercise, in order. Overridable via
 // PERSONA_SMOKE_TENANTS (comma-separated) so a deployment can point the smoke
-// at the tenants that hold real content - the seeded demo slugs (frdc/grdc)
-// differ from a live deployment's connected slugs (frdc-2/gdrc), and a tenant
-// still being loaded with real content should not gate deploys until it is
-// ready. Defaults to the code-seeded demo tenants for local/CI-double runs.
+// at the tenants that hold real content - live FRDC currently uses frdc-2 rather
+// than the seeded frdc, while GRDC uses the canonical grdc slug. A tenant still
+// being loaded with real content should not gate deploys until it is ready.
+// Defaults to the code-seeded demo tenants for local/CI-double runs.
 const TENANT_SLUGS = (Deno.env.get('PERSONA_SMOKE_TENANTS') ?? 'frdc,grdc')
   .split(',').map((s) => s.trim()).filter(Boolean)
 const TENANTS: TenantJourney[] = TENANT_SLUGS

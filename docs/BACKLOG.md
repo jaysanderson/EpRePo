@@ -39,7 +39,7 @@ graph shortest-path; page-image/table grounding; anything new.
   real value. IN BUILD.
 
 ## Merged, needs live action
-- GRDC purge-failed endpoint. MERGED/deploying. NEXT: dry-run on gdrc, confirm count, execute.
+- GRDC purge-failed endpoint. MERGED/deploying. NEXT: dry-run on grdc, confirm count, execute.
 
 ## Queued (larger)
 - Merchandising / ENRICHMENTS (Jay, high value, expanded 2026-08-28): a DA generator agent with a

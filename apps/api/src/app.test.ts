@@ -154,6 +154,38 @@ describe('GET /api/t/:slug/config', () => {
   })
 })
 
+describe('tenant slug aliases', () => {
+  it('permanently redirects the retired tenant root and preserves its query string', async () => {
+    const app = makeApp()
+    const response = await app.request('/t/gdrc?from=bookmark')
+
+    expect(response.status).toBe(308)
+    expect(response.headers.get('location')).toBe('/t/grdc?from=bookmark')
+  })
+
+  it('preserves the path and query string for nested bookmarks', async () => {
+    const app = makeApp()
+    const response = await app.request('/t/gdrc/library/report-42?topics=soil&sort=recent')
+
+    expect(response.status).toBe(308)
+    expect(response.headers.get('location')).toBe(
+      '/t/grdc/library/report-42?topics=soil&sort=recent',
+    )
+  })
+
+  it('keeps serving the old slug until its live tenant has been retired', async () => {
+    const tenants = freshTenants()
+    const existing = tenants.add({ name: 'GDRC' })
+    expect(existing.slug).toBe('gdrc')
+    const app = buildApp({ provider: new StubProvider(), tenants })
+
+    const response = await app.request('/t/gdrc/library?topics=soil')
+
+    expect(response.status).toBe(404)
+    expect(response.headers.get('location')).toBeNull()
+  })
+})
+
 describe('GET /api/t/:slug/search', () => {
   it('returns a SearchResultsSchema-valid payload', async () => {
     const app = makeApp()
