@@ -17,8 +17,17 @@ describe('stripInlineMarkers', () => {
     )
   })
 
+  it('removes grouped markers like [2, 1, 19] the model writes despite the prompt', () => {
+    expect(stripInlineMarkers('Risk assessments help [2, 1, 19]. See also [4,7].')).toBe(
+      'Risk assessments help. See also.',
+    )
+  })
+
   it('leaves a 4-digit bracket (e.g. a year) untouched', () => {
     expect(stripInlineMarkers('Published in [2026].')).toBe('Published in [2026].')
+    expect(stripInlineMarkers('Surveys ran over [2020, 2021].')).toBe(
+      'Surveys ran over [2020, 2021].',
+    )
   })
 
   it('is a no-op on text with no markers', () => {

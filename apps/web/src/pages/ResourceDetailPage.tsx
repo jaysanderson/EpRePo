@@ -40,6 +40,7 @@ import {
 } from '../components/ui.tsx'
 import {
   blockPlainText,
+  blocksWithinBudget,
   buildRelatedQuery,
   type DocBlock,
   parseDocBlocks,
@@ -193,32 +194,35 @@ function DocBlockView(
         </Tag>
       )
     }
-    case 'list':
-      return block.ordered
-        ? (
-          <ol
-            id={id}
-            ref={setRef}
-            style={emphasisStyle}
-            className={`${base} list-decimal space-y-1.5 pl-6`}
-          >
-            {block.items.map((item, i) => (
-              <li key={i} className='pl-1'>{renderInline(item, `li-${block.index}-${i}`)}</li>
-            ))}
-          </ol>
-        )
-        : (
-          <ul
-            id={id}
-            ref={setRef}
-            style={emphasisStyle}
-            className={`${base} list-disc space-y-1.5 pl-6`}
-          >
-            {block.items.map((item, i) => (
-              <li key={i} className='pl-1'>{renderInline(item, `li-${block.index}-${i}`)}</li>
-            ))}
-          </ul>
-        )
+    case 'list': {
+      const ListTag = block.ordered ? 'ol' : 'ul'
+      const markerClass = block.ordered ? 'list-decimal' : 'list-disc'
+      return (
+        <ListTag
+          id={id}
+          ref={setRef}
+          style={emphasisStyle}
+          className={`${base} ${markerClass} space-y-1.5 pl-6`}
+        >
+          {block.items.map((item, i) => (
+            <li key={i} className='pl-1'>
+              {renderInline(item.text, `li-${block.index}-${i}`)}
+              {item.children.length > 0
+                ? (
+                  <ul className='mt-1.5 list-[circle] space-y-1.5 pl-5'>
+                    {item.children.map((child, c) => (
+                      <li key={c} className='pl-1'>
+                        {renderInline(child, `li-${block.index}-${i}-${c}`)}
+                      </li>
+                    ))}
+                  </ul>
+                )
+                : null}
+            </li>
+          ))}
+        </ListTag>
+      )
+    }
     case 'table':
       return (
         <div id={id} ref={setRef} style={emphasisStyle} className={`${base} overflow-x-auto`}>
@@ -280,12 +284,25 @@ function DocBlockView(
   }
 }
 
+// How much extracted text the reader renders at a time. Long documents carry
+// hundreds of thousands of characters; parsing all of it through the inline
+// renderer in one go locks the main thread for seconds, so the reader shows
+// the blocks that fit this budget and grows it on request. (Pattern ported
+// from the vccmhw-ksp reader.)
+const READER_CHUNK_CHARS = 40_000
+const READER_STEP_CHARS = 120_000
+
 /**
  * The structured reading pane for an authored/extracted document body. Renders
  * parsed markdown blocks (headings, lists, tables, quotes) rather than a
  * flattened text dump, while keeping the passage/`?q=` highlight and the
  * jump-to-block behaviour. A leading level-1 heading equal to the resource
  * title is dropped, since the page shows the title in its own header.
+ *
+ * Only the leading slice of a long document renders at first, with a
+ * "Show more" control beneath it; a passage highlight or a jump from the
+ * Matches rail that lands beyond the slice extends it automatically so deep
+ * links always resolve.
  */
 function DocumentReader(
   { blocks, title, passage, flashIndex }: {
@@ -301,11 +318,43 @@ function DocumentReader(
     ? blocks.findIndex((block) => normalise(blockPlainText(block)).includes(needle))
     : -1
 
+  const [budget, setBudget] = useState(READER_CHUNK_CHARS)
+  const blockLengths = useMemo(() => blocks.map((block) => blockPlainText(block).length), [blocks])
+  const totalChars = useMemo(
+    () => blockLengths.reduce((sum, length) => sum + length, 0),
+    [blockLengths],
+  )
+  // The rendered slice always reaches the highlight/jump target, so a deep
+  // link into the back of a long document never lands on an unrendered block.
+  const visibleCount = Math.max(
+    blocksWithinBudget(blockLengths, budget),
+    highlightIndex + 1,
+    (flashIndex ?? -1) + 1,
+  )
+  const shownChars = useMemo(
+    () => blockLengths.slice(0, visibleCount).reduce((sum, length) => sum + length, 0),
+    [blockLengths, visibleCount],
+  )
+
   useEffect(() => {
     if (highlightIndex < 0) return
     highlightRef.current?.scrollIntoView({ block: 'center' })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [highlightIndex])
+
+  // A jump can extend the slice in the same render, so the target block may
+  // not exist when the page's own scroll call fires - scroll again once it
+  // has mounted.
+  useEffect(() => {
+    if (flashIndex === null || flashIndex < 0) return
+    const frame = requestAnimationFrame(() => {
+      document.getElementById(`doc-block-${flashIndex}`)?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center',
+      })
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [flashIndex])
 
   if (blocks.length === 0) {
     return <p className='text-sm text-ink-3'>No readable text is available for this document.</p>
@@ -313,26 +362,44 @@ function DocumentReader(
 
   const titleNorm = normalise(title)
   return (
-    <div className='rp-prose rp-measure text-sm text-ink-2'>
-      {blocks.map((block, i) => {
-        if (
-          i === 0 && block.kind === 'heading' && block.level === 1 &&
-          normalise(block.text) === titleNorm
-        ) {
-          return null
-        }
-        const emphasised = block.index === highlightIndex || block.index === flashIndex
-        return (
-          <DocBlockView
-            key={block.index}
-            block={block}
-            emphasised={emphasised}
-            setRef={block.index === highlightIndex
-              ? (el) => (highlightRef.current = el)
-              : undefined}
-          />
+    <div>
+      <div className='rp-prose rp-measure text-sm text-ink-2'>
+        {blocks.slice(0, visibleCount).map((block, i) => {
+          if (
+            i === 0 && block.kind === 'heading' && block.level === 1 &&
+            normalise(block.text) === titleNorm
+          ) {
+            return null
+          }
+          const emphasised = block.index === highlightIndex || block.index === flashIndex
+          return (
+            <DocBlockView
+              key={block.index}
+              block={block}
+              emphasised={emphasised}
+              setRef={block.index === highlightIndex
+                ? (el) => (highlightRef.current = el)
+                : undefined}
+            />
+          )
+        })}
+      </div>
+      {visibleCount < blocks.length
+        ? (
+          <div className='mt-4 flex flex-wrap items-center gap-3'>
+            <button
+              type='button'
+              onClick={() => setBudget((current) => current + READER_STEP_CHARS)}
+              className='rp-btn rp-btn-outline'
+            >
+              Show more
+            </button>
+            <span className='text-xs tabular-nums text-ink-3'>
+              Showing {shownChars.toLocaleString()} of {totalChars.toLocaleString()} characters
+            </span>
+          </div>
         )
-      })}
+        : null}
     </div>
   )
 }
@@ -586,6 +653,7 @@ function ResourceViewer(
                 </summary>
                 <div className='mt-3'>
                   <DocumentReader
+                    key={content.id}
                     blocks={blocks}
                     title={content.title}
                     passage={passage}
@@ -667,6 +735,7 @@ function ResourceViewer(
             ? <OriginalFileActions fileUrl={fileUrl} label='Download file' />
             : null}
           <DocumentReader
+            key={content.id}
             blocks={blocks}
             title={content.title}
             passage={passage}
