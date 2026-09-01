@@ -45,22 +45,66 @@ function bandColour(score: number): string {
   return 'var(--rp-bad-ink)'
 }
 
-function ShieldCheckIcon({ className = 'h-3.5 w-3.5' }: { className?: string }) {
+// ---------------------------------------------------------------------------
+// Icons. One 24-unit grid, round caps and joins, and a stroke that thins as the
+// box grows so every size lands at about the same optical weight - the grid and
+// the 1.7 stroke of the answer-action icons (`ActionIcon` in AskPage), so the
+// quality trigger reads as one of that row rather than a glyph pasted in from a
+// different set. The exclamation dots are zero-length strokes (`h.01`): with
+// round caps a stroke draws a dot exactly one stroke-width across at any render
+// size, where the filled 0.15-radius circles these replaced vanished below a
+// pixel and left the triangle reading as a bare outline.
+// ---------------------------------------------------------------------------
+
+type GlyphSize = 'sm' | 'md' | 'lg'
+
+const GLYPH_SIZE: Record<GlyphSize, { box: string; stroke: number }> = {
+  sm: { box: 'h-3.5 w-3.5', stroke: 2 },
+  md: { box: 'h-4 w-4', stroke: 1.8 },
+  lg: { box: 'h-[1.15rem] w-[1.15rem]', stroke: 1.7 },
+}
+
+const GLYPH = {
+  shieldCheck:
+    'M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 01-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 011-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 011.52 0C14.51 3.81 17 5 19 5a1 1 0 011 1zM9 12l2 2 4-4',
+  checkCircle: 'M22 12a10 10 0 11-20 0 10 10 0 0120 0zM9 12l2 2 4-4',
+  info: 'M22 12a10 10 0 11-20 0 10 10 0 0120 0zM12 16v-4M12 8h.01',
+  alertTriangle:
+    'M21.73 18l-8-14a2 2 0 00-3.48 0l-8 14A2 2 0 004 21h16a2 2 0 001.73-3zM12 9v4M12 17h.01',
+}
+
+function Glyph({ d, size }: { d: string; size: GlyphSize }) {
+  const { box, stroke } = GLYPH_SIZE[size]
   return (
     <svg
-      viewBox='0 0 20 20'
+      viewBox='0 0 24 24'
       fill='none'
       stroke='currentColor'
-      strokeWidth='1.6'
+      strokeWidth={stroke}
       strokeLinecap='round'
       strokeLinejoin='round'
       aria-hidden='true'
-      className={`${className} shrink-0`}
+      className={`${box} shrink-0`}
     >
-      <path d='M10 2.3l6.2 2.25v4.4c0 4.2-2.7 7.2-6.2 8.85-3.5-1.65-6.2-4.65-6.2-8.85v-4.4z' />
-      <path d='M6.9 10.1l2 2 4-4.3' />
+      <path d={d} />
     </svg>
   )
+}
+
+function ShieldCheckIcon({ size = 'sm' }: { size?: GlyphSize }) {
+  return <Glyph d={GLYPH.shieldCheck} size={size} />
+}
+
+function CheckCircleIcon({ size = 'sm' }: { size?: GlyphSize }) {
+  return <Glyph d={GLYPH.checkCircle} size={size} />
+}
+
+function InfoCircleIcon({ size = 'sm' }: { size?: GlyphSize }) {
+  return <Glyph d={GLYPH.info} size={size} />
+}
+
+function AlertTriangleIcon({ size = 'sm' }: { size?: GlyphSize }) {
+  return <Glyph d={GLYPH.alertTriangle} size={size} />
 }
 
 function MiniMeter(
@@ -147,62 +191,6 @@ export function TrustSignals({ quality, showLabel = true }: TrustSignalsProps) {
 // supports. One component, four looks, all driven by `assessConfidence` (see
 // apps/web/src/lib/confidence.ts) so this and the mini-meters never disagree.
 // ---------------------------------------------------------------------------
-
-function CheckCircleIcon() {
-  return (
-    <svg
-      viewBox='0 0 20 20'
-      fill='none'
-      stroke='currentColor'
-      strokeWidth='1.7'
-      strokeLinecap='round'
-      strokeLinejoin='round'
-      aria-hidden='true'
-      className='h-3.5 w-3.5 shrink-0'
-    >
-      <circle cx='10' cy='10' r='7.25' />
-      <path d='M6.8 10.1l2.1 2.1 4.3-4.4' />
-    </svg>
-  )
-}
-
-function InfoCircleIcon({ className = 'h-3.5 w-3.5' }: { className?: string }) {
-  return (
-    <svg
-      viewBox='0 0 20 20'
-      fill='none'
-      stroke='currentColor'
-      strokeWidth='1.7'
-      strokeLinecap='round'
-      strokeLinejoin='round'
-      aria-hidden='true'
-      className={`${className} shrink-0`}
-    >
-      <circle cx='10' cy='10' r='7.25' />
-      <path d='M10 9.2v4' />
-      <circle cx='10' cy='6.6' r='0.15' fill='currentColor' stroke='none' />
-    </svg>
-  )
-}
-
-function AlertTriangleIcon({ className = 'h-4 w-4' }: { className?: string }) {
-  return (
-    <svg
-      viewBox='0 0 20 20'
-      fill='none'
-      stroke='currentColor'
-      strokeWidth='1.7'
-      strokeLinecap='round'
-      strokeLinejoin='round'
-      aria-hidden='true'
-      className={`${className} shrink-0`}
-    >
-      <path d='M10 2.6l8.2 14.2a1 1 0 01-.87 1.5H2.67a1 1 0 01-.87-1.5L10 2.6z' />
-      <path d='M10 8v3.6' />
-      <circle cx='10' cy='14.2' r='0.15' fill='currentColor' stroke='none' />
-    </svg>
-  )
-}
 
 /**
  * The sentence that elaborates each confidence level. Held in one place so the
@@ -322,7 +310,7 @@ function ConfidencePill(
           tone === 'bad' ? 'rp-badge-bad' : 'rp-badge-warn'
         }`}
       >
-        <AlertTriangleIcon className='h-3.5 w-3.5' />
+        <AlertTriangleIcon />
         {label}
       </button>
       {open
@@ -505,12 +493,12 @@ export function AnswerQualityDisclosure(
   const { tone, labelled } = TRIGGER_TONE[confidence.state]
   const loud = tone !== 'quiet'
 
-  const glyph = (size: string) =>
+  const glyph = (size: GlyphSize) =>
     loud
-      ? <AlertTriangleIcon className={size} />
+      ? <AlertTriangleIcon size={size} />
       : confidence.state === 'high'
-      ? <ShieldCheckIcon className={size} />
-      : <InfoCircleIcon className={size} />
+      ? <ShieldCheckIcon size={size} />
+      : <InfoCircleIcon size={size} />
 
   const body = (
     <>
@@ -519,7 +507,7 @@ export function AnswerQualityDisclosure(
           className='mt-px shrink-0'
           style={{ color: loud ? `var(--rp-${tone}-ink)` : 'var(--rp-ink-3)' }}
         >
-          {glyph('h-4 w-4')}
+          {glyph('md')}
         </span>
         <div className='min-w-0'>
           <p className='text-sm font-semibold text-ink'>{confidence.label}</p>
@@ -650,7 +638,7 @@ export function AnswerQualityDisclosure(
           }
           : undefined}
       >
-        {glyph('h-[1.15rem] w-[1.15rem]')}
+        {glyph('lg')}
         {labelled ? <span>{confidence.label}</span> : null}
       </button>
       {open ? panel : null}

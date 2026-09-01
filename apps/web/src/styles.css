@@ -1903,7 +1903,7 @@ label.rp-btn:has(input:focus-visible) {
 
 /* The answer body rising into place after the steps clear. */
 .rp-answer-in {
-  animation: rp-answer-in 420ms var(--rp-ease) both;
+  animation: rp-answer-in 420ms var(--rp-ease) backwards;
 }
 
 @keyframes rp-answer-in {
@@ -1944,9 +1944,18 @@ label.rp-btn:has(input:focus-visible) {
  * the whole card; now the card's treatment never changes and these simply fade
  * up under the answer, in the order they read. Same 4px rise, easing and
  * --rp-stage-i stagger as the timeline they hand over from, held a beat longer
- * because nobody is waiting on them. */
+ * because nobody is waiting on them.
+ *
+ * Fill mode is `backwards`, not `both`, on purpose. The keyframes only declare
+ * `from`, so `both` and `backwards` end on the same pixels - but `both` keeps
+ * the finished animation applied to opacity and transform forever, and Chrome
+ * treats that as a permanent stacking context on every one of these blocks.
+ * The answer-quality dropdown lives inside the actions row and was being
+ * painted under the follow-up cards that arrive after it, whatever z-index it
+ * carried. Releasing the fill once the entrance is over releases the context
+ * too, so a popover in one tail block stacks over the tail blocks below it. */
 .rp-answer-tail {
-  animation: rp-stage-in 320ms var(--rp-ease) both;
+  animation: rp-stage-in 320ms var(--rp-ease) backwards;
   animation-delay: calc(var(--rp-stage-i, 0) * 60ms);
 }
 
