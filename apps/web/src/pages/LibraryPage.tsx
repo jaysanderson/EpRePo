@@ -402,7 +402,7 @@ export function LibraryBrowser(
             value={queryDraft}
             onChange={setQueryDraft}
             placeholder='Search within the library'
-            className='min-w-[16rem] flex-1'
+            className='min-w-[min(16rem,100%)] flex-1'
           />
 
           {

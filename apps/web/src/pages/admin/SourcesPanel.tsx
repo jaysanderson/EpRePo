@@ -275,7 +275,7 @@ export function SourcesPanel({ slug, passcode }: { slug: string; passcode: strin
       </div>
 
       <form onSubmit={onSubmit} className='mt-3 flex flex-wrap items-end gap-2'>
-        <div className='min-w-[16rem] flex-1'>
+        <div className='min-w-[min(16rem,100%)] flex-1'>
           <label
             htmlFor={`source-url-${slug}`}
             className='mb-1.5 block text-sm font-medium text-ink'

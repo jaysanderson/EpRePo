@@ -742,7 +742,7 @@ export function SearchPage() {
           onChange={setDraft}
           onSubmit={submitQuery}
           placeholder={config.searchPlaceholder}
-          className='min-w-[16rem] flex-1'
+          className='min-w-[min(16rem,100%)] flex-1'
         />
 
         <div
