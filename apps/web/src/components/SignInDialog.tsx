@@ -4,6 +4,8 @@ import { microsoftLoginUrl } from '../api/auth.ts'
 
 export function SignInDialog({ onClose, user }: { onClose: () => void; user?: AuthUser | null }) {
   const closeRef = useRef<HTMLButtonElement | null>(null)
+  const title = user ? 'Profile' : 'Sign in'
+  const summary = user ? 'Your organisation account.' : 'Use your organisation account.'
 
   useEffect(() => {
     closeRef.current?.focus()
@@ -35,9 +37,9 @@ export function SignInDialog({ onClose, user }: { onClose: () => void; user?: Au
         <div className='flex items-start justify-between gap-4 border-b border-line px-6 py-5'>
           <div className='min-w-0'>
             <h2 id='signin-title' className='rp-display text-xl text-ink'>
-              Sign in
+              {title}
             </h2>
-            <p className='mt-1 text-sm text-ink-2'>Use your organisation account.</p>
+            <p className='mt-1 text-sm text-ink-2'>{summary}</p>
           </div>
           <button
             ref={closeRef}

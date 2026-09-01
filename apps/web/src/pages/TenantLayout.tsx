@@ -5,6 +5,7 @@ import type { TenantConfig } from '@research-portal/core'
 import { ApiError, getKnowledgeBoxStatus, getTenantConfig } from '../api/client.ts'
 import { tenantThemeVars, useBodyTheme, useTenantFonts, useTextScale } from '../lib/theme.ts'
 import { CommandPalette } from '../components/CommandPalette.tsx'
+import { AccountMenu } from '../components/AccountMenu.tsx'
 import { KbSwitcher } from '../components/KbSwitcher.tsx'
 import { PortalFooter } from '../components/PortalFooter.tsx'
 import { SignInDialog } from '../components/SignInDialog.tsx'
@@ -64,24 +65,6 @@ function HelpIcon({ className }: { className: string }) {
   )
 }
 
-function AccountIcon({ className }: { className: string }) {
-  return (
-    <svg
-      viewBox='0 0 24 24'
-      fill='none'
-      stroke='currentColor'
-      strokeWidth='1.6'
-      strokeLinecap='round'
-      strokeLinejoin='round'
-      className={className}
-      aria-hidden='true'
-    >
-      <circle cx='12' cy='8.5' r='3.75' />
-      <path d='M4.5 20a7.5 7.5 0 0115 0' />
-    </svg>
-  )
-}
-
 /**
  * The menu trigger's three bars, which rotate and translate into the cross
  * rather than cross-fading to a second icon. Every state lives in
@@ -133,6 +116,7 @@ export function TenantLayout() {
     retry: false,
   })
   const accountLabel = auth?.user?.name || ACCOUNT_LABEL
+  const accountIsAdmin = auth?.user?.isAdmin === true
   const headerRef = useRef<HTMLElement | null>(null)
   const navPanelRef = useRef<HTMLElement | null>(null)
   const navTriggerRef = useRef<HTMLButtonElement | null>(null)
@@ -259,7 +243,6 @@ export function TenantLayout() {
     queryFn: () => getTenantConfig(slug ?? ''),
     enabled: Boolean(slug),
   })
-
   // Routes whose page owns the full viewport height.
   const isViewportHeightRoute = /\/(ask|graph)(\/|$)/.test(location.pathname)
 
@@ -471,20 +454,12 @@ export function TenantLayout() {
               >
                 <HelpIcon className='h-6 w-6' />
               </Link>
-              <button
-                type='button'
-                onClick={() => setSignInOpen(true)}
-                aria-label={accountLabel}
-                title={accountLabel}
-                aria-haspopup='dialog'
-                className='rp-focus flex h-[calc(2.75rem*var(--rp-density-ctl,1))] w-[calc(2.75rem*var(--rp-density-ctl,1))] shrink-0 items-center justify-center rounded-full border transition-colors duration-150'
-                style={{
-                  borderColor: 'color-mix(in srgb, var(--rp-primary) 25%, transparent)',
-                  color: 'var(--rp-primary)',
-                }}
-              >
-                <AccountIcon className='h-6 w-6' />
-              </button>
+              <AccountMenu
+                isAdmin={accountIsAdmin}
+                label={accountLabel}
+                manageHref='/admin'
+                onProfile={() => setSignInOpen(true)}
+              />
               {
                 /* Wrapped, because .rp-navtoggle sets its own display and would
                 * beat a `md:hidden` utility on the button itself - component
@@ -630,19 +605,27 @@ export function TenantLayout() {
                   <HelpIcon className='h-5 w-5 shrink-0' />
                   {HELP_LABEL}
                 </NavLink>
-                <button
-                  type='button'
-                  aria-haspopup='dialog'
-                  onClick={() => {
+                <AccountMenu
+                  isAdmin={accountIsAdmin}
+                  label={accountLabel}
+                  manageHref='/admin'
+                  variant='mobile'
+                  onProfile={() => {
                     navRestoreFocus.current = false
                     setNavOpen(false)
                     setSignInOpen(true)
                   }}
-                  className='rp-navsheet-action rp-focus-inverse'
-                >
-                  <AccountIcon className='h-5 w-5 shrink-0' />
-                  {accountLabel}
-                </button>
+                  onTabOut={(direction) => {
+                    if (direction === 'forward') {
+                      navTriggerRef.current?.focus()
+                      return
+                    }
+                    const stops = Array.from(
+                      navPanelRef.current?.querySelectorAll<HTMLElement>(NAV_FOCUSABLE) ?? [],
+                    )
+                    stops[stops.length - 2]?.focus()
+                  }}
+                />
               </div>
             </div>
           </nav>
