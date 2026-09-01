@@ -1678,23 +1678,3 @@ export function MapConstellation({ still = false }: { still?: boolean }) {
     </svg>
   )
 }
-
-/** Loading: the constellation breathing behind a quiet status chip. */
-export function MapSkeleton({ message }: { message: string }) {
-  return (
-    <div className='absolute inset-0 flex flex-col items-center justify-center bg-surface'>
-      <MapConstellation />
-      <div
-        className='relative flex items-center gap-2.5 border border-line bg-surface px-4 py-2.5 rp-shadow-sm'
-        role='status'
-      >
-        <span
-          className='rp-map-spinner h-4 w-4 rounded-full border-2 border-line'
-          style={{ borderTopColor: 'var(--rp-ink)' }}
-          aria-hidden='true'
-        />
-        <span className='text-sm text-ink-2'>{message}</span>
-      </div>
-    </div>
-  )
-}

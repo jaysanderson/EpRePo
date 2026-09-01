@@ -19,7 +19,6 @@ import {
   type MapEdge,
   type MapLayout,
   type MapNode,
-  MapSkeleton,
 } from '../components/KnowledgeMap.tsx'
 import { KnowledgeMap3D } from '../components/KnowledgeMap3D.tsx'
 import type { TenantOutletContext } from './TenantLayout.tsx'
@@ -1112,6 +1111,7 @@ export function GraphPage() {
   const [noPath, setNoPath] = useState(false)
   const [extraGraph, setExtraGraph] = useState<RelationsGraph | null>(null)
   const [expanding, setExpanding] = useState(false)
+  const [mapReady, setMapReady] = useState(false)
   // Phone only: the find field lives behind the strip's magnifier.
   const [searchOpen, setSearchOpen] = useState(false)
   const [railOpen, setRailOpen] = useState<boolean>(() =>
@@ -1263,6 +1263,12 @@ export function GraphPage() {
     }
   }, [selectedId])
 
+  // Each lens builds a fresh scene. Hide it until the map engine reports that
+  // its settled first frame has actually been painted.
+  useEffect(() => {
+    setMapReady(false)
+  }, [slug, mode])
+
   // Escape clears the current selection.
   useEffect(() => {
     if (!selectedId) return
@@ -1293,6 +1299,7 @@ export function GraphPage() {
   }
 
   const switchMode = (next: Mode) => {
+    setMapReady(false)
     setMode(next)
     setSelectedId(null)
     setPathFrom(null)
@@ -1305,6 +1312,7 @@ export function GraphPage() {
   const error = mode === 'entity' ? relationsQuery.error : conceptQuery.error
   const refetch = mode === 'entity' ? relationsQuery.refetch : conceptQuery.refetch
   const hasGraph = !loading && !error && nodes.length > 0
+  const mapBusy = loading || (hasGraph && !mapReady)
   // The API flags an entity graph that is empty because extraction is still
   // running, so the empty state can say "working" rather than "set this up".
   const extracting =
@@ -1467,8 +1475,15 @@ export function GraphPage() {
       </div>
 
       {/* Canvas stage - the map fills it; panels float over it. */}
-      <div ref={setStageEl} className='relative min-h-0 flex-1 bg-surface'>
-        {loading ? <MapSkeleton message='Building the map…' /> : error
+      <div
+        ref={setStageEl}
+        className='relative min-h-0 flex-1 bg-surface'
+        aria-busy={mapBusy}
+      >
+        <p className='sr-only' role='status' aria-live='polite' aria-atomic='true'>
+          {mapBusy ? 'Loading knowledge map.' : hasGraph ? 'Knowledge map ready.' : ''}
+        </p>
+        {loading ? null : error
           ? (
             <CanvasNotice>
               <ErrorCard
@@ -1496,22 +1511,27 @@ export function GraphPage() {
           )
           : (
             <>
-              <KnowledgeMap3D
-                nodes={nodes}
-                edges={edges}
-                groupStyles={groupStyles}
-                degrees={degrees}
-                measure={mode === 'entity' ? 'links' : 'resources'}
-                layout={layout}
-                hiddenGroups={hiddenGroups}
-                selectedId={selectedId}
-                pathEdges={path}
-                pathFrom={pathFrom}
-                onSelect={select}
-                focusId={focusId}
-                insets={insets}
-                hint='Drag to orbit · scroll to zoom · click a node to explore it'
-              />
+              <div
+                className={`absolute inset-0 ${mapReady ? 'rp-anim-fade' : 'invisible'}`}
+              >
+                <KnowledgeMap3D
+                  nodes={nodes}
+                  edges={edges}
+                  groupStyles={groupStyles}
+                  degrees={degrees}
+                  measure={mode === 'entity' ? 'links' : 'resources'}
+                  layout={layout}
+                  hiddenGroups={hiddenGroups}
+                  selectedId={selectedId}
+                  pathEdges={path}
+                  pathFrom={pathFrom}
+                  onSelect={select}
+                  focusId={focusId}
+                  insets={insets}
+                  hint='Drag to orbit · scroll to zoom · click a node to explore it'
+                  onReady={() => setMapReady(true)}
+                />
+              </div>
 
               {visibleCount === 0
                 ? (

@@ -22,6 +22,28 @@ import { type EngineData, KnowledgeMapEngine, webglAvailable } from './map3d-eng
 // map never renders as a black rectangle.
 // ---------------------------------------------------------------------------
 
+type FrameScheduler = (callback: FrameRequestCallback) => number
+
+/**
+ * Wait until a prepared scene has crossed a paint boundary before revealing it.
+ * The first frame lets the engine render; the second reveals the retained canvas.
+ */
+export function scheduleMapReadyAfterPaint(
+  onReady: () => void,
+  scheduleFrame: FrameScheduler = requestAnimationFrame,
+  cancelFrame: (handle: number) => void = cancelAnimationFrame,
+): () => void {
+  let secondFrame: number | null = null
+  const firstFrame = scheduleFrame(() => {
+    secondFrame = scheduleFrame(() => onReady())
+  })
+
+  return () => {
+    cancelFrame(firstFrame)
+    if (secondFrame !== null) cancelFrame(secondFrame)
+  }
+}
+
 export function KnowledgeMap3D({
   nodes,
   edges,
@@ -37,6 +59,7 @@ export function KnowledgeMap3D({
   focusId,
   insets,
   hint,
+  onReady,
 }: {
   nodes: MapNode[]
   edges: MapEdge[]
@@ -53,6 +76,8 @@ export function KnowledgeMap3D({
   /** Measured by the page from the floating panels - see GraphPage. */
   insets: Insets
   hint: string
+  /** Called after the settled scene has rendered and crossed a paint boundary. */
+  onReady?: () => void
 }) {
   const [supported] = useState(webglAvailable)
 
@@ -71,7 +96,9 @@ export function KnowledgeMap3D({
   const labelsRef = useRef<HTMLDivElement | null>(null)
   const engineRef = useRef<KnowledgeMapEngine | null>(null)
   const onSelectRef = useRef(onSelect)
+  const onReadyRef = useRef(onReady)
   onSelectRef.current = onSelect
+  onReadyRef.current = onReady
 
   const [size, setSize] = useState({ w: 0, h: 0 })
   useEffect(() => {
@@ -150,7 +177,21 @@ export function KnowledgeMap3D({
       fitSigRef.current = sig
       engine.fit(false)
     }
+
+    // setData settles the force simulation synchronously. Keep the shell
+    // hidden until that settled scene has made it through the renderer, so
+    // the page never fades up an empty canvas or nodes still finding places.
+    if (size.w > 0 && size.h > 0 && visibleNodes.length > 0) {
+      return scheduleMapReadyAfterPaint(() => onReadyRef.current?.())
+    }
   }, [visibleNodes, visibleEdges, groupStyles, degrees, measure, layout, aspectBucket])
+
+  // The SVG fallback owns its own synchronous force layout. Its child effects
+  // commit the fitted scene before this two-frame reveal runs.
+  useEffect(() => {
+    if (usable || size.w < 1 || size.h < 1 || visibleNodes.length === 0) return
+    return scheduleMapReadyAfterPaint(() => onReadyRef.current?.())
+  }, [usable, size.w, size.h, visibleNodes, visibleEdges, layout])
 
   useEffect(() => {
     engineRef.current?.setEmphasis({ selectedId, pathEdges, pathFrom })
@@ -200,23 +241,25 @@ export function KnowledgeMap3D({
 
   if (!usable) {
     return (
-      <KnowledgeMap
-        nodes={nodes}
-        edges={edges}
-        groupStyles={groupStyles}
-        degrees={degrees}
-        measure={measure}
-        layout={layout}
-        hiddenGroups={hiddenGroups}
-        hideUnlinked={false}
-        selectedId={selectedId}
-        pathEdges={pathEdges}
-        pathFrom={pathFrom}
-        onSelect={onSelect}
-        focusId={focusId}
-        insets={insets}
-        hint='Drag to pan · scroll to zoom · click a node to explore it'
-      />
+      <div ref={containerRef} className='absolute inset-0'>
+        <KnowledgeMap
+          nodes={nodes}
+          edges={edges}
+          groupStyles={groupStyles}
+          degrees={degrees}
+          measure={measure}
+          layout={layout}
+          hiddenGroups={hiddenGroups}
+          hideUnlinked={false}
+          selectedId={selectedId}
+          pathEdges={pathEdges}
+          pathFrom={pathFrom}
+          onSelect={onSelect}
+          focusId={focusId}
+          insets={insets}
+          hint='Drag to pan · scroll to zoom · click a node to explore it'
+        />
+      </div>
     )
   }
 
