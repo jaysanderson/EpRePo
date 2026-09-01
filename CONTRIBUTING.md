@@ -1,7 +1,7 @@
 # Contributing
 
-Thanks for your interest in the Research Portal. This document covers how to get set up, the gate
-your change needs to pass, and the conventions the codebase follows.
+Thanks for your interest in CorpusKit. This document covers how to get set up, the gate your change
+needs to pass, and the conventions the codebase follows.
 
 ## Getting set up
 
@@ -56,13 +56,13 @@ auto-format, and `deno lint` to see lint issues directly.
 
 ## Branch and PR flow
 
-- Open PRs against **`scaffold`** (the active development branch; there is no separate `main`
+- Open PRs against **`main`** (the active development branch; there is no separate `develop`
   development flow at present).
-- A push to `scaffold` triggers `.github/workflows/deploy.yml`, which gates the change
+- A push to `main` triggers `.github/workflows/deploy.yml`, which gates the change
   (`deno task check` plus `deno task build:web`) and then, if it passes, deploys straight to the
   reference Fly deployment. This means:
   - **A PR from a fork is gated (the same CI job runs against it) but is never auto-deployed** -
-    only a push to `scaffold` itself triggers the deploy job.
-  - Once a PR is merged into `scaffold`, the resulting push does deploy automatically. Keep that in
-    mind when merging - there is no separate staging step.
+    only a push to `main` itself triggers the deploy job.
+  - Once a PR is merged into `main`, the resulting push does deploy automatically. Keep that in mind
+    when merging - there is no separate staging step.
 - Keep PRs focused and pass the gate before requesting review.

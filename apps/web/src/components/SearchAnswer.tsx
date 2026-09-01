@@ -2,6 +2,7 @@ import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { AskEvent, AskStage, Citation, ScoredResource } from '@research-portal/core'
 import { ApiError, streamAsk } from '../api/client.ts'
+import { AnswerMarkdown } from './AnswerMarkdown.tsx'
 import { citationHref } from './AnswerStream.tsx'
 import { CurrencyNote } from './CurrencyNote.tsx'
 import { ConfidenceIndicator, type QualityScores } from './QualityGauge.tsx'
@@ -95,46 +96,29 @@ function renderInline(
   citations: Citation[],
   sources: ScoredResource[],
   slug: string,
+  keyPrefix: string,
 ): ReactNode[] {
   const parts = text.split(/(\*\*[^*]+\*\*)/g)
   return parts.flatMap((part, index): ReactNode[] =>
     part.startsWith('**') && part.endsWith('**') && part.length > 4
-      ? [<strong key={index}>{part.slice(2, -2)}</strong>]
-      : renderCitationMarkers(part, citations, sources, slug, String(index))
+      ? [<strong key={`${keyPrefix}-${index}`}>{part.slice(2, -2)}</strong>]
+      : renderCitationMarkers(part, citations, sources, slug, `${keyPrefix}-${index}`)
   )
 }
 
-/** Minimal markdown-ish renderer: \n\n paragraphs, **bold**, "- " lists, and [n] markers. */
+/** Answer text: shared block structure, with bold and [n] markers inline. */
 function renderAnswer(
   text: string,
   citations: Citation[],
   sources: ScoredResource[],
   slug: string,
 ): ReactNode {
-  const blocks = text.split(/\n{2,}/).filter((block) => block.trim().length > 0)
   return (
-    <div className='space-y-3'>
-      {blocks.map((block, blockIndex) => {
-        const lines = block.split('\n').map((line) => line.trim()).filter((line) => line.length > 0)
-        const isList = lines.length > 0 && lines.every((line) => line.startsWith('- '))
-        if (isList) {
-          return (
-            <ul key={blockIndex} className='list-disc space-y-1 pl-5'>
-              {lines.map((line, lineIndex) => (
-                <li key={lineIndex} className='text-sm leading-relaxed text-ink'>
-                  {renderInline(line.slice(2), citations, sources, slug)}
-                </li>
-              ))}
-            </ul>
-          )
-        }
-        return (
-          <p key={blockIndex} className='text-sm leading-relaxed text-ink'>
-            {renderInline(block.trim(), citations, sources, slug)}
-          </p>
-        )
-      })}
-    </div>
+    <AnswerMarkdown
+      text={text}
+      renderInline={(run, keyPrefix) => renderInline(run, citations, sources, slug, keyPrefix)}
+      bodyClassName='text-sm leading-relaxed text-ink'
+    />
   )
 }
 
@@ -149,10 +133,9 @@ function renderAnswer(
  * continue the same question in the full Assistant.
  *
  * Deliberately its own small stream state machine rather than reusing
- * `AnswerStream` - this panel needs to apply the deterministically
- * citation-bound `done.text` (so inline `[n]` markers render), branch on
- * `refused`, and turn a 429 into the portal's rate-limit copy, none of
- * which the shared component currently does. Reports citations/sources up
+ * `AnswerStream` - this panel needs to branch on `refused` and turn a 429
+ * into the portal's rate-limit copy, which the shared component does not
+ * do. Reports citations/sources up
  * via `onResult` so SearchPage can badge result cards and power the
  * Resources/Citations toggle without duplicating the stream itself.
  */

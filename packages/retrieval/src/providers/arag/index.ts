@@ -2289,6 +2289,11 @@ export class AragProvider implements RetrievalProvider {
     // resource appeared in the grounding set - the withhold decision below
     // refuses an answer grounded ONLY in excluded content.
     const validSourceIds = new Set<string>()
+    // Ids POSITIVELY known to be out of scope: they appeared in a retrieval
+    // item and failed `inScope`. Tracked separately from "not in
+    // validSourceIds" because those are not the same thing - see
+    // `citable` below.
+    const excludedSourceIds = new Set<string>()
     let excludedGroundingSeen = false
 
     const body: Record<string, unknown> = {
@@ -2440,6 +2445,7 @@ export class AragProvider implements RetrievalProvider {
         generating = false
         citationsMapAccum = {}
         validSourceIds.clear()
+        excludedSourceIds.clear()
         excludedGroundingSeen = false
       }
       try {
@@ -2465,6 +2471,7 @@ export class AragProvider implements RetrievalProvider {
                 validSourceIds.add(id)
               } else {
                 excludedGroundingSeen = true
+                excludedSourceIds.add(id)
               }
             }
             sources = toSources(kept)
@@ -2623,9 +2630,36 @@ export class AragProvider implements RetrievalProvider {
         // every rendering of a given citation index agrees by construction.
         let boundText: string | undefined
         if (!refused && fullAnswer.trim()) {
+          // Scope cross-check, applied to the citations map BEFORE binding so
+          // that numbering, in-text markers and citation events all derive
+          // from one set. Filtering only at emit time (as this once did) let
+          // spliceCitationMarkers number and splice a marker for a resource
+          // whose event was then suppressed - a dead `[n]` the reader can
+          // click and get nothing from, measured at 7.3% of all markers.
+          //
+          // "Not in validSourceIds" is NOT evidence of a breach: graph_beta
+          // and full_resource grounding legitimately cite resources that never
+          // appear in a `retrieval` item. Only drop a citation when something
+          // positively says it is out of scope:
+          //   - it was retrieved and failed `inScope`, or
+          //   - (research scope) it is absent from the research catalogue,
+          //     which listResources builds documentation-free and
+          //     junk-free by construction, so membership IS a scope proof.
+          // Under docScope the research catalogue proves nothing, so an
+          // unretrieved id stays excluded rather than being guessed at.
+          const citable = (resourceId: string): boolean => {
+            if (validSourceIds.has(resourceId)) return true
+            if (excludedSourceIds.has(resourceId)) return false
+            return opts.docScope ? false : byId.has(resourceId)
+          }
+          const scopedCitations: Record<string, unknown> = {}
+          for (const [key, value] of Object.entries(citationsMapAccum)) {
+            const resourceId = key.split('/')[0]
+            if (resourceId && citable(resourceId)) scopedCitations[key] = value
+          }
           const bound = spliceCitationMarkers(
             fullAnswer,
-            citationsMapAccum,
+            scopedCitations,
             // Both branches already resolve through toSummary/displayTitle,
             // so this never surfaces a raw hash - but a resource id absent
             // from both (never retrieved as a scored source) still needs a
@@ -2635,14 +2669,9 @@ export class AragProvider implements RetrievalProvider {
               byId.get(resourceId)?.title ?? sources.find((s) => s.id === resourceId)?.title ??
                 'Untitled resource',
           )
-          for (const citation of bound.citations) {
-            // Citation cross-check: never cite a resource that failed the scope
-            // check (the platform can attribute a citation to content the stored
-            // filter should have excluded - docs/ARAG-DEV.md). Partial grounding
-            // keeps the answer with its in-scope citations only.
-            if (!validSourceIds.has(citation.resourceId)) continue
-            yield { type: 'citation', citation }
-          }
+          // No filtering here: `scopedCitations` already applied it, so every
+          // marker in `bound.text` has an event by construction.
+          for (const citation of bound.citations) yield { type: 'citation', citation }
           boundText = bound.text
         }
         yield { type: 'stage', stage: 'generating', status: 'completed' }

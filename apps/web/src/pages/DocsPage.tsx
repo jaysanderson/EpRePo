@@ -11,13 +11,17 @@ import {
 import { streamDocsAsk } from '../api/client.ts'
 import { ConfidenceIndicator, type QualityScores } from '../components/QualityGauge.tsx'
 import { LiveStatus } from '../components/ui.tsx'
+import { normaliseAnswerBullets } from '../lib/answer-text.ts'
+import { parseDocBlocks } from '../lib/resource-view.ts'
 import type { TenantOutletContext } from './TenantLayout.tsx'
 
 // ---------------------------------------------------------------------------
-// A small, dependency-free Markdown renderer for the documentation body and the
-// help answer. Supports paragraphs (blank-line separated), `### ` sub-headings,
-// `- ` bullet lists, `1. ` numbered lists and `**bold**`. When a citation
-// resolver is supplied, `[n]` markers become links to the cited help page.
+// The docs Markdown surface: block structure comes from the shared
+// `parseDocBlocks` parser (so `*`/`-`/numbered lists, sub-bullets, mixed
+// intro-plus-list blocks and headings all render properly, in authored pages
+// and streamed help answers alike), with the docs page's own styling on top.
+// When a citation resolver is supplied, `[n]` markers become links to the
+// cited help page.
 // ---------------------------------------------------------------------------
 
 function renderInline(
@@ -39,6 +43,20 @@ function renderInline(
   })
 }
 
+/** One accent-dot bullet row - the docs page's unordered list treatment. */
+function DotBullet({ children, small }: { children: ReactNode; small?: boolean }) {
+  return (
+    <li className='flex gap-2.5 text-[0.9375rem] leading-relaxed text-ink-2'>
+      <span
+        aria-hidden='true'
+        className={`mt-2 shrink-0 rounded-full ${small ? 'h-1 w-1' : 'h-1.5 w-1.5'}`}
+        style={{ backgroundColor: 'var(--rp-accent)' }}
+      />
+      <span>{children}</span>
+    </li>
+  )
+}
+
 function Markdown({
   text,
   citation,
@@ -46,53 +64,127 @@ function Markdown({
   text: string
   citation?: (index: number) => ReactNode
 }) {
-  const blocks = text.split(/\n{2,}/).map((block) => block.trim()).filter(Boolean)
+  const blocks = parseDocBlocks(text)
   return (
     <div className='space-y-3.5'>
       {blocks.map((block, index) => {
-        if (block.startsWith('### ')) {
-          return (
-            <h3 key={index} className='pt-1 font-display text-base font-semibold text-ink'>
-              {renderInline(block.slice(4), `h${index}`, citation)}
-            </h3>
-          )
+        switch (block.kind) {
+          case 'heading':
+            return (
+              <h3 key={index} className='pt-1 font-display text-base font-semibold text-ink'>
+                {renderInline(block.text, `h${index}`, citation)}
+              </h3>
+            )
+          case 'list': {
+            if (block.ordered) {
+              return (
+                <ol key={index} className='list-decimal space-y-1.5 pl-5 marker:text-ink-3'>
+                  {block.items.map((item, itemIndex) => (
+                    <li key={itemIndex} className='text-[0.9375rem] leading-relaxed text-ink-2'>
+                      {renderInline(item.text, `ol${index}-${itemIndex}`, citation)}
+                      {item.children.length > 0
+                        ? (
+                          <ul className='mt-1.5 space-y-1.5 pl-1'>
+                            {item.children.map((child, childIndex) => (
+                              <DotBullet key={childIndex} small>
+                                {renderInline(
+                                  child,
+                                  `ol${index}-${itemIndex}-c${childIndex}`,
+                                  citation,
+                                )}
+                              </DotBullet>
+                            ))}
+                          </ul>
+                        )
+                        : null}
+                    </li>
+                  ))}
+                </ol>
+              )
+            }
+            return (
+              <ul key={index} className='space-y-1.5 pl-1'>
+                {block.items.map((item, itemIndex) => (
+                  <DotBullet key={itemIndex}>
+                    {renderInline(item.text, `li${index}-${itemIndex}`, citation)}
+                    {item.children.length > 0
+                      ? (
+                        <ul className='mt-1.5 space-y-1.5'>
+                          {item.children.map((child, childIndex) => (
+                            <DotBullet key={childIndex} small>
+                              {renderInline(
+                                child,
+                                `li${index}-${itemIndex}-c${childIndex}`,
+                                citation,
+                              )}
+                            </DotBullet>
+                          ))}
+                        </ul>
+                      )
+                      : null}
+                  </DotBullet>
+                ))}
+              </ul>
+            )
+          }
+          case 'quote':
+            return (
+              <blockquote
+                key={index}
+                className='border-l-2 border-line pl-3 text-[0.9375rem] italic leading-relaxed text-ink-2'
+              >
+                {renderInline(block.text, `q${index}`, citation)}
+              </blockquote>
+            )
+          case 'code':
+            return (
+              <pre
+                key={index}
+                className='overflow-x-auto rounded-[var(--rp-radius)] bg-surface-2 p-3 text-xs leading-relaxed text-ink-2'
+              >
+                <code>{block.text}</code>
+              </pre>
+            )
+          case 'table':
+            return (
+              <div key={index} className='overflow-x-auto'>
+                <table className='w-full border-collapse text-sm'>
+                  <thead>
+                    <tr>
+                      {block.headers.map((header, i) => (
+                        <th
+                          key={i}
+                          className='border-b border-line px-3 py-2 text-left font-semibold text-ink'
+                        >
+                          {renderInline(header, `t${index}-h${i}`, citation)}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {block.rows.map((row, r) => (
+                      <tr key={r}>
+                        {row.map((cell, c) => (
+                          <td
+                            key={c}
+                            className='border-b border-line px-3 py-2 align-top text-ink-2'
+                          >
+                            {renderInline(cell, `t${index}-${r}-${c}`, citation)}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )
+          default:
+            return (
+              <p key={index} className='text-[0.9375rem] leading-relaxed text-ink-2'>
+                {renderInline(block.text, `p${index}`, citation)}
+              </p>
+            )
         }
-        const lines = block.split('\n').map((line) => line.trim()).filter(Boolean)
-        if (lines.length > 0 && lines.every((line) => line.startsWith('- '))) {
-          return (
-            <ul key={index} className='space-y-1.5 pl-1'>
-              {lines.map((line, lineIndex) => (
-                <li
-                  key={lineIndex}
-                  className='flex gap-2.5 text-[0.9375rem] leading-relaxed text-ink-2'
-                >
-                  <span
-                    aria-hidden='true'
-                    className='mt-2 h-1.5 w-1.5 shrink-0 rounded-full'
-                    style={{ backgroundColor: 'var(--rp-accent)' }}
-                  />
-                  <span>{renderInline(line.slice(2), `li${index}-${lineIndex}`, citation)}</span>
-                </li>
-              ))}
-            </ul>
-          )
-        }
-        if (lines.length > 0 && lines.every((line) => /^\d+\.\s/.test(line))) {
-          return (
-            <ol key={index} className='list-decimal space-y-1.5 pl-5 marker:text-ink-3'>
-              {lines.map((line, lineIndex) => (
-                <li key={lineIndex} className='text-[0.9375rem] leading-relaxed text-ink-2'>
-                  {renderInline(line.replace(/^\d+\.\s/, ''), `ol${index}-${lineIndex}`, citation)}
-                </li>
-              ))}
-            </ol>
-          )
-        }
-        return (
-          <p key={index} className='text-[0.9375rem] leading-relaxed text-ink-2'>
-            {renderInline(block, `p${index}`, citation)}
-          </p>
-        )
       })}
     </div>
   )
@@ -307,7 +399,12 @@ function DocsAssistant({ slug }: { slug: string }) {
                 </div>
               )
               : answer.text.length > 0
-              ? <Markdown text={answer.text} citation={citationNode(answer.citations)} />
+              ? (
+                <Markdown
+                  text={normaliseAnswerBullets(answer.text)}
+                  citation={citationNode(answer.citations)}
+                />
+              )
               : answer.pending
               ? (
                 <p className='flex items-center gap-2 text-sm text-ink-3'>

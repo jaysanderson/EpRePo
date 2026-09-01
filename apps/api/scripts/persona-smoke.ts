@@ -24,6 +24,7 @@
  * to keep LLM spend sane. Omit --quick for the full multi-tenant sweep.
  */
 import process from 'node:process'
+import { sseEvents } from './lib/ask-stream.ts'
 
 interface TenantJourney {
   slug: string
@@ -82,8 +83,6 @@ const ASK_TIMEOUT_MS = 60_000
 /** Pause between successive asks - polite to the portal's per-IP rate limiter. */
 const ASK_SPACING_MS = 4_000
 
-type AskEventLike = Record<string, unknown> & { type?: unknown }
-
 interface CheckResult {
   name: string
   pass: boolean
@@ -100,37 +99,6 @@ function record(name: string, pass: boolean, detail: string) {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
-}
-
-/** Parses a `text/event-stream` response body into its `data:` JSON payloads, in order. */
-async function* sseEvents(response: Response): AsyncGenerator<AskEventLike> {
-  if (!response.body) return
-  const reader = response.body.getReader()
-  const decoder = new TextDecoder()
-  let buffer = ''
-  try {
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buffer += decoder.decode(value, { stream: true })
-      const chunks = buffer.split('\n\n')
-      buffer = chunks.pop() ?? ''
-      for (const chunk of chunks) {
-        for (const line of chunk.split('\n')) {
-          if (!line.startsWith('data:')) continue
-          const raw = line.slice(5).trim()
-          if (!raw) continue
-          try {
-            yield JSON.parse(raw) as AskEventLike
-          } catch {
-            // A partial/malformed line - skip rather than abort the whole stream.
-          }
-        }
-      }
-    }
-  } finally {
-    reader.releaseLock()
-  }
 }
 
 async function checkSearch(base: string, tenant: TenantJourney): Promise<void> {

@@ -33,6 +33,14 @@
  * RATE_LIMIT_ASK_PER_MIN).
  */
 import process from 'node:process'
+import { citationIntegrity, sseEvents } from './lib/ask-stream.ts'
+
+/**
+ * Re-exported so this module stays the import site for its own scorecard
+ * helpers even though the implementation is now shared with the other live
+ * harnesses.
+ */
+export { citationIntegrity }
 
 export interface EvalQuestion {
   query: string
@@ -162,56 +170,6 @@ export const QUESTIONS: EvalQuestion[] = [
 /** Pause between successive asks - stays well under the portal's 20/min/IP ask rate limit. */
 const ASK_SPACING_MS = 3_500
 const ASK_TIMEOUT_MS = 60_000
-
-type AskEventLike = Record<string, unknown> & { type?: unknown }
-
-/** Parses a `text/event-stream` response body into its `data:` JSON payloads, in order. */
-async function* sseEvents(response: Response): AsyncGenerator<AskEventLike> {
-  if (!response.body) return
-  const reader = response.body.getReader()
-  const decoder = new TextDecoder()
-  let buffer = ''
-  try {
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buffer += decoder.decode(value, { stream: true })
-      const chunks = buffer.split('\n\n')
-      buffer = chunks.pop() ?? ''
-      for (const chunk of chunks) {
-        for (const line of chunk.split('\n')) {
-          if (!line.startsWith('data:')) continue
-          const raw = line.slice(5).trim()
-          if (!raw) continue
-          try {
-            yield JSON.parse(raw) as AskEventLike
-          } catch {
-            // A partial/malformed line - skip rather than abort the whole stream.
-          }
-        }
-      }
-    }
-  } finally {
-    reader.releaseLock()
-  }
-}
-
-/**
- * Every `[n]` marker in the final answer text must resolve to a citation
- * index the platform actually emitted - the same claim-level grounding
- * guarantee the UI relies on (see spliceCitationMarkers in
- * packages/retrieval/src/providers/arag/citations.ts, which is what
- * produces `done.text`). Pure and side-effect free so it is unit-testable
- * without a live platform.
- */
-export function citationIntegrity(
-  finalText: string,
-  citationIndices: Set<number>,
-): { markers: number[]; unresolved: number[] } {
-  const markers = [...finalText.matchAll(/\[(\d+)\]/g)].map((m) => Number(m[1]))
-  const unresolved = markers.filter((n) => !citationIndices.has(n))
-  return { markers, unresolved }
-}
 
 export interface QuestionResult {
   query: string

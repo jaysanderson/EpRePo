@@ -2,18 +2,18 @@
 
 ## Supported versions
 
-Only the latest commit on the `scaffold` branch (the branch that auto-deploys the reference
-instance - see `CONTRIBUTING.md`) is supported. There are no maintained release branches or version
-tags at this time.
+Only the latest commit on the `main` branch (the branch that auto-deploys the reference instance -
+see `CONTRIBUTING.md`) is supported. There are no maintained release branches or version tags at
+this time.
 
 ## Reporting a vulnerability
 
 Please report security issues privately rather than opening a public issue.
 
-<!-- TODO (owner): replace with a real, monitored address before this repo goes public. -->
+Email: **security@noice.net.au**
 
-Email: **security@[project]** (placeholder - the repository owner needs to set a real, monitored
-contact address here before this project is public).
+Alternatively, use GitHub's private vulnerability reporting on this repository (Security -> Report a
+vulnerability).
 
 Please include:
 

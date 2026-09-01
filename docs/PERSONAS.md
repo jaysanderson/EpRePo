@@ -4,6 +4,11 @@ These personas drive testing: pre-release simulation passes and the automated pe
 run their journeys. Decision (Jay, 2026-08-28): the portal is tested as these people, early and
 continuously, and is shown to the client only when their journeys hold up.
 
+> P1 and P2 below are the two headline personas whose journeys gate a deploy
+> (`apps/api/scripts/persona-smoke.ts`). The fisheries side is expanded into its full eight-persona
+> stakeholder set in `docs/FISHERIES-PERSONAS.md`, which drives the persona expectation harness
+> (`apps/api/scripts/persona-eval.ts`) described in `docs/TEST-FRAMEWORK.md`.
+
 ## P1 - Fisheries research scientist (FRDC tenant)
 Dr Sarah, stock assessment scientist at a state fisheries agency, FRDC stakeholder.
 **Jobs:** check what FRDC-funded work exists on a species or threat before scoping new work;

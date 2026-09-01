@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import type { AskEvent, AskStage, Citation, ScoredResource } from '@research-portal/core'
 import { type AskRequest, streamAsk } from '../api/client.ts'
 import { AnswerJourney } from './AnswerJourney.tsx'
+import { AnswerMarkdown } from './AnswerMarkdown.tsx'
 import { CurrencyNote } from './CurrencyNote.tsx'
 import { type QualityScores, TrustSignals } from './QualityGauge.tsx'
 import { StageTimeline, statusesFor, useAnswerPhase } from './StageTimeline.tsx'
@@ -194,33 +195,15 @@ function renderInline(
   )
 }
 
-/** Minimal markdown-ish renderer: \n\n paragraphs, **bold**, "- " lists, `[n]` markers. */
-function renderAnswerText(text: string, renderMarker: MarkerRenderer): ReactNode[] {
-  const blocks = text.split(/\n{2,}/)
-  return blocks.map((block, blockIndex) => {
-    const lines = block.split('\n').filter((line) => line.trim().length > 0)
-    const isList = lines.length > 0 && lines.every((line) => line.trim().startsWith('- '))
-
-    if (isList) {
-      return (
-        <ul key={blockIndex} className='list-disc space-y-1 pl-5'>
-          {lines.map((line, lineIndex) => (
-            <li key={lineIndex}>
-              {renderInline(line.trim().slice(2), renderMarker, `${blockIndex}-${lineIndex}`)}
-            </li>
-          ))}
-        </ul>
-      )
-    }
-
-    if (block.trim().length === 0) return null
-
-    return (
-      <p key={blockIndex} className='leading-relaxed'>
-        {renderInline(block, renderMarker, String(blockIndex))}
-      </p>
-    )
-  })
+/** Streamed answer text: shared block structure, with bold and `[n]` markers inline. */
+function renderAnswerText(text: string, renderMarker: MarkerRenderer): ReactNode {
+  return (
+    <AnswerMarkdown
+      text={text}
+      renderInline={(run, keyPrefix) => renderInline(run, renderMarker, keyPrefix)}
+      bodyClassName='leading-relaxed'
+    />
+  )
 }
 
 /**

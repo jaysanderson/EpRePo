@@ -20,10 +20,15 @@ import type { Citation } from '@research-portal/core'
  * agree by construction.
  */
 
-/** Marker syntax the model is asked to write - and that we strip as untrusted. */
-const INLINE_MARKER = /\s*\[\d{1,3}\]/g
+/**
+ * Marker syntax the model is asked to write - and that we strip as untrusted.
+ * Models also emit grouped markers (`[2, 1, 19]`) despite the prompt asking
+ * for single ones, so the pattern accepts a comma-separated run of 1-3 digit
+ * numbers; 4-digit numbers (years such as `[2021]`) are left alone.
+ */
+const INLINE_MARKER = /\s*\[\d{1,3}(?:\s*,\s*\d{1,3})*\]/g
 
-/** Removes every `[n]` (1-3 digit) marker the model wrote in its own prose. */
+/** Removes every `[n]` / `[n, m, ...]` marker the model wrote in its own prose. */
 export function stripInlineMarkers(text: string): string {
   return text.replace(INLINE_MARKER, '')
 }
@@ -148,7 +153,12 @@ export function spliceCitationMarkers(
     seenInsert.add(key)
     return true
   })
-  deduped.sort((a, b) => b.pos - a.pos)
+  // Highest offset first, so an earlier splice never invalidates a later one.
+  // Within one offset, highest index first: each insert at the same position
+  // pushes the previous one rightwards, so descending insertion order yields
+  // ASCENDING reading order. A claim supported by seven sources renders
+  // `[1][2][5][6][7][8][9]`, not the `[9][8][7][6][5][2][1]` it used to.
+  deduped.sort((a, b) => b.pos - a.pos || b.index - a.index)
   let out = stripped
   for (const { pos, index } of deduped) {
     const clamped = Math.max(0, Math.min(pos, out.length))

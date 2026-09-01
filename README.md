@@ -1,26 +1,86 @@
-# Research Portal
+<h1 align="center">CorpusKit</h1>
 
-A thin application layer you point at an empty Progress Agentic RAG (ARAG) knowledge box. It
-provisions and configures a complete, branded research portal on top of that knowledge box -
-corpus, knowledge graph, labels, agents and suggested questions - then gives an organisation's
-researchers a fast, cited way to explore and question their research estate.
+<p align="center"><strong>An open source research portal.</strong></p>
 
-Two showcase tenants ship as examples: **GRDC** (Grains Research and Development Corporation) and
-**FRDC** (Fisheries Research and Development Corporation). See `docs/VISION.md` for the locked
-product decisions, `docs/ARCHITECTURE.md` for the system design, and `docs/PARITY.md` for the
-feature benchmark this portal targets.
+<p align="center">
+Point it at an empty Progress Agentic RAG knowledge box.<br>
+It reads your corpus, designs the taxonomy and the knowledge graph around it,<br>
+writes the questions worth asking, and opens as a branded portal.
+</p>
 
-A licence is forthcoming; none is set yet.
+<p align="center">
+<a href="https://corpuskit.org">Website</a> ·
+<a href="https://corpuskit.org/docs">Documentation</a> ·
+<a href="#showcase">Showcase</a> ·
+<a href="CONTRIBUTING.md">Contributing</a>
+</p>
+
+<p align="center">
+<img alt="Licence: Apache 2.0" src="https://img.shields.io/badge/licence-Apache%202.0-blue.svg">
+<img alt="Deno 2" src="https://img.shields.io/badge/Deno-2.x-black.svg">
+</p>
+
+---
+
+## The problem this solves
+
+The research is all there. Nobody can ask it a question.
+
+Decades of final reports, reviews and briefings, sitting across drives, archives and a website
+search box that matches on filenames. The work is findable only by the people who already know it
+exists, and they are the ones retiring.
+
+CorpusKit is a thin application layer you point at an empty knowledge box. It provisions and
+configures a complete, branded research portal on top of that box - corpus, knowledge graph,
+labels, agents and suggested questions - then gives an organisation's researchers a fast, cited
+way to explore and question their entire research estate.
+
+## What you get
+
+| | |
+|---|---|
+| **Explore** | The front door. One ask box, questions generated from your own corpus, and topic rows built from the taxonomy the portal designed. |
+| **Search** | Hybrid, semantic or keyword, with faceted filters, matched passages and a cited answer alongside the ranked results. |
+| **Assistant** | A conversation over the whole corpus. Streamed, numbered citations, per-source confidence, and an evidence table that persists. |
+| **Library** | Every resource with a real title, a summary and key takeaways. Open one and ask questions of that document alone. |
+| **Knowledge graph** | Entities and the relations between them, extracted from the corpus and explorable. A fisheries portal and a grains portal look different. |
+| **Investigations** | A named research question that accumulates evidence over weeks, with provenance on every piece of it. |
+| **Generate** | Six artefacts written from your corpus: briefing, comparison, timeline, pros and cons, FAQ, assessment. |
+| **Manage** | Corpus health, enrichments, taxonomy, graph strategy and the knowledge box binding, all in the app. |
+
+## An answer you can check
+
+A research organisation cannot act on an answer it cannot trace. Every answer is built to be
+audited, and the confidence in it is stated rather than implied.
+
+- **Grounded in the corpus.** Retrieval runs over your documents with a reranking pass,
+  neighbouring-paragraph and full-resource strategies, and the knowledge graph in the loop.
+- **Cited, and the citation opens.** Numbered citations map to a source list, and every one
+  resolves to the real document at the passage it came from.
+- **Scored, per source and per answer.** The platform's own evaluation model scores the answer, and
+  each source carries a confidence the reader can see.
+- **Honest when it is thin.** A weak answer is labelled as one, in plain language, rather than
+  presented with the same confidence as a strong one.
+
+## Showcase
+
+Two portals, on real research, on one codebase. Both run genuine public research corpora - nothing
+in the demonstration is sample content standing in for the real thing.
+
+- **FRDC** (Fisheries Research and Development Corporation) - 3,900 documents, scanned and digital,
+  through a resumable ingestion pipeline.
+- **GRDC** (Grains Research and Development Corporation) - 1,070 resources, every one given a
+  title, summary and key takeaways automatically.
 
 ## Prerequisites
 
 - **Deno 2.x** (developed against 2.9.5).
-- **esbuild** and **tailwindcss**, as standalone binaries on your `PATH` (not via npm - see
-  below). Versions are pinned in `Dockerfile` and `.github/workflows/deploy.yml`; keep your local
-  binaries in step with those pins (esbuild 0.28.2, Tailwind CSS 4.3.3 at time of writing).
-- **A Progress Agentic RAG account** (zone, account id, NUA key). There is no mock mode - this is
-  a deliberate product decision ("nothing faked, ever"): the portal always talks to live ARAG
-  knowledge boxes, never a stub. You cannot run this app end-to-end without one.
+- **esbuild** and **tailwindcss**, as standalone binaries on your `PATH` (not via npm - see below).
+  Versions are pinned in `Dockerfile` and `.github/workflows/deploy.yml`; keep your local binaries
+  in step with those pins (esbuild 0.28.2, Tailwind CSS 4.3.3 at time of writing).
+- **A Progress Agentic RAG account** (zone, account id, NUA key). There is no mock mode - this is a
+  deliberate product decision ("nothing faked, ever"): the portal always talks to live knowledge
+  boxes, never a stub. You cannot run this end-to-end without one.
 
 ### Why no npm
 
@@ -29,14 +89,14 @@ This project deliberately does not use the npm registry or any npm-based tooling
 
 - Server and shared code: Deno's native module resolution, via `deno.json` import maps - JSR
   packages (e.g. `hono`) and `https://esm.sh/...` URLs.
-- Front end (React, TanStack Query, React Router, Zod, d3-force): also `esm.sh` URLs, wired into
-  the browser via an `<script type="importmap">` in `apps/web/index.html`, loaded at runtime with
-  no bundler-side dependency resolution.
+- Front end (React, TanStack Query, React Router, Zod, d3-force): also `esm.sh` URLs, wired into the
+  browser via an `<script type="importmap">` in `apps/web/index.html`, loaded at runtime with no
+  bundler-side dependency resolution.
 - The web bundle itself is built with the **esbuild** and **tailwindcss** standalone binaries
   (fetched directly as platform binaries in `Dockerfile` and CI, not through `npm`/`npx`).
 
-If a command in an old doc, issue or PR mentions `npm install` or `npm run <script>`, it is
-stale - the equivalent is `deno task <name>` (see the table below).
+If a command in an old doc, issue or PR mentions `npm install` or `npm run <script>`, it is stale -
+the equivalent is `deno task <name>` (see the table below).
 
 ## Setup
 
@@ -45,10 +105,10 @@ cp .env.example .env
 # fill in ARAG_ZONE, ARAG_ACCOUNT, ARAG_NUA_KEY (and set ADMIN_PASSCODE if you want the
 # admin surface enabled locally)
 
-deno task provision   # create + seed the GRDC and FRDC knowledge boxes (idempotent);
-                       # writes ARAG_KB_* bindings back into .env
+deno task provision   # create + seed the showcase knowledge boxes (idempotent);
+                      # writes ARAG_KB_* bindings back into .env
 
-deno task dev          # builds the web bundle, then serves the API + SPA on :8787
+deno task dev         # builds the web bundle, then serves the API + SPA on :8787
 ```
 
 Without `ADMIN_PASSCODE` set, the server still runs, but every `/api/admin/*` route returns
@@ -75,34 +135,50 @@ All commands are `deno task <name>`, defined in `deno.json`.
 ## Testing
 
 `deno task test` runs the whole suite (Deno's built-in test runner, with `@std/testing/bdd` and
-`@std/expect`). Test doubles live only inside test files - there is no mock provider or mock mode
-in product code (see "nothing faked, ever" above). `deno task check` runs tests as part of the
-full gate; run that before considering anything done.
+`@std/expect`). Test doubles live only inside test files - there is no mock provider or mock mode in
+product code (see "nothing faked, ever" above). `deno task check` runs tests as part of the full
+gate; run that before considering anything done.
 
 ## Deployment
 
 Deployment order is **local -> repo -> fly.io, always**. Nobody runs `fly deploy` from a developer
 machine. The flow is:
 
-1. Commit locally and push to `origin/scaffold`.
-2. `.github/workflows/deploy.yml` runs the gate job (`deno task build:web` then `deno task
-   check` - typecheck, lint, format, tests) on GitHub's runners.
+1. Commit locally and push.
+2. `.github/workflows/deploy.yml` runs the gate job (`deno task build:web` then `deno task check` -
+   typecheck, lint, format, tests) on GitHub's runners.
 3. Only if the gate passes does the `deploy` job run `flyctl deploy --remote-only` against the Fly
    app named in `fly.toml`.
 
-A push that fails the gate never reaches production. The `app` name in `fly.toml` is the
-reference deployment for this repository; if you fork this project, change it (and the
-`concurrency.group` in `deploy.yml`) to your own Fly app before deploying, or you will attempt to
-deploy over someone else's app.
+A push that fails the gate never reaches production. The `app` name in `fly.toml` is the reference
+deployment for this repository; if you fork this project, change it (and the `concurrency.group` in
+`deploy.yml`) to your own Fly app before deploying, or you will attempt to deploy over someone
+else's app.
 
-State (tenant configs, knowledge-box bindings, sessions, investigations, watches, sources,
-insights, suggestions, branding assets) is plain JSON/JSONL on a mounted Fly volume - no database
-server, see `docs/ARCHITECTURE.md`.
+State (tenant configs, knowledge-box bindings, sessions, investigations, watches, sources, insights,
+suggestions, branding assets) is plain JSON/JSONL on a mounted Fly volume - no database server, see
+`docs/ARCHITECTURE.md`.
+
+## Architecture
+
+Where the line sits between the portal and the platform:
+
+| CorpusKit owns | The knowledge box owns |
+|---|---|
+| Every screen, and the design system behind them | The corpus, its extraction and its index |
+| Tenants, branding, terminology and taxonomy display | Retrieval, reranking and grounded generation |
+| Investigations, evidence, sessions and saved searches | The knowledge graph and the entity extraction behind it |
+| The provisioning engine and the management surfaces | Labels, classifiers and the generation agents |
+| One typed interface to retrieval and generation | Answer evaluation and the confidence scores |
+
+Ask, search, suggest, graph and the management calls sit behind one typed `RetrievalProvider`
+interface, in the portal's own vocabulary rather than any vendor's response shapes. No component
+knows which model answered it.
 
 ## Project layout
 
 ```
-research-portal/
+corpuskit/
   apps/
     web/                 React + TypeScript SPA (esbuild + Tailwind, esm.sh import map)
       src/
@@ -129,3 +205,37 @@ research-portal/
   Dockerfile, fly.toml    container build and Fly deployment config
   .github/workflows/      CI gate + deploy pipeline
 ```
+
+## Documentation
+
+| Doc | What it gives you |
+|---|---|
+| `docs/VISION.md` | Why this exists, the locked product decisions, the end goal. |
+| `docs/ARCHITECTURE.md` | The system design and the layering. |
+| `docs/ARAG-DEV.md` | The platform reference. Call shapes, the credential model, known platform bugs. Read before touching retrieval or provisioning. |
+| `docs/HANDOVER.md` | Current state, what is in flight, known issues. |
+| `docs/BACKLOG.md` | Backlog and the platform exploitation roadmap. |
+| `CONTRIBUTING.md` | How to work on this. |
+| `SECURITY.md` | How to report a vulnerability. |
+
+## Contributing
+
+Contributions are welcome. Read `CONTRIBUTING.md` first - in particular the gate (`deno task
+check`), the no-npm rule, and the visual verification bar for UI changes.
+
+## Licence
+
+Apache 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
+
+A knowledge portal is a fifteen year asset, and nobody should have to bet that on a supplier
+staying interested. The provisioning engine, the retrieval layer, the design system and every
+screen are yours to fork, run and change.
+
+## Who maintains this
+
+CorpusKit is built and maintained by [Noice](https://noice.net.au), a Melbourne digital agency and
+Progress partner. We sell standing it up on your corpus, loading the awkward material - the scanned
+final reports from the eighties, tables and plates and all - and tuning it until the answers can be
+acted on.
+
+CorpusKit is an independent open source project. It is not a Progress Software product.

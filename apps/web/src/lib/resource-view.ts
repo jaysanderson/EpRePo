@@ -89,12 +89,18 @@ export function selectRecommendations(
   return out
 }
 
+/** One list entry: its text plus any indented sub-bullets nested under it. */
+export interface DocListItem {
+  text: string
+  children: string[]
+}
+
 /** A parsed, renderable block of an authored document body. */
 export type DocBlock =
   | { kind: 'heading'; level: number; text: string; index: number }
   | { kind: 'paragraph'; text: string; index: number }
   | { kind: 'quote'; text: string; index: number }
-  | { kind: 'list'; ordered: boolean; items: string[]; index: number }
+  | { kind: 'list'; ordered: boolean; items: DocListItem[]; index: number }
   | { kind: 'code'; text: string; index: number }
   | { kind: 'table'; headers: string[]; rows: string[][]; index: number }
 
@@ -119,6 +125,12 @@ function isTableSeparator(line: string): boolean {
 /** Collapse the soft line wraps inside a single paragraph into spaces. */
 function unwrap(text: string): string {
   return text.replace(/\s*\n\s*/g, ' ').trim()
+}
+
+/** Width of a line's leading whitespace, counting a tab as two spaces. */
+function indentWidth(line: string): number {
+  const leading = /^[ \t]*/.exec(line)?.[0] ?? ''
+  return leading.replace(/\t/g, '  ').length
 }
 
 /**
@@ -214,17 +226,28 @@ export function parseDocBlocks(body: string): DocBlock[] {
     // indented continuation lines, and may be separated by a blank line (a
     // "loose" list). Continuation lines are folded into their item so a
     // wrapped item stays one entry rather than fragmenting into stray blocks.
+    // A bullet line indented at least two spaces past the first item nests as
+    // a sub-bullet of the item above it (one level - deeper indents flatten).
     const bullet = /^([-*+]|\d+[.)])\s+/.exec(trimmed)
     if (bullet) {
       flushParagraph()
       const ordered = /^\d/.test(bullet[1]!)
-      const items: string[] = []
+      const baseIndent = indentWidth(line)
+      const items: DocListItem[] = []
+      let lastWasChild = false
       while (i < lines.length) {
         const raw = lines[i] ?? ''
         const t = raw.trim()
         const m = /^([-*+]|\d+[.)])\s+(.*)$/.exec(t)
         if (m) {
-          items.push(m[2]!.trim())
+          const parent = items[items.length - 1]
+          if (parent && indentWidth(raw) >= baseIndent + 2) {
+            parent.children.push(m[2]!.trim())
+            lastWasChild = true
+          } else {
+            items.push({ text: m[2]!.trim(), children: [] })
+            lastWasChild = false
+          }
           i += 1
           continue
         }
@@ -238,9 +261,16 @@ export function parseDocBlocks(body: string): DocBlock[] {
           }
           break
         }
-        // An indented, non-bullet line continues the current item's text.
-        if (/^\s/.test(raw) && items.length > 0) {
-          items[items.length - 1] = `${items[items.length - 1]} ${t}`
+        // An indented, non-bullet line continues the most recent entry's text.
+        const target = items[items.length - 1]
+        if (/^\s/.test(raw) && target) {
+          if (lastWasChild && target.children.length > 0) {
+            target.children[target.children.length - 1] = `${
+              target.children[target.children.length - 1]
+            } ${t}`
+          } else {
+            target.text = `${target.text} ${t}`
+          }
           i += 1
           continue
         }
@@ -264,11 +294,28 @@ export function parseDocBlocks(body: string): DocBlock[] {
   return blocks
 }
 
+/**
+ * How many leading blocks fit within a character budget. Long documents can
+ * carry hundreds of thousands of characters of extracted text, and rendering
+ * every block through the inline renderer in one go locks the main thread -
+ * so the reader renders the blocks that fit this budget and grows it on
+ * request. Always admits at least one block, so a single huge block still
+ * renders rather than showing an empty reader.
+ */
+export function blocksWithinBudget(lengths: number[], budget: number): number {
+  let used = 0
+  for (let i = 0; i < lengths.length; i++) {
+    used += lengths[i] ?? 0
+    if (used > budget && i > 0) return i
+  }
+  return lengths.length
+}
+
 /** Plain searchable text for a block - what passage/`?q=` matching runs over. */
 export function blockPlainText(block: DocBlock): string {
   switch (block.kind) {
     case 'list':
-      return block.items.join(' ')
+      return block.items.map((item) => [item.text, ...item.children].join(' ')).join(' ')
     case 'table':
       return [block.headers.join(' '), ...block.rows.map((r) => r.join(' '))].join(' ')
     default:

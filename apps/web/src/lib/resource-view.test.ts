@@ -3,6 +3,7 @@ import { expect } from '@std/expect'
 import type { ScoredResource } from '@research-portal/core'
 import {
   blockPlainText,
+  blocksWithinBudget,
   buildRelatedQuery,
   looksLikeSystemResource,
   parseDocBlocks,
@@ -115,8 +116,8 @@ describe('parseDocBlocks', () => {
     if (!list || list.kind !== 'list') throw new Error('expected list')
     expect(list.ordered).toBe(false)
     expect(list.items).toEqual([
-      'Deep lime lifted pH from 4.4 to 5.1',
-      'Returned 2.3:1 on investment',
+      { text: 'Deep lime lifted pH from 4.4 to 5.1', children: [] },
+      { text: 'Returned 2.3:1 on investment', children: [] },
     ])
   })
 
@@ -135,8 +136,16 @@ describe('parseDocBlocks', () => {
     if (!list || list.kind !== 'list') throw new Error('expected one list block')
     expect(list.ordered).toBe(true)
     expect(list.items).toEqual([
-      'Growers on acidic soils should consider deep-banded lime rather than relying on surface application to correct constraints.',
-      'A gypsum-lime blend offers a faster initial response and may suit near-term improvement.',
+      {
+        text:
+          'Growers on acidic soils should consider deep-banded lime rather than relying on surface application to correct constraints.',
+        children: [],
+      },
+      {
+        text:
+          'A gypsum-lime blend offers a faster initial response and may suit near-term improvement.',
+        children: [],
+      },
     ])
   })
 
@@ -146,7 +155,56 @@ describe('parseDocBlocks', () => {
     expect(blocks.length).toBe(1)
     const list = blocks[0]
     if (!list || list.kind !== 'list') throw new Error('expected list')
-    expect(list.items).toEqual(['first item', 'second item', 'third item'])
+    expect(list.items.map((item) => item.text)).toEqual([
+      'first item',
+      'second item',
+      'third item',
+    ])
+  })
+
+  it('parses a streamed-answer block: intro line, star bullets and indented sub-bullets', () => {
+    // The exact shape a live /ask answer arrives in - single newlines between
+    // bullets, `*` markers, and four-space-indented sub-bullets.
+    const body = [
+      'More specifically:',
+      '*   **Shortcut methods**: These provide direct recommendations. There are two options:',
+      '    *   Developing MPs applicable to a basket of species.',
+      '    *   Developing "canned" MSE/MP systems.',
+      '*   **Risk Assessments**: For very data-limited fisheries.',
+      '',
+      'Ultimately, the goal is a defensible stock assessment.',
+    ].join('\n')
+    const blocks = parseDocBlocks(body)
+    expect(blocks.map((b) => b.kind)).toEqual(['paragraph', 'list', 'paragraph'])
+    const list = blocks[1]
+    if (!list || list.kind !== 'list') throw new Error('expected list')
+    expect(list.ordered).toBe(false)
+    expect(list.items).toEqual([
+      {
+        text: '**Shortcut methods**: These provide direct recommendations. There are two options:',
+        children: [
+          'Developing MPs applicable to a basket of species.',
+          'Developing "canned" MSE/MP systems.',
+        ],
+      },
+      { text: '**Risk Assessments**: For very data-limited fisheries.', children: [] },
+    ])
+  })
+
+  it('folds an indented continuation line into the sub-bullet it wraps from', () => {
+    const body = [
+      '* parent item',
+      '    * a sub-bullet that wraps',
+      '      onto the next line',
+      '* second parent',
+    ].join('\n')
+    const blocks = parseDocBlocks(body)
+    const list = blocks[0]
+    if (!list || list.kind !== 'list') throw new Error('expected list')
+    expect(list.items).toEqual([
+      { text: 'parent item', children: ['a sub-bullet that wraps onto the next line'] },
+      { text: 'second parent', children: [] },
+    ])
   })
 
   it('parses a pipe table', () => {
@@ -174,10 +232,31 @@ describe('parseDocBlocks', () => {
   })
 })
 
+describe('blocksWithinBudget', () => {
+  it('admits leading blocks until the character budget is exceeded', () => {
+    expect(blocksWithinBudget([100, 100, 100, 100], 250)).toBe(2)
+  })
+
+  it('admits every block when the document fits the budget', () => {
+    expect(blocksWithinBudget([100, 100], 40_000)).toBe(2)
+    expect(blocksWithinBudget([], 40_000)).toBe(0)
+  })
+
+  it('always admits at least the first block, even one over budget', () => {
+    expect(blocksWithinBudget([90_000, 100], 40_000)).toBe(1)
+  })
+})
+
 describe('blockPlainText', () => {
   it('flattens list and table blocks for matching', () => {
-    expect(blockPlainText({ kind: 'list', ordered: false, items: ['one', 'two'], index: 0 }))
-      .toBe('one two')
+    expect(
+      blockPlainText({
+        kind: 'list',
+        ordered: false,
+        items: [{ text: 'one', children: ['sub'] }, { text: 'two', children: [] }],
+        index: 0,
+      }),
+    ).toBe('one sub two')
     expect(
       blockPlainText({ kind: 'table', headers: ['a', 'b'], rows: [['1', '2']], index: 0 }),
     ).toBe('a b 1 2')

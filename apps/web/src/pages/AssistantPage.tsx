@@ -23,6 +23,7 @@ import {
   sendAnswerFeedback,
   streamAsk,
 } from '../api/client.ts'
+import { AnswerMarkdown } from '../components/AnswerMarkdown.tsx'
 import { citationHref, ContextJourney, EvidenceDisclosure } from '../components/AnswerStream.tsx'
 import { CurrencyNote } from '../components/CurrencyNote.tsx'
 import {
@@ -230,8 +231,9 @@ function sessionTitle(session: ChatSession): string {
 }
 
 // ---------------------------------------------------------------------------
-// Minimal markdown-ish renderer - no libraries. Supports paragraphs split on
-// blank lines, "### " headings, "- " bullet lists and **bold** spans.
+// Answer rendering: block structure comes from the shared AnswerMarkdown
+// component; the inline pass here adds **bold** spans and linked citation
+// markers on top of it.
 // ---------------------------------------------------------------------------
 
 /**
@@ -263,7 +265,7 @@ function renderCitationMarkers(
           <Link
             to={citationHref(slug, citation.resourceId, matchedPassage)}
             className='font-semibold no-underline'
-            style={{ color: 'var(--rp-accent-fg)' }}
+            style={{ color: 'var(--rp-accent)' }}
             title={`Source ${citationIndex} - ${citation.title}; click to open, or find it in the Evidence table below`}
           >
             [{citationIndex}]
@@ -280,12 +282,13 @@ function renderInline(
   citations: Citation[],
   sources: ScoredResource[],
   slug: string,
+  keyPrefix: string,
 ): ReactNode[] {
   const parts = text.split(/(\*\*[^*]+\*\*)/g)
   return parts.flatMap((part, index): ReactNode[] =>
     part.startsWith('**') && part.endsWith('**')
-      ? [<strong key={index}>{part.slice(2, -2)}</strong>]
-      : renderCitationMarkers(part, citations, sources, slug, String(index))
+      ? [<strong key={`${keyPrefix}-${index}`}>{part.slice(2, -2)}</strong>]
+      : renderCitationMarkers(part, citations, sources, slug, `${keyPrefix}-${index}`)
   )
 }
 
@@ -295,38 +298,11 @@ function renderMarkdown(
   sources: ScoredResource[],
   slug: string,
 ): ReactNode {
-  const blocks = text.split(/\n{2,}/).filter((block) => block.trim().length > 0)
   return (
-    <div className='space-y-3'>
-      {blocks.map((block, index) => {
-        const trimmed = block.trim()
-        if (trimmed.startsWith('### ')) {
-          return (
-            <h3 key={index} className='text-sm font-semibold text-ink'>
-              {renderInline(trimmed.slice(4), citations, sources, slug)}
-            </h3>
-          )
-        }
-        const lines = trimmed.split('\n').map((line) => line.trim())
-        const isList = lines.length > 0 && lines.every((line) => line.startsWith('- '))
-        if (isList) {
-          return (
-            <ul key={index} className='list-disc space-y-1 pl-5'>
-              {lines.map((line, lineIndex) => (
-                <li key={lineIndex} className='text-sm leading-relaxed text-ink-2'>
-                  {renderInline(line.slice(2), citations, sources, slug)}
-                </li>
-              ))}
-            </ul>
-          )
-        }
-        return (
-          <p key={index} className='text-sm leading-relaxed text-ink-2'>
-            {renderInline(trimmed, citations, sources, slug)}
-          </p>
-        )
-      })}
-    </div>
+    <AnswerMarkdown
+      text={text}
+      renderInline={(run, keyPrefix) => renderInline(run, citations, sources, slug, keyPrefix)}
+    />
   )
 }
 
@@ -373,7 +349,10 @@ function SessionList({
         + New session
       </button>
 
-      <nav aria-label='Chat sessions' className='mt-4 flex-1 space-y-1.5 overflow-y-auto'>
+      <nav
+        aria-label='Chat sessions'
+        className='rp-scroll mt-4 flex-1 space-y-1.5 overflow-y-auto pr-1'
+      >
         {sessions.length === 0
           ? <p className='px-1 py-2 text-xs text-ink-3'>No sessions yet.</p>
           : sessions.map((session) => {
@@ -415,7 +394,7 @@ function SessionList({
                   } text-left transition-colors duration-150 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 ${
                     isActive ? 'bg-surface shadow-sm' : 'hover:bg-[var(--rp-surface-2)]'
                   }`}
-                  style={{ outlineColor: 'var(--rp-focus)' }}
+                  style={{ outlineColor: 'var(--rp-accent)' }}
                 >
                   <p className='rp-clamp-2 text-sm font-medium text-ink'>
                     {sessionTitle(session)}
@@ -437,7 +416,7 @@ function SessionList({
                       }}
                       aria-label={`Rename "${sessionTitle(session)}"`}
                       title='Rename session'
-                      className='rp-focus absolute right-8 top-1.5 flex h-6 w-6 items-center justify-center rounded-[var(--rp-radius-btn)] text-ink-3 opacity-0 transition-opacity duration-150 hover:bg-[var(--rp-surface-2)] hover:text-ink group-hover:opacity-100 focus-visible:opacity-100'
+                      className='rp-focus absolute right-8 top-1.5 flex h-6 w-6 items-center justify-center rounded-none text-ink-3 opacity-0 transition-opacity duration-150 hover:bg-[var(--rp-surface-2)] hover:text-ink group-hover:opacity-100 focus-visible:opacity-100'
                     >
                       ✎
                     </button>
@@ -629,9 +608,9 @@ function ActionIcon(
       aria-label={label}
       aria-pressed={active}
       title={label}
-      className={`rp-focus flex h-9 w-9 items-center justify-center rounded-[var(--rp-radius-btn)] transition-colors duration-150 disabled:pointer-events-none disabled:opacity-40 ${
+      className={`rp-focus flex h-9 w-9 items-center justify-center rounded-none transition-colors duration-150 disabled:pointer-events-none disabled:opacity-40 ${
         active
-          ? 'text-[var(--rp-accent-fg)] bg-[var(--rp-wash)]'
+          ? 'text-[var(--rp-accent)] bg-[color-mix(in_srgb,var(--rp-accent)_12%,transparent)]'
           : 'text-ink-3 hover:bg-surface-2 hover:text-ink'
       }`}
     >
@@ -1088,7 +1067,7 @@ function AssistantCard({
                               className='rp-chip'
                             >
                               <span
-                                className='inline-flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-semibold text-[var(--rp-on-accent)]'
+                                className='inline-flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-semibold text-white'
                                 style={{ backgroundColor: 'var(--rp-accent)' }}
                               >
                                 {citation.index}
@@ -1145,7 +1124,7 @@ function AssistantCard({
                             onClick={() => setShowPipeline((prev) => !prev)}
                             aria-expanded={showPipeline}
                             aria-controls={`${message.id}-pipeline`}
-                            className='rp-focus flex items-center gap-1.5 rounded-[var(--rp-radius-btn)] text-xs font-medium text-ink-3 hover:text-ink'
+                            className='rp-focus flex items-center gap-1.5 rounded-none text-xs font-medium text-ink-3 hover:text-ink'
                           >
                             <svg
                               viewBox='0 0 20 20'
