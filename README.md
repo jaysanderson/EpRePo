@@ -82,16 +82,22 @@ in the demonstration is sample content standing in for the real thing.
   deliberate product decision ("nothing faked, ever"): the portal always talks to live knowledge
   boxes, never a stub. You cannot run this end-to-end without one.
 
-### Why no npm
+### Why no npm tooling
 
-This project deliberately does not use the npm registry or any npm-based tooling (no
-`package.json`, no `node_modules`). Dependencies are resolved two ways:
+This project deliberately does not use npm-based tooling: there is no `package.json`, no
+`node_modules` directory, and no `npm install` step (`deno.json` sets `nodeModulesDir: "none"`).
+Dependencies are resolved by Deno itself:
 
 - Server and shared code: Deno's native module resolution, via `deno.json` import maps - JSR
   packages (e.g. `hono`) and `https://esm.sh/...` URLs.
 - Front end (React, TanStack Query, React Router, Zod, d3-force): also `esm.sh` URLs, wired into the
   browser via an `<script type="importmap">` in `apps/web/index.html`, loaded at runtime with no
   bundler-side dependency resolution.
+- A small number of **`npm:` specifiers** in `deno.json`, where a package has no JSR or esm.sh
+  equivalent worth using - currently the Model Context Protocol server SDK behind the Tools page
+  connector, and its schema/validation dependencies. Deno resolves these natively into its own
+  cache; they do not reintroduce `node_modules`, a lockfile-plus-install step, or npm as a build
+  tool. Prefer JSR or `esm.sh` first, and reach for `npm:` only when neither carries the package.
 - The web bundle itself is built with the **esbuild** and **tailwindcss** standalone binaries
   (fetched directly as platform binaries in `Dockerfile` and CI). Cloudflare deployment is the
   one tooling exception: CI invokes a pinned Wrangler release through `npx`, without adding npm
