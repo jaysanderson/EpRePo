@@ -401,7 +401,7 @@ function DetailDock({
       // hand the reading position to the details it opened; -1 keeps it out
       // of the tab order itself.
       tabIndex={-1}
-      className='rp-anim-fade absolute inset-x-0 bottom-0 z-30 flex max-h-[68%] flex-col overflow-hidden rounded-t-[var(--rp-radius)] border border-line bg-surface outline-none rp-shadow-xl rp-map-gutter-right md:inset-x-auto md:top-3 md:bottom-3 md:max-h-none md:w-[360px] md:rounded-[calc(var(--rp-radius)+4px)]'
+      className='rp-anim-fade absolute inset-x-0 bottom-0 z-30 flex max-h-[68%] flex-col overflow-hidden rounded-t-[var(--rp-radius)] border border-line rp-map-panel outline-none rp-map-gutter-right md:inset-x-auto md:top-3 md:bottom-3 md:max-h-none md:w-[360px] md:rounded-[calc(var(--rp-radius)+4px)]'
     >
       <button
         type='button'
@@ -725,56 +725,14 @@ function ConceptPanel({
 }
 
 // ---------------------------------------------------------------------------
-// Navigator rail - the way in. A reading key, the legend, a shortlist of the
-// best-connected entities and the controls that thin the map out. Floats
-// top-left on desktop, docks as a bottom sheet on mobile.
+// Navigator rail - the way in. The legend and a ranked list of entities,
+// nothing else: the map explains itself through interaction, and the rest of
+// the story lives in Help. Floats top-left on desktop, docks as a bottom
+// sheet on mobile.
 // ---------------------------------------------------------------------------
-
-function Switch({
-  checked,
-  onChange,
-  label,
-  description,
-}: {
-  checked: boolean
-  onChange: () => void
-  label: string
-  description?: string
-}) {
-  return (
-    <div>
-      <button
-        type='button'
-        role='switch'
-        aria-checked={checked}
-        onClick={onChange}
-        className='rp-focus inline-flex items-center gap-2 rounded-[var(--rp-radius)] py-0.5 text-left text-xs font-medium text-ink-2 transition-colors duration-150 hover:text-ink'
-      >
-        <span
-          aria-hidden='true'
-          className='relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border transition-colors duration-150'
-          style={{
-            borderColor: checked ? 'transparent' : 'var(--rp-line)',
-            background: checked ? 'var(--rp-accent)' : 'var(--rp-surface-2)',
-          }}
-        >
-          <span
-            className='inline-block h-4 w-4 rounded-full bg-white rp-shadow-sm transition-transform duration-150'
-            style={{ transform: checked ? 'translateX(18px)' : 'translateX(2px)' }}
-          />
-        </span>
-        {label}
-      </button>
-      {description
-        ? <p className='mt-1 text-xs leading-relaxed text-ink-3'>{description}</p>
-        : null}
-    </div>
-  )
-}
 
 function NavigatorRail({
   nodes,
-  edges,
   degrees,
   groupStyles,
   hiddenGroups,
@@ -783,15 +741,9 @@ function NavigatorRail({
   onClose,
   mode,
   selectedId,
-  includeBuiltin,
-  onToggleIncludeBuiltin,
-  unlinkedCount,
-  hideUnlinked,
-  onToggleUnlinked,
   panelRef,
 }: {
   nodes: MapNode[]
-  edges: MapEdge[]
   degrees: Map<string, number>
   groupStyles: Map<string, GroupStyle>
   hiddenGroups: Set<string>
@@ -800,11 +752,6 @@ function NavigatorRail({
   onClose: () => void
   mode: Mode
   selectedId: string | null
-  includeBuiltin: boolean
-  onToggleIncludeBuiltin: () => void
-  unlinkedCount: number
-  hideUnlinked: boolean
-  onToggleUnlinked: () => void
   panelRef: (el: HTMLElement | null) => void
 }) {
   const isEntity = mode === 'entity'
@@ -824,77 +771,20 @@ function NavigatorRail({
     <aside
       ref={panelRef}
       aria-label='Map navigator'
-      className='rp-anim-fade absolute inset-x-0 bottom-0 z-20 flex max-h-[60%] flex-col overflow-hidden rounded-t-[var(--rp-radius)] border border-line bg-surface rp-shadow-lg rp-map-gutter-left md:inset-x-auto md:bottom-auto md:top-1/2 md:max-h-[calc(100%-2rem)] md:w-[300px] md:-translate-y-1/2 md:rounded-[calc(var(--rp-radius)+4px)]'
+      className='rp-anim-fade absolute inset-x-0 bottom-0 z-20 flex max-h-[60%] flex-col overflow-hidden rounded-t-[var(--rp-radius)] border border-line rp-map-panel rp-map-gutter-left md:inset-x-auto md:bottom-auto md:top-1/2 md:max-h-[calc(100%-2rem)] md:w-[300px] md:-translate-y-1/2 md:rounded-[calc(var(--rp-radius)+4px)]'
     >
-      <div className='flex items-start justify-between gap-2 border-b border-line px-4 py-3'>
-        <div className='min-w-0'>
-          <h2 className='font-display text-base leading-tight text-ink'>
-            {isEntity ? 'The connected corpus' : 'How themes overlap'}
-          </h2>
-          <p className='mt-1 text-xs leading-relaxed text-ink-2'>
-            {isEntity
-              ? `${nodes.length} entities linked by ${edges.length} relations. Pick one to see its evidence, or trace how two connect.`
-              : 'Categories that share resources sit closer. Pick one to see what it pairs with.'}
-          </p>
-        </div>
-        <button
-          type='button'
-          onClick={onClose}
-          aria-label='Hide navigator'
-          className='rp-btn rp-btn-ghost h-8 w-8 shrink-0 !px-0'
-        >
-          <svg viewBox='0 0 20 20' fill='currentColor' aria-hidden='true' className='h-4 w-4'>
-            <path d='M5.3 4.3l4.7 4.7 4.7-4.7 1 1L11 10l4.7 4.7-1 1L10 11l-4.7 4.7-1-1L9 10 4.3 5.3z' />
-          </svg>
-        </button>
-      </div>
+      <button
+        type='button'
+        onClick={onClose}
+        aria-label='Hide navigator'
+        className='rp-btn rp-btn-ghost absolute right-2 top-2 z-10 h-8 w-8 shrink-0 !px-0'
+      >
+        <svg viewBox='0 0 20 20' fill='currentColor' aria-hidden='true' className='h-4 w-4'>
+          <path d='M5.3 4.3l4.7 4.7 4.7-4.7 1 1L11 10l4.7 4.7-1 1L10 11l-4.7 4.7-1-1L9 10 4.3 5.3z' />
+        </svg>
+      </button>
 
-      <div className='rp-scroll flex-1 overflow-y-auto px-4 py-3'>
-        {/* Reading key - what the marks on the canvas actually mean. */}
-        <dl className='mb-4 space-y-1 border-b border-line pb-4 text-xs leading-relaxed'>
-          <div className='flex gap-2'>
-            <dt className='w-14 shrink-0 text-ink-3'>Size</dt>
-            <dd className='text-ink-2'>
-              {isEntity ? 'relations on the entity' : 'resources carrying the label'}
-            </dd>
-          </div>
-          <div className='flex gap-2'>
-            <dt className='w-14 shrink-0 text-ink-3'>Colour</dt>
-            <dd className='text-ink-2'>{isEntity ? 'entity category' : 'topic or kind'}</dd>
-          </div>
-          <div className='flex gap-2'>
-            <dt className='w-14 shrink-0 text-ink-3'>Line</dt>
-            <dd className='text-ink-2'>
-              {isEntity
-                ? 'an extracted relation, arrow pointing the way it reads'
-                : 'thicker where more resources are shared'}
-            </dd>
-          </div>
-        </dl>
-
-        {isEntity
-          ? (
-            <div className='mb-4 space-y-3 border-b border-line pb-4'>
-              <Switch
-                checked={includeBuiltin}
-                onChange={onToggleIncludeBuiltin}
-                label='Include built-in entities'
-                description="Adds the platform's raw NER output (people, dates, places) alongside the curated relations - noisier, but complete."
-              />
-              {unlinkedCount > 0
-                ? (
-                  <Switch
-                    checked={hideUnlinked}
-                    onChange={onToggleUnlinked}
-                    label={`Hide the ${unlinkedCount} unlinked`}
-                    description='Entities the agent found in the text but has not connected to anything yet. They are drawn faded until you hide them.'
-                  />
-                )
-                : null}
-            </div>
-          )
-          : null}
-
+      <div className='rp-scroll flex-1 overflow-y-auto px-4 py-4'>
         {groupStyles.size > 1
           ? (
             <div className='mb-4'>
@@ -1217,13 +1107,11 @@ export function GraphPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [focusId, setFocusId] = useState<string | null>(null)
   const [hiddenGroups, setHiddenGroups] = useState<Set<string>>(new Set())
-  const [hideUnlinked, setHideUnlinked] = useState(false)
   const [pathFrom, setPathFrom] = useState<string | null>(null)
   const [path, setPath] = useState<MapEdge[] | null>(null)
   const [noPath, setNoPath] = useState(false)
   const [extraGraph, setExtraGraph] = useState<RelationsGraph | null>(null)
   const [expanding, setExpanding] = useState(false)
-  const [includeBuiltin, setIncludeBuiltin] = useState(false)
   // Phone only: the find field lives behind the strip's magnifier.
   const [searchOpen, setSearchOpen] = useState(false)
   const [railOpen, setRailOpen] = useState<boolean>(() =>
@@ -1239,8 +1127,8 @@ export function GraphPage() {
   const insets = usePanelInsets(stageEl, railEl, dockEl)
 
   const relationsQuery = useQuery({
-    queryKey: ['relations-graph', slug, includeBuiltin],
-    queryFn: () => getRelationsGraph(slug, undefined, includeBuiltin),
+    queryKey: ['relations-graph', slug],
+    queryFn: () => getRelationsGraph(slug, undefined, false),
     staleTime: 5 * 60 * 1000,
     enabled: mode === 'entity',
   })
@@ -1320,16 +1208,9 @@ export function GraphPage() {
   const degrees = useMemo(() => buildDegrees(edges), [edges])
   const labelById = useMemo(() => new Map(nodes.map((n) => [n.id, n.label])), [nodes])
   const selected = selectedId ? nodes.find((n) => n.id === selectedId) ?? null : null
-  const unlinkedCount = useMemo(
-    () => mode === 'entity' ? nodes.filter((n) => (degrees.get(n.id) ?? 0) === 0).length : 0,
-    [mode, nodes, degrees],
-  )
   const visibleCount = useMemo(
-    () =>
-      nodes.filter((n) =>
-        !hiddenGroups.has(n.group) && !(hideUnlinked && (degrees.get(n.id) ?? 0) === 0)
-      ).length,
-    [nodes, hiddenGroups, hideUnlinked, degrees],
+    () => nodes.filter((n) => !hiddenGroups.has(n.group)).length,
+    [nodes, hiddenGroups],
   )
 
   const select = useCallback((id: string | null) => {
@@ -1382,13 +1263,6 @@ export function GraphPage() {
     }
   }, [selectedId])
 
-  // Switching the built-in-entities toggle re-fetches the base graph under
-  // the new filter - any expanded neighbourhood was fetched under the old
-  // one, so drop it rather than mix filtered and unfiltered relations.
-  useEffect(() => {
-    setExtraGraph(null)
-  }, [includeBuiltin])
-
   // Escape clears the current selection.
   useEffect(() => {
     if (!selectedId) return
@@ -1403,7 +1277,7 @@ export function GraphPage() {
     if (!selected) return
     setExpanding(true)
     try {
-      const more = await getRelationsGraph(slug, selected.label, includeBuiltin)
+      const more = await getRelationsGraph(slug, selected.label, false)
       setExtraGraph((prev) => {
         if (!prev) return more
         return {
@@ -1425,7 +1299,6 @@ export function GraphPage() {
     setPath(null)
     setNoPath(false)
     setHiddenGroups(new Set())
-    setHideUnlinked(false)
   }
 
   const loading = mode === 'entity' ? relationsQuery.isLoading : conceptQuery.isLoading
@@ -1574,7 +1447,7 @@ export function GraphPage() {
         /* Chrome - title, find and the lens toggle. Kept slim so the map owns
           the height below it. */
       }
-      <div className='relative hidden shrink-0 overflow-hidden border-b border-line md:block'>
+      <div className='relative z-40 hidden shrink-0 border-b border-line md:block'>
         <HeroGround bannerImageUrl={config.branding.bannerImageUrl} />
         <div className='relative px-4 py-10 sm:px-6 sm:py-14'>
           <div className='mx-auto max-w-3xl text-center'>
@@ -1631,7 +1504,6 @@ export function GraphPage() {
                 measure={mode === 'entity' ? 'links' : 'resources'}
                 layout={layout}
                 hiddenGroups={hiddenGroups}
-                hideUnlinked={hideUnlinked}
                 selectedId={selectedId}
                 pathEdges={path}
                 pathFrom={pathFrom}
@@ -1650,10 +1522,7 @@ export function GraphPage() {
                     >
                       <button
                         type='button'
-                        onClick={() => {
-                          setHiddenGroups(new Set())
-                          setHideUnlinked(false)
-                        }}
+                        onClick={() => setHiddenGroups(new Set())}
                         className='rp-btn rp-btn-outline'
                       >
                         Show everything again
@@ -1712,7 +1581,6 @@ export function GraphPage() {
                 : (
                   <NavigatorRail
                     nodes={nodes}
-                    edges={edges}
                     degrees={degrees}
                     groupStyles={groupStyles}
                     hiddenGroups={hiddenGroups}
@@ -1727,11 +1595,6 @@ export function GraphPage() {
                     onClose={() => setRailOpen(false)}
                     mode={mode}
                     selectedId={selectedId}
-                    includeBuiltin={includeBuiltin}
-                    onToggleIncludeBuiltin={() => setIncludeBuiltin((v) => !v)}
-                    unlinkedCount={unlinkedCount}
-                    hideUnlinked={hideUnlinked}
-                    onToggleUnlinked={() => setHideUnlinked((v) => !v)}
                     panelRef={setRailEl}
                   />
                 )}

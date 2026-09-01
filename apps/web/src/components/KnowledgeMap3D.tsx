@@ -30,7 +30,6 @@ export function KnowledgeMap3D({
   measure,
   layout,
   hiddenGroups,
-  hideUnlinked,
   selectedId,
   pathEdges,
   pathFrom,
@@ -46,7 +45,6 @@ export function KnowledgeMap3D({
   measure: MapMeasure
   layout: MapLayout
   hiddenGroups: Set<string>
-  hideUnlinked: boolean
   selectedId: string | null
   pathEdges: MapEdge[] | null
   pathFrom: string | null
@@ -59,11 +57,8 @@ export function KnowledgeMap3D({
   const [supported] = useState(webglAvailable)
 
   const visibleNodes = useMemo(
-    () =>
-      nodes.filter((n) =>
-        !hiddenGroups.has(n.group) && !(hideUnlinked && (degrees.get(n.id) ?? 0) === 0)
-      ),
-    [nodes, hiddenGroups, hideUnlinked, degrees],
+    () => nodes.filter((n) => !hiddenGroups.has(n.group)),
+    [nodes, hiddenGroups],
   )
   const visibleIds = useMemo(() => new Set(visibleNodes.map((n) => n.id)), [visibleNodes])
   const visibleEdges = useMemo(
@@ -213,7 +208,7 @@ export function KnowledgeMap3D({
         measure={measure}
         layout={layout}
         hiddenGroups={hiddenGroups}
-        hideUnlinked={hideUnlinked}
+        hideUnlinked={false}
         selectedId={selectedId}
         pathEdges={pathEdges}
         pathFrom={pathFrom}
