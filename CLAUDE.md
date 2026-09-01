@@ -50,6 +50,10 @@ Capture the answers in `docs/VISION.md` as they're decided.
 ## Conventions
 - Small, typed, tested increments; a render/lint/test loop before calling anything done.
 - Real content over placeholders; real empty/error/loading states, not blank divs.
+- **All frontend work plugs into the tenant appearance system** (colour roles, grey suites,
+  typography, text scale, shape and density dials) - the token contract and the rules live in
+  `apps/web/CLAUDE.md` under "The appearance system"; hardcoded colours/radii/heights that the
+  tokens cover are bugs even when they look right on the default portal.
 - Australian English, no em dashes (spaced hyphen) in any user-facing copy - this becomes a
   Progress asset.
 - Secrets live in `.env` only (gitignored).
