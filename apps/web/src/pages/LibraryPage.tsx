@@ -270,6 +270,8 @@ export function LibraryBrowser(
     return fromUrl ? [fromUrl] : []
   })
   const [filtersOpen, setFiltersOpen] = useState(false)
+  /** The filter rail, and therefore the sidebar grid track, need topics to filter by. */
+  const showFilterRail = !bare && config.topics.length > 0
   const [page, setPage] = useState(0)
   const [accumulated, setAccumulated] = useState<CatalogItem[]>([])
   const [total, setTotal] = useState(0)
@@ -439,7 +441,7 @@ export function LibraryBrowser(
             * beside it being `lg:block` and never hidden there. Same wrapping as
             * the header's menu button, for the same reason. */
           }
-          {config.topics.length > 0
+          {showFilterRail
             ? (
               <span className='lg:hidden'>
                 <button
@@ -478,10 +480,18 @@ export function LibraryBrowser(
         )
         : null}
 
+      {
+        /* The sidebar track only exists when the filter rail does. A portal
+        * whose corpus has no topics renders no aside, and an unconditional
+        * `230px 1fr` put the only child in the 230px column - a full-width
+        * page of cards squeezed into a narrow strip with the rest blank. */
+      }
       <div
-        className={bare ? '' : 'mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[230px_1fr]'}
+        className={bare
+          ? ''
+          : `mt-6 grid grid-cols-1 gap-6 ${showFilterRail ? 'lg:grid-cols-[230px_1fr]' : ''}`}
       >
-        {!bare && config.topics.length > 0
+        {showFilterRail
           ? (
             <aside className={`${filtersOpen ? 'block' : 'hidden'} lg:block`}>
               <div className='rp-card p-4 lg:sticky lg:top-[calc(var(--rp-header-h,_4rem)_+_var(--spacing)_*_4)]'>
