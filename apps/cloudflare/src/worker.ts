@@ -7,6 +7,7 @@ import { runAutoEnrichments, runAutoSyncs, runWatches } from '../../api/src/sche
 import { AragProvider } from '@research-portal/retrieval'
 import { type AuthConfig, authConfigured, authUser, handleAuthRequest } from './auth.ts'
 import { DurableState, type DurableStores, durableStores, stringEnv } from './state.ts'
+import { tenantAliasLocation } from '../../api/src/tenant-aliases.ts'
 
 const PORTAL_OBJECT_NAME = 'production'
 const SECURITY_HEADERS: Record<string, string> = {
@@ -85,6 +86,11 @@ export default {
         return json({ error: 'microsoft_sign_in_not_configured' }, 503)
       }
       return (await handleAuthRequest(request, auth)) ?? json({ error: 'not_found' }, 404)
+    }
+
+    const aliasLocation = tenantAliasLocation(request)
+    if (aliasLocation) {
+      return new Response(null, { status: 308, headers: { location: aliasLocation } })
     }
 
     if (url.pathname.startsWith('/api/')) {

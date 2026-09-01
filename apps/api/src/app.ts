@@ -80,14 +80,7 @@ import {
 } from './enrichments.ts'
 import { generateFollowUpQuestions } from './follow-up-questions.ts'
 import { generateSuggestedQuestions, SUGGESTED_QUESTIONS_SCHEMA_ID } from './suggested-questions.ts'
-
-const TENANT_SLUG_ALIASES: ReadonlyMap<string, string> = new Map([
-  ['gdrc', 'grdc'],
-])
-
-const TENANT_ROUTE_ALIASES: ReadonlyMap<string, string> = new Map([
-  ['assistant', 'ask'],
-])
+import { tenantAliasLocation } from './tenant-aliases.ts'
 
 const searchQuerySchema = z.object({ q: z.string().min(1) })
 const askBodySchema = z.object({
@@ -469,38 +462,16 @@ export function buildApp(opts: BuildAppOptions): Hono {
   // remains authoritative; once it is retired, public portal routes permanently redirect to the
   // canonical slug. Renamed route segments redirect immediately. API calls stay untouched.
   app.use('/t/*', async (c, next) => {
-    if (c.req.method !== 'GET') {
+    const location = tenantAliasLocation(
+      c.req.raw,
+      (slug, canonicalSlug) => !tenant(slug) && tenant(canonicalSlug) !== undefined,
+    )
+    if (!location) {
       await next()
       return
     }
 
-    const slug = /^\/t\/([^/]+)(?:\/|$)/.exec(c.req.path)?.[1]
-    const canonicalSlug = slug ? TENANT_SLUG_ALIASES.get(slug) : undefined
-    const url = new URL(c.req.url)
-
-    let redirected = false
-    if (slug && canonicalSlug && !tenant(slug) && tenant(canonicalSlug)) {
-      url.pathname = url.pathname.replace(/^\/t\/[^/]*/, `/t/${canonicalSlug}`)
-      redirected = true
-    }
-
-    const routeMatch = /^\/t\/[^/]+\/([^/]+)(?:\/|$)/.exec(url.pathname)
-    const route = routeMatch?.[1]
-    const canonicalRoute = route ? TENANT_ROUTE_ALIASES.get(route) : undefined
-    if (canonicalRoute) {
-      url.pathname = url.pathname.replace(
-        /^\/t\/([^/]+)\/[^/]+/,
-        `/t/$1/${canonicalRoute}`,
-      )
-      redirected = true
-    }
-
-    if (!redirected) {
-      await next()
-      return
-    }
-
-    return c.redirect(`${url.pathname}${url.search}`, 308)
+    return c.redirect(location, 308)
   })
 
   /** Streamed errors must never carry internal URLs, box ids or upstream bodies. */
