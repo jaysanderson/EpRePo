@@ -299,15 +299,26 @@ function NodeSearch({
                     onPick(node.id)
                     setQuery('')
                   }}
-                  className='flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-ink hover:bg-[var(--rp-surface-2)]'
+                  className='flex w-full items-start gap-2 px-3 py-2 text-left text-sm text-ink hover:bg-[var(--rp-surface-2)]'
                 >
                   <span
-                    className='inline-block h-2.5 w-2.5 shrink-0 rounded-full'
+                    className='mt-1.5 inline-block h-2.5 w-2.5 shrink-0 rounded-full'
                     style={{ background: groupStyles.get(node.group)?.colour ?? 'var(--rp-cat-1)' }}
                     aria-hidden='true'
                   />
-                  <span className='min-w-0 flex-1 truncate'>{node.label}</span>
-                  <span className='shrink-0 text-xs text-ink-3'>{node.group}</span>
+                  {
+                    /* Entity names here run long and share prefixes - a single
+                    * truncated line rendered "TASMANIAN SALMONID INDUSTRY EMS
+                    * FRAMEWORK TEMPLATE" and "TASMANIAN SALMONID EMS FRAMEWORK
+                    * TEMPLATE" as the same row. Two lines separate them, and
+                    * the title carries the full name for anything longer. */
+                  }
+                  <span className='rp-clamp-2 min-w-0 flex-1 leading-snug' title={node.label}>
+                    {node.label}
+                  </span>
+                  <span className='shrink-0 self-start pt-0.5 text-xs text-ink-3'>
+                    {node.group}
+                  </span>
                 </button>
               </li>
             ))}
