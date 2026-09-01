@@ -607,7 +607,7 @@ export function DocsPage() {
 
       <div className='grid grid-cols-1 gap-8 lg:grid-cols-[15rem_minmax(0,1fr)] lg:gap-10 2xl:grid-cols-[17rem_minmax(0,1fr)]'>
         <aside className='hidden lg:block'>
-          <div className='sticky top-20 max-h-[calc(100dvh-6rem)] overflow-y-auto pb-6'>
+          <div className='pb-6 lg:sticky lg:top-[calc(var(--rp-header-h,_4rem)_+_var(--spacing)_*_4)] lg:max-h-[calc(100dvh_-_var(--rp-header-h,_4rem)_-_var(--spacing)_*_8)] lg:overflow-y-auto'>
             <DocsNav slug={slug} activeId={activePage.id} />
           </div>
         </aside>

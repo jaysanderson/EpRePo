@@ -1520,7 +1520,7 @@ export function ResourceDetailPage() {
                   className='rp-rail-handle hidden lg:block'
                 />
 
-                <aside className='rp-scroll space-y-5 lg:sticky lg:top-20 lg:max-h-[calc(100vh-6rem)] lg:self-start lg:overflow-y-auto lg:pr-1'>
+                <aside className='rp-scroll space-y-5 lg:sticky lg:top-[calc(var(--rp-header-h,_4rem)_+_var(--spacing)_*_4)] lg:max-h-[calc(100dvh_-_var(--rp-header-h,_4rem)_-_var(--spacing)_*_8)] lg:self-start lg:overflow-y-auto lg:pr-1'>
                   <MatchesPanel
                     indices={matchIndices}
                     blockTexts={blockTexts}

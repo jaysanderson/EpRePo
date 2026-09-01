@@ -878,7 +878,7 @@ export function SearchPage() {
         className={`mt-6 grid grid-cols-1 gap-6 ${filtersOpen ? 'lg:grid-cols-[275px_1fr]' : ''}`}
       >
         <aside className={filtersOpen ? 'block' : 'hidden'}>
-          <div className='rp-card p-4 lg:sticky lg:top-20'>
+          <div className='rp-card p-4 lg:sticky lg:top-[calc(var(--rp-header-h,_4rem)_+_var(--spacing)_*_4)]'>
             {config.topics.length > 0
               ? (
                 <div>

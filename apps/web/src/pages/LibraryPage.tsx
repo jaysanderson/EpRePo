@@ -484,7 +484,7 @@ export function LibraryBrowser(
         {!bare && config.topics.length > 0
           ? (
             <aside className={`${filtersOpen ? 'block' : 'hidden'} lg:block`}>
-              <div className='rp-card p-4 lg:sticky lg:top-20'>
+              <div className='rp-card p-4 lg:sticky lg:top-[calc(var(--rp-header-h,_4rem)_+_var(--spacing)_*_4)]'>
                 <div className='flex items-center justify-between gap-2'>
                   <p className='rp-eyebrow text-ink-3'>Topics</p>
                   {selectedTopics.length > 0
