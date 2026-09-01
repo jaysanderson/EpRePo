@@ -100,10 +100,18 @@ export class AragApiError extends Error {
 export const regionalBase = (zone: string) => `https://${zone}.rag.progress.cloud/api/v1`
 
 export class KbClient {
+  private readonly fetchImpl: typeof fetch
+
   constructor(
     private readonly binding: KbBinding,
-    private readonly fetchImpl: typeof fetch = fetch,
-  ) {}
+    fetchImpl: typeof fetch = globalThis.fetch,
+  ) {
+    // Cloudflare's host-provided fetch validates its receiver. Calling a bare
+    // reference later as `this.fetchImpl(...)` gives it the KbClient instance
+    // as `this`, which Workers rejects with "Illegal invocation". Pin the
+    // receiver at the integration boundary so every ARAG operation is safe.
+    this.fetchImpl = fetchImpl.bind(globalThis)
+  }
 
   private url(path: string) {
     return `${this.binding.baseUrl}${path}`
