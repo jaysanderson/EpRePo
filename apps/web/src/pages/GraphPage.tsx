@@ -566,19 +566,23 @@ function EntityPanel({
                   <p className='text-xs italic text-ink-2'>{label}</p>
                   <div className='mt-1 flex flex-wrap gap-1.5'>
                     {list.map(({ other, outgoing }) => (
+                      // !py: rp-chip's own padding is unlayered and would win
+                      // over a plain utility. A long entity name wraps, and
+                      // without the left alignment the wrapped lines centred
+                      // against the arrow and read as stray padding.
                       <button
                         key={`${outgoing ? 'out' : 'in'}-${other}`}
                         type='button'
                         onClick={() => onSelect(other)}
-                        className='rp-chip gap-1 text-xs'
+                        className='rp-chip gap-1 !py-1 text-left text-xs'
                         title={outgoing
                           ? `${node.label} ${label} ${other}`
                           : `${other} ${label} ${node.label}`}
                       >
-                        <span className='text-ink-3' aria-hidden='true'>
+                        <span className='shrink-0 text-ink-3' aria-hidden='true'>
                           {outgoing ? '→' : '←'}
                         </span>
-                        {other}
+                        <span className='min-w-0'>{other}</span>
                       </button>
                     ))}
                   </div>
@@ -1153,21 +1157,30 @@ export function GraphPage() {
     const base = relationsQuery.data
     if (!base) return null
     if (!extraGraph) return base
-    const nodeIds = new Set(base.nodes.map((n) => n.id))
+    // Case-insensitive merge: the server dedupes each response on its own,
+    // but base and expansion can canonicalise the same entity to different
+    // spellings, and a plain id merge would put "Tasmanian Salmonid
+    // Industry" back beside "Tasmanian salmonid industry".
+    const canonical = new Map(base.nodes.map((n) => [n.id.trim().toLowerCase(), n.id]))
     const nodes = [...base.nodes]
     for (const node of extraGraph.nodes) {
-      if (!nodeIds.has(node.id)) {
-        nodeIds.add(node.id)
+      const key = node.id.trim().toLowerCase()
+      if (!canonical.has(key)) {
+        canonical.set(key, node.id)
         nodes.push(node)
       }
     }
+    const mapId = (id: string) => canonical.get(id.trim().toLowerCase()) ?? id
     const edgeKeys = new Set(base.edges.map((e) => `${e.source}|${e.label}|${e.target}`))
     const edges = [...base.edges]
     for (const edge of extraGraph.edges) {
-      const key = `${edge.source}|${edge.label}|${edge.target}`
+      const source = mapId(edge.source)
+      const target = mapId(edge.target)
+      if (source === target) continue
+      const key = `${source}|${edge.label}|${target}`
       if (!edgeKeys.has(key)) {
         edgeKeys.add(key)
-        edges.push(edge)
+        edges.push({ ...edge, source, target })
       }
     }
     return { nodes, edges }

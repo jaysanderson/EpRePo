@@ -555,9 +555,39 @@ export class KnowledgeMapEngine {
         data.measure === 'links' ? (data.degrees.get(node.id) ?? 0) : node.weight,
       )
 
+    // A node arriving on an expand grows OUT of the node it connects to,
+    // seeded on a widening spiral shell around the surviving anchor - left
+    // unseeded it would start at its group's centre and the whole expansion
+    // would land as a clump somewhere else entirely.
+    const anchorSeed = new Map<string, { x: number; y: number; z: number }>()
+    if (previous.size > 0) {
+      let placed = 0
+      for (const node of data.nodes) {
+        if (previous.has(node.id)) continue
+        const edge = data.edges.find((e) =>
+          (e.source === node.id && previous.has(e.target)) ||
+          (e.target === node.id && previous.has(e.source))
+        )
+        const anchor = edge
+          ? previous.get(edge.source === node.id ? edge.target : edge.source)
+          : undefined
+        if (!anchor) continue
+        const golden = Math.PI * (3 - Math.sqrt(5))
+        const theta = placed * golden
+        const zu = 1 - (2 * ((placed % 24) + 0.5)) / 24
+        const ring = Math.sqrt(Math.max(0, 1 - zu * zu))
+        const rho = 55 + 6 * Math.sqrt(placed)
+        anchorSeed.set(node.id, {
+          x: anchor.x + rho * ring * Math.cos(theta),
+          y: anchor.y + rho * zu,
+          z: anchor.z + rho * ring * Math.sin(theta),
+        })
+        placed += 1
+      }
+    }
     this.sim = new ForceSim3D({
       nodes: data.nodes.map((node) => {
-        const kept = previous.get(node.id)
+        const kept = previous.get(node.id) ?? anchorSeed.get(node.id)
         return {
           id: node.id,
           group: node.group,
@@ -1102,7 +1132,9 @@ export class KnowledgeMapEngine {
    * null when the node is already comfortably in view - moving the map under
    * someone who can see what they clicked is worse than doing nothing.
    */
-  focusOn(id: string, keepDist: number | null): number | null {
+  /** `force` reframes even a comfortably-in-view node - an expand changes
+   * the neighbourhood underneath a selection that has not moved. */
+  focusOn(id: string, keepDist: number | null, force = false): number | null {
     const visual = this.nodeVisuals.get(id)
     if (!visual) return null
     this.updateCamera()
@@ -1117,7 +1149,7 @@ export class KnowledgeMapEngine {
     const settled = projected.z < 1 &&
       sx > this.insets.left + marginX && sx < this.insets.left + box.w - marginX &&
       sy > marginY && sy < box.h - marginY
-    if (settled && this.insets.bottom <= 0) return null
+    if (settled && this.insets.bottom <= 0 && !force) return null
 
     let dist = keepDist
     if (dist === null) {

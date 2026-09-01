@@ -2,6 +2,7 @@ import { describe, it } from '@std/testing/bdd'
 import { expect } from '@std/expect'
 import type { TenantConfig } from '@research-portal/core'
 import { AragProvider } from './index.ts'
+import { dedupeEntityCase } from './graph-relations.ts'
 
 /**
  * `relationsGraph()` defaults to agent-extracted relations only - the
@@ -140,5 +141,58 @@ describe('relationsGraph - includeBuiltin toggle', () => {
       query: { prop: 'path', source: { value: 'Abalone', match: 'exact' }, undirected: true },
       top_k: 400,
     })
+  })
+})
+
+describe('dedupeEntityCase', () => {
+  it('merges case variants onto the heaviest spelling and sums their weight', () => {
+    const { nodes, edges } = dedupeEntityCase(
+      [
+        { id: 'Tasmanian salmonid industry', group: 'Programs', weight: 61 },
+        { id: 'Tasmanian Salmonid Industry', group: 'Programs', weight: 33 },
+        { id: 'TASMANIAN SALMONID INDUSTRY', group: 'Programs', weight: 11 },
+        { id: 'Huon Estuary', group: 'Regions', weight: 7 },
+      ],
+      [
+        { source: 'Tasmanian Salmonid Industry', target: 'Huon Estuary', label: 'operates in' },
+        { source: 'TASMANIAN SALMONID INDUSTRY', target: 'Huon Estuary', label: 'operates in' },
+        {
+          source: 'Tasmanian salmonid industry',
+          target: 'TASMANIAN SALMONID INDUSTRY',
+          label: 'includes',
+        },
+      ],
+    )
+    const industry = nodes.find((n) => n.id === 'Tasmanian salmonid industry')
+    expect(industry?.weight).toBe(105)
+    expect(nodes).toHaveLength(2)
+    // The two variant edges collapse to one, and the variant-to-variant
+    // relation collapses onto itself and is dropped.
+    expect(edges).toEqual([
+      { source: 'Tasmanian salmonid industry', target: 'Huon Estuary', label: 'operates in' },
+    ])
+  })
+
+  it('prefers a mixed-case spelling over all caps on a weight tie', () => {
+    const { nodes } = dedupeEntityCase(
+      [
+        { id: 'FRDC PROGRAM', group: 'Programs', weight: 5 },
+        { id: 'FRDC Program', group: 'Programs', weight: 5 },
+      ],
+      [],
+    )
+    expect(nodes).toEqual([{ id: 'FRDC Program', group: 'Programs', weight: 10 }])
+  })
+
+  it('leaves genuinely different entities alone', () => {
+    const { nodes, edges } = dedupeEntityCase(
+      [
+        { id: 'Atlantic salmon', group: 'Species', weight: 4 },
+        { id: 'Atlantic Ocean', group: 'Regions', weight: 3 },
+      ],
+      [{ source: 'Atlantic salmon', target: 'Atlantic Ocean', label: 'lives in' }],
+    )
+    expect(nodes).toHaveLength(2)
+    expect(edges).toHaveLength(1)
   })
 })

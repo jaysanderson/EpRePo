@@ -37,6 +37,7 @@ import { baselineMerchandising, extractPageSummary } from '../../merchandise.ts'
 import { AragApiError, type KbBinding, KbClient, ndjson } from './client.ts'
 import { spliceCitationMarkers, stripInlineMarkers } from './citations.ts'
 import { dedupeResourceFamilies } from './resource-groups.ts'
+import { dedupeEntityCase } from './graph-relations.ts'
 
 const CATALOG_TTL_MS = 60_000
 /** Catalogue paging: 200 per call, up to 40 calls - 8,000 resources. */
@@ -1673,12 +1674,21 @@ export class AragProvider implements RetrievalProvider {
           weight.set(value, entry)
         }
       }
-      const nodes = [...weight.entries()]
-        .map(([id, v]) => ({ id, group: v.group, weight: v.weight }))
+      // The agent extracts the same entity under several case spellings, each
+      // with its own relations - merge them before the top-120 cut so the
+      // merged weight is what earns a place.
+      const deduped = dedupeEntityCase(
+        [...weight.entries()].map(([id, v]) => ({ id, group: v.group, weight: v.weight })),
+        edges,
+      )
+      const nodes = deduped.nodes
         .sort((a, b) => b.weight - a.weight)
         .slice(0, 120)
       const keep = new Set(nodes.map((n) => n.id))
-      return { nodes, edges: edges.filter((e) => keep.has(e.source) && keep.has(e.target)) }
+      return {
+        nodes,
+        edges: deduped.edges.filter((e) => keep.has(e.source) && keep.has(e.target)),
+      }
     } catch {
       return { nodes: [], edges: [] }
     }

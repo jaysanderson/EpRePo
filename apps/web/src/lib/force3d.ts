@@ -305,10 +305,18 @@ function buildLinks3D(
     const target = byId.get(link.target)
     if (!source || !target) continue
     const sameGroup = source.group === target.group
-    const distance = layout === 'grouped' ? (sameGroup ? 62 : 190) : 76
-    const strength = layout === 'grouped' ? (sameGroup ? 0.5 : 0.015) : 0.6
     const sourceDeg = degree.get(link.source) ?? 0
     const targetDeg = degree.get(link.target) ?? 0
+    // A hub's links rest longer than a leaf pair's: a fixed rest length packs
+    // a 30-relation node's neighbours into a tight shell right against it
+    // (worst on "Expand connections", which is exactly a hub fan-out). The
+    // growth is gentle and capped so ordinary structure keeps its scale.
+    const spread = Math.min(
+      2.4,
+      1 + 0.22 * Math.sqrt(Math.max(0, Math.max(sourceDeg, targetDeg) - 2)),
+    )
+    const distance = layout === 'grouped' ? (sameGroup ? 62 * spread : 190) : 76 * spread
+    const strength = layout === 'grouped' ? (sameGroup ? 0.5 : 0.015) : 0.6
     resolved.push({ source, target, distance, strength, bias: sourceDeg / (sourceDeg + targetDeg) })
   }
   return resolved

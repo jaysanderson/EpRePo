@@ -175,7 +175,15 @@ export function KnowledgeMap3D({
     const sig = `${layout}|${aspectBucket}|${visibleNodes.map((n) => n.id).join('|')}`
     if (sig !== fitSigRef.current) {
       fitSigRef.current = sig
-      engine.fit(false)
+      // Data changing under a selection is an expand: keep the reader at the
+      // node they are on and reframe its (now larger) neighbourhood, rather
+      // than yanking the camera out to the whole map.
+      const held = selectedIdRef.current
+      if (held && visibleNodes.some((n) => n.id === held)) {
+        engine.focusOn(held, null, true)
+      } else {
+        engine.fit(false)
+      }
     }
 
     // setData settles the force simulation synchronously. Keep the shell
@@ -192,6 +200,10 @@ export function KnowledgeMap3D({
     if (usable || size.w < 1 || size.h < 1 || visibleNodes.length === 0) return
     return scheduleMapReadyAfterPaint(() => onReadyRef.current?.())
   }, [usable, size.w, size.h, visibleNodes, visibleEdges, layout])
+
+  // Read by the data effect without re-running it on every selection.
+  const selectedIdRef = useRef(selectedId)
+  selectedIdRef.current = selectedId
 
   useEffect(() => {
     engineRef.current?.setEmphasis({ selectedId, pathEdges, pathFrom })
