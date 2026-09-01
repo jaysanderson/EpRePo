@@ -121,7 +121,7 @@ export const DOC_PAGES: DocPage[] = [
           '- **Library** - browse, sort and filter the whole corpus.\n' +
           '- **Ask** - a full, grounded conversation with saved sessions.\n' +
           '- **Graph** - a visual map of the corpus (titled the Knowledge map in the app).\n' +
-          '- **Tools** - the home for focused research tools as they become available.\n' +
+          "- **Tools** - connect MCP clients and other research tools to the portal's knowledge.\n" +
           '- **Help** - this documentation, with its own scoped search.\n' +
           '- **Manage** - administration (connecting content, taxonomy, enrichments and health).\n\n' +
           'Press **Cmd/Ctrl+K** anywhere to open the command palette and jump straight to a ' +
@@ -445,13 +445,61 @@ export const DOC_PAGES: DocPage[] = [
     id: 'generate',
     category: 'Working with the portal',
     title: 'Tools',
-    summary: "The home for focused ways to work with the portal's research.",
+    summary: "Connect MCP clients to the portal's research through the knowledge box connector.",
     sections: [
       {
-        heading: 'A place for research tools',
-        body: "Tools is where focused ways to work with this portal's research will be listed. " +
-          'There are no tools to choose yet. As tools become available, they will appear together ' +
-          'on this page.',
+        heading: 'The knowledge box MCP connector',
+        body: "Tools hosts the portal's MCP connector. It gives any MCP-capable client - an " +
+          'agent framework, an IDE assistant, a desktop research tool - read-only access to ' +
+          "this portal's knowledge. A connected client can:\n\n" +
+          '- **Search the corpus** - the same retrieval the portal itself uses.\n' +
+          '- **Ask for cited answers** - grounded answers that carry their sources.\n' +
+          "- **Fetch a document** - pull a specific resource's content.\n" +
+          '- **Browse the catalogue** - list what the portal holds.\n\n' +
+          'Access stays inside the portal boundary: a key reaches only this portal, never the ' +
+          'knowledge box behind it.',
+      },
+      {
+        heading: 'Connect a client',
+        body: '1. On **Tools**, enter a label naming the client or workflow that will use the ' +
+          'key (for example, analyst desktop) and choose **Create key**. Creating and revoking ' +
+          'keys needs a signed-in administrator.\n' +
+          '2. The new key appears once, inside a ready-to-paste client configuration. **Copy ' +
+          'the configuration straight away** - the key is not shown again after you leave or ' +
+          'refresh the page.\n' +
+          '3. Paste the configuration into any client that accepts JSON MCP server ' +
+          "configuration. The portal's tools then appear in that client.",
+      },
+      {
+        heading: 'Connecting manually',
+        body: 'For a client configured field by field rather than by pasting JSON, use ' +
+          "Streamable HTTP against the portal's MCP endpoint and send the key as a bearer " +
+          'token on every request:\n\n' +
+          '```\n' +
+          'Endpoint URL   https://<portal domain>/api/t/<portal>/mcp\n' +
+          'Header         Authorization: Bearer <your key>\n' +
+          '```\n\n' +
+          'The same connection in JSON form:\n\n' +
+          '```\n' +
+          '{\n' +
+          '  "mcpServers": {\n' +
+          '    "<portal>-knowledge": {\n' +
+          '      "type": "streamable-http",\n' +
+          '      "url": "https://<portal domain>/api/t/<portal>/mcp",\n' +
+          '      "headers": { "Authorization": "Bearer <your key>" }\n' +
+          '    }\n' +
+          '  }\n' +
+          '}\n' +
+          '```',
+      },
+      {
+        heading: 'Keys and security',
+        body: '- The connector is **read-only** - no client can change the corpus through it.\n' +
+          '- Each key is limited to this portal and can be **revoked** at any time from Tools; ' +
+          'clients using it stop working immediately, and nothing else changes.\n' +
+          '- The knowledge box credential stays private: the connector issues its own separate, ' +
+          'revocable CorpusKit keys and never reveals the service credential CorpusKit uses to ' +
+          'reach the knowledge box.',
       },
     ],
   },

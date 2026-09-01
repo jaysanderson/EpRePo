@@ -1,8 +1,16 @@
 import { type FormEvent, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { useOutletContext } from 'react-router-dom'
+import { Link, useOutletContext } from 'react-router-dom'
 import { getAuthSession } from '../api/auth.ts'
 import type { TenantOutletContext } from './TenantLayout.tsx'
+
+// ---------------------------------------------------------------------------
+// Tools - the MCP connector, pared to the one journey that matters: create a
+// key, copy the configuration it arrives with, paste it into the client.
+// Everything else a reader might want - what the connector can do, how to
+// configure a client field by field, how the keys are secured - lives on the
+// Help page this card links to, not here.
+// ---------------------------------------------------------------------------
 
 interface McpCredential {
   id: string
@@ -69,7 +77,11 @@ function ConnectorIcon() {
   )
 }
 
-function CopyButton({ value, label }: { value: string; label: string }) {
+function CopyButton({ value, label, primary = false }: {
+  value: string
+  label: string
+  primary?: boolean
+}) {
   const [copied, setCopied] = useState(false)
 
   async function copy() {
@@ -85,7 +97,7 @@ function CopyButton({ value, label }: { value: string; label: string }) {
   return (
     <button
       type='button'
-      className='rp-btn rp-btn-outline shrink-0'
+      className={`rp-btn shrink-0 ${primary ? 'rp-btn-primary' : 'rp-btn-outline'}`}
       onClick={() => void copy()}
     >
       <svg
@@ -102,20 +114,6 @@ function CopyButton({ value, label }: { value: string; label: string }) {
       </svg>
       {copied ? 'Copied' : label}
     </button>
-  )
-}
-
-function ConnectionValue({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <p className='text-xs font-medium uppercase tracking-wide text-ink-3'>{label}</p>
-      <div className='mt-2 flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start'>
-        <code className='min-w-0 flex-1 break-all rounded-[var(--rp-radius-input)] border border-line bg-[var(--rp-surface-2)] px-3 py-2 text-xs leading-relaxed text-ink [overflow-wrap:anywhere]'>
-          {value}
-        </code>
-        <CopyButton value={value} label={`Copy ${label.toLowerCase()}`} />
-      </div>
-    </div>
   )
 }
 
@@ -169,9 +167,10 @@ export function ToolsPage() {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ label }),
       })
+      // The issued panel is the feedback; a separate success line on top of
+      // it would just be noise.
       setIssued(result)
       setLabel('')
-      setActionMessage({ kind: 'success', text: 'MCP key created.' })
       await refetchCredentials()
     } catch (error) {
       setActionMessage({
@@ -207,22 +206,21 @@ export function ToolsPage() {
     }
   }
 
-  const snippet = mcpConfigSnippet(endpoint, slug, issued?.key)
+  const issuedSnippet = issued ? mcpConfigSnippet(endpoint, slug, issued.key) : null
 
   return (
     <main className='rp-shell py-10 sm:py-14'>
       <header className='max-w-3xl'>
-        <p className='rp-eyebrow text-ink-3'>Research workspace</p>
-        <h1 className='rp-display mt-2 text-3xl text-ink sm:text-4xl'>Tools</h1>
+        <h1 className='rp-display text-3xl text-ink sm:text-4xl'>Tools</h1>
         <p className='mt-3 text-sm leading-relaxed text-ink-2 sm:text-base'>
           Connect trusted research tools to this portal's knowledge, with access kept inside the
           portal boundary.
         </p>
       </header>
 
-      <section className='mt-8' aria-labelledby='connector-heading'>
-        <div className='rp-card overflow-hidden'>
-          <div className='flex flex-col gap-5 border-b border-line p-6 sm:flex-row sm:p-8'>
+      <section className='mt-8 max-w-3xl' aria-labelledby='connector-heading'>
+        <div className='rp-card p-6 sm:p-8'>
+          <div className='flex flex-col gap-5 sm:flex-row'>
             <ConnectorIcon />
             <div className='min-w-0 flex-1'>
               <div className='flex flex-wrap items-center gap-2'>
@@ -233,221 +231,171 @@ export function ToolsPage() {
                   Read-only
                 </span>
               </div>
-              <p className='mt-2 max-w-3xl text-sm leading-relaxed text-ink-2 sm:text-base'>
-                Give an MCP client permission to search, ask cited questions, fetch a document and
-                browse this portal's catalogue. Each key is limited to this portal and can be
-                revoked without changing the knowledge box connection.
+              <p className='mt-2 text-sm leading-relaxed text-ink-2 sm:text-base'>
+                Give an MCP client read-only access to this portal's research. Create a key, then
+                paste the configuration it arrives with into your client.
               </p>
-              <div className='mt-4 flex flex-wrap gap-2' aria-label='Available MCP tools'>
-                {['Search corpus', 'Cited answers', 'Get document', 'Browse catalogue'].map(
-                  (tool) => <span key={tool} className='rp-chip cursor-default'>{tool}</span>,
-                )}
-              </div>
+              <Link
+                to={`/t/${slug}/help/generate`}
+                className='mt-2 inline-block text-sm font-medium text-[var(--rp-accent-fg)] underline-offset-2 hover:underline'
+              >
+                How to connect an MCP client
+              </Link>
             </div>
           </div>
 
-          <div className='grid gap-8 p-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(20rem,0.85fr)] lg:p-8 2xl:grid-cols-[minmax(0,1.35fr)_minmax(24rem,0.65fr)]'>
-            <div className='min-w-0 space-y-7'>
-              <section aria-labelledby='connection-heading'>
-                <h3 id='connection-heading' className='rp-display text-xl text-ink'>
-                  Connection details
-                </h3>
+          {authLoading
+            ? (
+              <p className='mt-6 border-t border-line pt-6 text-sm text-ink-3'>
+                Checking your access…
+              </p>
+            )
+            : !isAdmin
+            ? (
+              <div className='mt-6 rounded-[var(--rp-radius)] border border-line bg-[var(--rp-surface-2)] p-4'>
+                <p className='text-sm font-medium text-ink'>Administrator access required</p>
                 <p className='mt-1 text-sm leading-relaxed text-ink-2'>
-                  Use Streamable HTTP and send the CorpusKit key as a bearer token on every request.
-                </p>
-                <div className='mt-5 space-y-5'>
-                  <ConnectionValue label='Endpoint URL' value={endpoint} />
-                  <ConnectionValue
-                    label='Authorisation header'
-                    value='Authorization: Bearer YOUR_KEY'
-                  />
-                </div>
-              </section>
-
-              <section aria-labelledby='config-heading'>
-                <div className='flex flex-wrap items-center justify-between gap-3'>
-                  <div>
-                    <h3 id='config-heading' className='rp-display text-xl text-ink'>
-                      Client configuration
-                    </h3>
-                    <p className='mt-1 text-sm text-ink-2'>
-                      Paste this into a client that accepts JSON MCP server configuration.
-                    </p>
-                  </div>
-                  <CopyButton value={snippet} label='Copy config' />
-                </div>
-                <pre className='mt-4 max-w-full whitespace-pre-wrap break-words rounded-[var(--rp-radius-input)] border border-line bg-[var(--rp-surface-2)] p-4 text-xs leading-relaxed text-ink [overflow-wrap:anywhere]'>
-                  <code>{snippet}</code>
-                </pre>
-              </section>
-
-              <div className='rounded-[var(--rp-radius)] border border-line bg-[var(--rp-surface-2)] p-4'>
-                <p className='text-sm font-medium text-ink'>
-                  The knowledge box credential stays private
-                </p>
-                <p className='mt-1 text-sm leading-relaxed text-ink-2'>
-                  This connector issues a separate, revocable CorpusKit key. It never reveals the
-                  service credential that CorpusKit uses to reach the knowledge box.
+                  The connector is available for this portal, but only a signed-in CorpusKit
+                  administrator can create or revoke its keys.
                 </p>
               </div>
-            </div>
-
-            <aside
-              className='min-w-0 border-t border-line pt-7 lg:border-l lg:border-t-0 lg:pl-8 lg:pt-0'
-              aria-labelledby='keys-heading'
-            >
-              <h3 id='keys-heading' className='rp-display text-xl text-ink'>Access keys</h3>
-              {authLoading
-                ? <p className='mt-3 text-sm text-ink-3'>Checking your access…</p>
-                : !isAdmin
-                ? (
-                  <div className='mt-4 rounded-[var(--rp-radius)] border border-line bg-[var(--rp-surface-2)] p-4'>
-                    <p className='text-sm font-medium text-ink'>Administrator access required</p>
-                    <p className='mt-1 text-sm leading-relaxed text-ink-2'>
-                      The connector is available for this portal, but only a signed-in CorpusKit
-                      administrator can create or revoke its credentials.
-                    </p>
-                  </div>
-                )
-                : (
-                  <>
-                    <p className='mt-1 text-sm leading-relaxed text-ink-2'>
-                      Label keys by the client or workflow that will use them. A new key is shown
-                      once only.
-                    </p>
-
-                    <form
-                      className='mt-5 space-y-3'
-                      onSubmit={(event) => void createCredential(event)}
+            )
+            : (
+              <div className='mt-6 border-t border-line pt-6'>
+                <form
+                  className='flex flex-col gap-3 sm:flex-row sm:items-end'
+                  onSubmit={(event) => void createCredential(event)}
+                >
+                  <div className='min-w-0 flex-1'>
+                    <label
+                      htmlFor='mcp-key-label'
+                      className='mb-1.5 block text-sm font-medium text-ink'
                     >
-                      <div>
-                        <label
-                          htmlFor='mcp-key-label'
-                          className='mb-1.5 block text-sm font-medium text-ink'
-                        >
-                          Key label
-                        </label>
-                        <input
-                          id='mcp-key-label'
-                          className='rp-input'
-                          value={label}
-                          onChange={(event) => setLabel(event.target.value)}
-                          placeholder='For example, analyst desktop'
-                          maxLength={80}
-                          required
-                        />
+                      Key label
+                    </label>
+                    <input
+                      id='mcp-key-label'
+                      className='rp-input w-full'
+                      value={label}
+                      onChange={(event) => setLabel(event.target.value)}
+                      placeholder='For example, analyst desktop'
+                      maxLength={80}
+                      required
+                    />
+                  </div>
+                  <button
+                    type='submit'
+                    className='rp-btn rp-btn-primary shrink-0'
+                    disabled={creating}
+                  >
+                    {creating ? 'Creating key…' : 'Create key'}
+                  </button>
+                </form>
+                <p className='mt-2 text-xs text-ink-3'>A new key is shown once only.</p>
+
+                {issued && issuedSnippet
+                  ? (
+                    <div
+                      className='mt-5 min-w-0 rounded-[var(--rp-radius)] border p-4'
+                      style={{
+                        borderColor: 'var(--rp-ok-line)',
+                        background: 'var(--rp-ok-bg)',
+                        color: 'var(--rp-ok-ink)',
+                      }}
+                      role='status'
+                    >
+                      <p className='text-sm font-semibold'>
+                        Your key is ready - copy the configuration now
+                      </p>
+                      <p className='mt-1 text-sm leading-relaxed'>
+                        It will not be shown again after you leave or refresh this page. Paste it
+                        into any client that accepts JSON MCP server configuration.
+                      </p>
+                      <pre className='mt-3 max-w-full whitespace-pre-wrap break-words rounded-[var(--rp-radius-input)] border border-[var(--rp-ok-line)] bg-[var(--rp-surface)] p-3 text-xs leading-relaxed text-ink [overflow-wrap:anywhere]'>
+                        <code>{issuedSnippet}</code>
+                      </pre>
+                      <div className='mt-3 flex flex-wrap gap-2'>
+                        <CopyButton value={issuedSnippet} label='Copy configuration' primary />
+                        <CopyButton value={issued.key} label='Copy key only' />
                       </div>
-                      <button
-                        type='submit'
-                        className='rp-btn rp-btn-primary w-full'
-                        disabled={creating}
-                      >
-                        {creating ? 'Creating key…' : 'Create key'}
-                      </button>
-                    </form>
-
-                    {issued
-                      ? (
-                        <div
-                          className='mt-5 min-w-0 rounded-[var(--rp-radius)] border p-4'
-                          style={{
-                            borderColor: 'var(--rp-ok-line)',
-                            background: 'var(--rp-ok-bg)',
-                            color: 'var(--rp-ok-ink)',
-                          }}
-                          role='status'
-                        >
-                          <p className='text-sm font-semibold'>Copy this key now</p>
-                          <p className='mt-1 text-sm leading-relaxed'>
-                            It will not be shown again after you leave or refresh this page.
-                          </p>
-                          <code className='mt-3 block max-w-full break-all rounded-[var(--rp-radius-input)] border border-[var(--rp-ok-line)] bg-[var(--rp-surface)] p-3 text-xs leading-relaxed text-ink [overflow-wrap:anywhere]'>
-                            {issued.key}
-                          </code>
-                          <div className='mt-3 flex flex-wrap gap-2'>
-                            <CopyButton value={issued.key} label='Copy key' />
-                            <CopyButton value={snippet} label='Copy config with key' />
-                          </div>
-                        </div>
-                      )
-                      : null}
-
-                    {actionMessage
-                      ? (
-                        <p
-                          className='mt-4 text-sm'
-                          style={{
-                            color: actionMessage.kind === 'error'
-                              ? 'var(--rp-bad-ink)'
-                              : 'var(--rp-ok-ink)',
-                          }}
-                          role={actionMessage.kind === 'error' ? 'alert' : 'status'}
-                        >
-                          {actionMessage.text}
-                        </p>
-                      )
-                      : null}
-
-                    <div className='mt-7 border-t border-line pt-6'>
-                      <h4 className='text-sm font-semibold text-ink'>Existing keys</h4>
-                      {keysLoading
-                        ? <p className='mt-3 text-sm text-ink-3'>Loading keys…</p>
-                        : keysError
-                        ? (
-                          <p className='mt-3 text-sm text-[var(--rp-bad-ink)]'>
-                            Keys could not be loaded.
-                          </p>
-                        )
-                        : credentials.length === 0
-                        ? (
-                          <p className='mt-3 text-sm text-ink-3'>
-                            No keys have been created for this portal.
-                          </p>
-                        )
-                        : (
-                          <ul className='mt-3 divide-y divide-[var(--rp-line)]'>
-                            {credentials.map((credential) => (
-                              <li
-                                key={credential.id}
-                                className='flex min-w-0 flex-col gap-3 py-4 first:pt-0 sm:flex-row sm:items-start sm:justify-between'
-                              >
-                                <div className='min-w-0'>
-                                  <div className='flex flex-wrap items-center gap-2'>
-                                    <p className='break-words text-sm font-medium text-ink'>
-                                      {credential.label}
-                                    </p>
-                                    {credential.revokedAt
-                                      ? <span className='rp-chip cursor-default'>Revoked</span>
-                                      : null}
-                                  </div>
-                                  <p className='mt-1 break-all font-mono text-xs text-ink-3 [overflow-wrap:anywhere]'>
-                                    {credential.prefix}…
-                                  </p>
-                                  <p className='mt-1 text-xs text-ink-3'>
-                                    Created {formatDate(credential.createdAt)}
-                                  </p>
-                                </div>
-                                {!credential.revokedAt
-                                  ? (
-                                    <button
-                                      type='button'
-                                      className='rp-btn rp-btn-danger self-start'
-                                      disabled={revoking === credential.id}
-                                      onClick={() => void revokeCredential(credential)}
-                                    >
-                                      {revoking === credential.id ? 'Revoking…' : 'Revoke'}
-                                    </button>
-                                  )
-                                  : null}
-                              </li>
-                            ))}
-                          </ul>
-                        )}
                     </div>
-                  </>
-                )}
-            </aside>
-          </div>
+                  )
+                  : null}
+
+                {actionMessage
+                  ? (
+                    <p
+                      className='mt-4 text-sm'
+                      style={{
+                        color: actionMessage.kind === 'error'
+                          ? 'var(--rp-bad-ink)'
+                          : 'var(--rp-ok-ink)',
+                      }}
+                      role={actionMessage.kind === 'error' ? 'alert' : 'status'}
+                    >
+                      {actionMessage.text}
+                    </p>
+                  )
+                  : null}
+
+                <div className='mt-7 border-t border-line pt-6'>
+                  <h3 className='text-sm font-semibold text-ink'>Existing keys</h3>
+                  {keysLoading
+                    ? <p className='mt-3 text-sm text-ink-3'>Loading keys…</p>
+                    : keysError
+                    ? (
+                      <p className='mt-3 text-sm text-[var(--rp-bad-ink)]'>
+                        Keys could not be loaded.
+                      </p>
+                    )
+                    : credentials.length === 0
+                    ? (
+                      <p className='mt-3 text-sm text-ink-3'>
+                        No keys have been created for this portal.
+                      </p>
+                    )
+                    : (
+                      <ul className='mt-3 divide-y divide-[var(--rp-line)]'>
+                        {credentials.map((credential) => (
+                          <li
+                            key={credential.id}
+                            className='flex min-w-0 flex-col gap-3 py-4 first:pt-0 sm:flex-row sm:items-start sm:justify-between'
+                          >
+                            <div className='min-w-0'>
+                              <div className='flex flex-wrap items-center gap-2'>
+                                <p className='break-words text-sm font-medium text-ink'>
+                                  {credential.label}
+                                </p>
+                                {credential.revokedAt
+                                  ? <span className='rp-chip cursor-default'>Revoked</span>
+                                  : null}
+                              </div>
+                              <p className='mt-1 break-all font-mono text-xs text-ink-3 [overflow-wrap:anywhere]'>
+                                {credential.prefix}…
+                              </p>
+                              <p className='mt-1 text-xs text-ink-3'>
+                                Created {formatDate(credential.createdAt)}
+                              </p>
+                            </div>
+                            {!credential.revokedAt
+                              ? (
+                                <button
+                                  type='button'
+                                  className='rp-btn rp-btn-danger self-start'
+                                  disabled={revoking === credential.id}
+                                  onClick={() => void revokeCredential(credential)}
+                                >
+                                  {revoking === credential.id ? 'Revoking…' : 'Revoke'}
+                                </button>
+                              )
+                              : null}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                </div>
+              </div>
+            )}
         </div>
       </section>
     </main>

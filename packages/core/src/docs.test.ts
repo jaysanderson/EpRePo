@@ -66,11 +66,17 @@ describe('documentation content integrity', () => {
     const ask = docPageById('assistant')
 
     expect(gettingStarted).toContain('Ask - a full, grounded conversation')
-    expect(gettingStarted).toContain('Tools - the home for focused research tools')
+    expect(gettingStarted).toContain('Tools - connect MCP clients')
     expect(gettingStarted).not.toContain('Assistant -')
     expect(ask?.title).toBe('Ask')
     expect(docPageToPlainText(ask!)).not.toContain('Assistant')
     expect(docPageById('generate')?.title).toBe('Tools')
+    // The Tools page itself is pared to the create-key journey; the detail
+    // the page used to carry has to live here instead.
+    const tools = docPageToPlainText(docPageById('generate')!)
+    expect(tools).toContain('MCP connector')
+    expect(tools).toContain('read-only')
+    expect(tools).toContain('Authorization: Bearer')
   })
 })
 

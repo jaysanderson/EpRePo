@@ -2176,7 +2176,7 @@ export function AskPage() {
 
           <section
             aria-label='Conversation'
-            className='rp-scroll flex-1 space-y-4 pb-4 lg:overflow-y-auto'
+            className='rp-scroll flex-1 pb-4 lg:overflow-y-auto'
           >
             {isEmpty
               ? (
@@ -2227,44 +2227,47 @@ export function AskPage() {
                 </div>
               )
               : (
-                messages.map((message, index) =>
-                  message.author === 'USER'
-                    ? (
-                      <UserBubble
-                        key={message.id}
-                        message={message}
-                        onAskSubquery={(subquery) => void send(subquery)}
-                      />
-                    )
-                    : (
-                      <AnswerCard
-                        key={message.id}
-                        message={message}
-                        slug={config.slug}
-                        question={messages[index - 1]?.author === 'USER'
-                          ? messages[index - 1]?.text ?? ''
-                          : ''}
-                        subqueries={messages[index - 1]?.author === 'USER'
-                          ? messages[index - 1]?.subqueries ?? []
-                          : []}
-                        stageStatuses={index === messages.length - 1 ? stageStatuses : undefined}
-                        onRetry={() => retry(message.id)}
-                        onFeedback={(good, text) => sendFeedback(message.id, good, text)}
-                        onReanswerDeeply={() =>
-                          reanswerDeeply(
-                            messages[index - 1]?.author === 'USER'
-                              ? messages[index - 1]?.text ?? ''
-                              : '',
-                            message.id,
-                          )}
-                        onAskSubquery={(subquery) => void send(subquery)}
-                        onVerdicts={(verdicts) => saveVerdicts(message.id, verdicts)}
-                      />
-                    )
-                )
-              )}
-            {
-              /* Where this answer leaves you. Generated from the answer and the
+                /* Answers hold a readable measure however wide the pane is -
+                 * full-width prose on a large display is what the house rules
+                 * call the anti-pattern. */
+                <div className='max-w-[75ch] space-y-4'>
+                  {messages.map((message, index) =>
+                    message.author === 'USER'
+                      ? (
+                        <UserBubble
+                          key={message.id}
+                          message={message}
+                          onAskSubquery={(subquery) => void send(subquery)}
+                        />
+                      )
+                      : (
+                        <AnswerCard
+                          key={message.id}
+                          message={message}
+                          slug={config.slug}
+                          question={messages[index - 1]?.author === 'USER'
+                            ? messages[index - 1]?.text ?? ''
+                            : ''}
+                          subqueries={messages[index - 1]?.author === 'USER'
+                            ? messages[index - 1]?.subqueries ?? []
+                            : []}
+                          stageStatuses={index === messages.length - 1 ? stageStatuses : undefined}
+                          onRetry={() => retry(message.id)}
+                          onFeedback={(good, text) => sendFeedback(message.id, good, text)}
+                          onReanswerDeeply={() =>
+                            reanswerDeeply(
+                              messages[index - 1]?.author === 'USER'
+                                ? messages[index - 1]?.text ?? ''
+                                : '',
+                              message.id,
+                            )}
+                          onAskSubquery={(subquery) => void send(subquery)}
+                          onVerdicts={(verdicts) => saveVerdicts(message.id, verdicts)}
+                        />
+                      )
+                  )}
+                  {
+                    /* Where this answer leaves you. Generated from the answer and the
               * passages behind it, not from the portal's generic openers, so
               * they continue the conversation rather than restarting it; each
               * one is proved answerable from the corpus server-side before it
@@ -2275,40 +2278,42 @@ export function AskPage() {
               * Above the scroll anchor, so the anchor's composer-height scroll
               * margin still clears the pinned bar on a phone with these
               * present. */
-            }
-            {followUps && followUps.messageId === lastMessage?.id && !isStreaming
-              ? (
-                <div
-                  className='pt-1'
-                  role='group'
-                  aria-labelledby={`${followUps.messageId}-followups`}
-                >
-                  <p
-                    id={`${followUps.messageId}-followups`}
-                    className='rp-answer-tail rp-eyebrow text-ink-3'
-                    style={tailStyle(0)}
-                  >
-                    Ask next
-                  </p>
-                  <div className='mt-2 flex flex-col gap-2 sm:flex-row sm:flex-wrap'>
-                    {followUps.questions.map((question, index) => (
-                      <button
-                        key={question}
-                        type='button'
-                        onClick={() => void send(question)}
-                        style={tailStyle(index + 1)}
-                        className='rp-answer-tail rp-focus flex items-center gap-2 rounded-[var(--rp-radius-btn)] border border-line bg-surface px-3 py-2 text-left text-[0.8125rem] leading-snug font-medium text-[var(--rp-ink-2)] transition-colors duration-150 hover:bg-[var(--rp-surface-2)] hover:text-[var(--rp-ink)] sm:max-w-[24rem]'
+                  }
+                  {followUps && followUps.messageId === lastMessage?.id && !isStreaming
+                    ? (
+                      <div
+                        className='pt-1'
+                        role='group'
+                        aria-labelledby={`${followUps.messageId}-followups`}
                       >
-                        <span className='min-w-0'>{question}</span>
-                        <span aria-hidden='true' className='ml-auto shrink-0 text-ink-3'>
-                          &rarr;
-                        </span>
-                      </button>
-                    ))}
-                  </div>
+                        <p
+                          id={`${followUps.messageId}-followups`}
+                          className='rp-answer-tail rp-eyebrow text-ink-3'
+                          style={tailStyle(0)}
+                        >
+                          Ask next
+                        </p>
+                        <div className='mt-2 flex flex-col gap-2 sm:flex-row sm:flex-wrap'>
+                          {followUps.questions.map((question, index) => (
+                            <button
+                              key={question}
+                              type='button'
+                              onClick={() => void send(question)}
+                              style={tailStyle(index + 1)}
+                              className='rp-answer-tail rp-focus flex items-center gap-2 rounded-[var(--rp-radius-btn)] border border-line bg-surface px-3 py-2 text-left text-[0.8125rem] leading-snug font-medium text-[var(--rp-ink-2)] transition-colors duration-150 hover:bg-[var(--rp-surface-2)] hover:text-[var(--rp-ink)] sm:max-w-[24rem]'
+                            >
+                              <span className='min-w-0'>{question}</span>
+                              <span aria-hidden='true' className='ml-auto shrink-0 text-ink-3'>
+                                &rarr;
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )
+                    : null}
                 </div>
-              )
-              : null}
+              )}
 
             {
               /* Auto-scroll anchor. On a phone it has to stop short of the bar
