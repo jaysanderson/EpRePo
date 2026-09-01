@@ -128,6 +128,7 @@
     "https://esm.sh/@types/react@~18.3.31/index.d.ts": "https://esm.sh/@types/react@18.3.31/index.d.ts",
     "https://esm.sh/@types/react@~18.3.31/jsx-runtime.d.ts": "https://esm.sh/@types/react@18.3.31/jsx-runtime.d.ts",
     "https://esm.sh/@types/scheduler@~0.23.0/index.d.ts": "https://esm.sh/@types/scheduler@0.23.0/index.d.ts",
+    "https://esm.sh/@types/three@~0.170.0/index.d.ts": "https://esm.sh/@types/three@0.170.0/index.d.ts",
     "https://esm.sh/scheduler@^0.23.2?target=denonext": "https://esm.sh/scheduler@0.23.2?target=denonext"
   },
   "remote": {
@@ -144,6 +145,7 @@
     "https://esm.sh/react@18.3.1/jsx-runtime": "fae022412d077731999a21e4ed1eac632822bab088f04c980b08750ba33ade9a",
     "https://esm.sh/scheduler@0.23.2/denonext/scheduler.mjs": "8a1a8a363eb417fc8d40f6b15132e8964320782d7169e68fc6ac98b8b8c201eb",
     "https://esm.sh/scheduler@0.23.2?target=denonext": "5f446c6d28a83c4c3905e964a311ac654bf1b1993bb6647ee731a592068d5a1a",
+    "https://esm.sh/three@0.170.0": "166946284302fc18047c051b1b1643483fb26a9c7729034bbfb5f7664c41841b",
     "https://esm.sh/zod@3.25.76": "3fb2d6fc9ba6facc140a9875710339f90e89befb26fd9b39da83644d4dd6a701",
     "https://esm.sh/zod@3.25.76/denonext/v3/ZodError.mjs": "7cb18052dad1b35a84cb7a3c1dc825e455f6c3fec0d89c4c4cc4059120042e30",
     "https://esm.sh/zod@3.25.76/denonext/v3/errors.mjs": "9a89b379ac5877d8c0bf4d14d6535ec5e6ab3afb526922acdc61299bac97790c",

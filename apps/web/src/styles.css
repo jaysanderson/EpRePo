@@ -1464,6 +1464,132 @@ label.rp-btn:has(input:focus-visible) {
 }
 
 /* ---------------------------------------------------------------------------
+ * Knowledge map, third dimension.
+ *
+ * The WebGL canvas owns the marks; the type stays DOM, projected over it, so
+ * labels are set in the tenant's own tokens (face, ink, surface halo) instead
+ * of being rasterised into textures. The layer is inert to the pointer - the
+ * canvas underneath owns every gesture.
+ * ------------------------------------------------------------------------- */
+.rp-map3d {
+  background: var(--rp-surface);
+}
+
+.rp-map3d canvas:active {
+  cursor: grabbing;
+}
+
+/* Keyboard focus on the map itself. The shell's .rp-focus ring is an outward
+ * shadow, and a full-bleed canvas clips it at the viewport edges, so the
+ * map's indicator is drawn inward instead - the same treatment for the 2D
+ * fallback's full-bleed SVG. */
+.rp-map3d canvas:focus-visible,
+svg.rp-map:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--rp-surface), inset 0 0 0 4px var(--rp-focus);
+}
+
+.rp-map3d-labels {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* The same soft vignette the 2D map paints, kept in CSS so it follows the
+ * grey suite rather than being baked into the scene. */
+.rp-map3d-vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    120% 90% at 50% 42%,
+    transparent 55%,
+    color-mix(in srgb, var(--rp-n-300) 30%, transparent) 100%
+  );
+}
+
+/* Node labels. The layered text-shadow is the DOM version of the 2D map's
+ * paint-order stroke: a surface-coloured halo that keeps the letterforms
+ * legible over marks and links. */
+.rp-map3d-label {
+  position: absolute;
+  left: 0;
+  top: 0;
+  font-family: var(--rp-font-body);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  white-space: nowrap;
+  color: var(--rp-ink-2);
+  text-shadow:
+    0 1px 0 var(--rp-surface),
+    0 -1px 0 var(--rp-surface),
+    1px 0 0 var(--rp-surface),
+    -1px 0 0 var(--rp-surface),
+    1px 1px 0 var(--rp-surface),
+    -1px 1px 0 var(--rp-surface),
+    1px -1px 0 var(--rp-surface),
+    -1px -1px 0 var(--rp-surface),
+    0 0 8px var(--rp-surface);
+  will-change: transform, opacity;
+}
+
+.rp-map3d-label[data-emphasised] {
+  font-weight: 650;
+  color: var(--rp-ink);
+}
+
+.rp-map3d-edge-label {
+  position: absolute;
+  left: 0;
+  top: 0;
+  font-family: var(--rp-font-body);
+  font-size: 10.5px;
+  font-style: italic;
+  white-space: nowrap;
+  color: var(--rp-ink-2);
+  text-shadow:
+    0 1px 0 var(--rp-surface),
+    0 -1px 0 var(--rp-surface),
+    1px 0 0 var(--rp-surface),
+    -1px 0 0 var(--rp-surface);
+  will-change: transform;
+}
+
+.rp-map3d-territory {
+  position: absolute;
+  left: 0;
+  top: 0;
+  font-family: var(--rp-font-display);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  white-space: nowrap;
+  /* A solid halo, not just blur - in perspective the caption regularly sits
+   * over its own category's coloured spheres, where the ink's contrast
+   * contract against the surface does not hold. */
+  text-shadow:
+    0 1px 0 var(--rp-surface),
+    0 -1px 0 var(--rp-surface),
+    1px 0 0 var(--rp-surface),
+    -1px 0 0 var(--rp-surface),
+    1px 1px 0 var(--rp-surface),
+    -1px 1px 0 var(--rp-surface),
+    1px -1px 0 var(--rp-surface),
+    -1px -1px 0 var(--rp-surface),
+    0 0 8px var(--rp-surface);
+  transition: opacity 180ms var(--rp-ease);
+  will-change: transform;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rp-map3d-territory {
+    transition: none;
+  }
+}
+
+/* ---------------------------------------------------------------------------
  * Pointer affordance. A <button> has `cursor: default` by default, which reads
  * as inert on icon-only controls with no text to signal they are clickable.
  * ------------------------------------------------------------------------- */

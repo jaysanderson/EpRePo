@@ -14,13 +14,13 @@ import {
   buildGroupStyles,
   type GroupStyle,
   type Insets,
-  KnowledgeMap,
   MapConstellation,
   type MapEdge,
   type MapLayout,
   type MapNode,
   MapSkeleton,
 } from '../components/KnowledgeMap.tsx'
+import { KnowledgeMap3D } from '../components/KnowledgeMap3D.tsx'
 import type { TenantOutletContext } from './TenantLayout.tsx'
 
 // ---------------------------------------------------------------------------
@@ -383,7 +383,11 @@ function DetailDock({
     <aside
       ref={panelRef}
       aria-label='Selection details'
-      className='rp-anim-fade absolute inset-x-0 bottom-0 z-30 flex max-h-[68%] flex-col overflow-hidden rounded-t-[var(--rp-radius)] border border-line bg-surface rp-shadow-xl rp-map-gutter-right md:inset-x-auto md:top-3 md:bottom-3 md:max-h-none md:w-[360px] md:rounded-[calc(var(--rp-radius)+4px)]'
+      // Focusable so a selection made from the rail or the find field can
+      // hand the reading position to the details it opened; -1 keeps it out
+      // of the tab order itself.
+      tabIndex={-1}
+      className='rp-anim-fade absolute inset-x-0 bottom-0 z-30 flex max-h-[68%] flex-col overflow-hidden rounded-t-[var(--rp-radius)] border border-line bg-surface outline-none rp-shadow-xl rp-map-gutter-right md:inset-x-auto md:top-3 md:bottom-3 md:max-h-none md:w-[360px] md:rounded-[calc(var(--rp-radius)+4px)]'
     >
       <button
         type='button'
@@ -790,11 +794,17 @@ function NavigatorRail({
   panelRef: (el: HTMLElement | null) => void
 }) {
   const isEntity = mode === 'entity'
-  const top = useMemo(() => {
+  // The 3D canvas does not expose its marks to the keyboard or a screen
+  // reader the way the 2D SVG's tabbable nodes did, so this list is the
+  // accessible route to EVERY entity - the shortlist opens out to the full
+  // ranked set on demand.
+  const [showAll, setShowAll] = useState(false)
+  const ranked = useMemo(() => {
     const rank = (node: MapNode) =>
       isEntity ? (degrees.get(node.id) ?? 0) * 1000 + node.weight : node.weight
-    return [...nodes].sort((a, b) => rank(b) - rank(a)).slice(0, 10)
+    return [...nodes].sort((a, b) => rank(b) - rank(a))
   }, [nodes, degrees, isEntity])
+  const top = showAll ? ranked : ranked.slice(0, 10)
 
   return (
     <aside
@@ -910,7 +920,9 @@ function NavigatorRail({
 
         <div>
           <h3 className='text-xs font-medium uppercase tracking-wide text-ink-3'>
-            {isEntity ? 'Most connected' : 'Largest categories'}
+            {showAll
+              ? (isEntity ? 'All entities, most connected first' : 'All categories')
+              : (isEntity ? 'Most connected' : 'Largest categories')}
           </h3>
           <ul className='mt-2 space-y-0.5'>
             {top.map((node) => {
@@ -944,6 +956,20 @@ function NavigatorRail({
               )
             })}
           </ul>
+          {ranked.length > 10
+            ? (
+              <button
+                type='button'
+                aria-expanded={showAll}
+                onClick={() => setShowAll((v) => !v)}
+                className='rp-btn rp-btn-ghost mt-1.5 h-8 px-2 text-xs'
+              >
+                {showAll
+                  ? 'Show fewer'
+                  : `Show all ${ranked.length} ${isEntity ? 'entities' : 'categories'}`}
+              </button>
+            )
+            : null}
         </div>
       </div>
     </aside>
@@ -1310,12 +1336,25 @@ export function GraphPage() {
     })
   }, [edges])
 
+  // A selection made by name - the rail, the find field, a connection chip -
+  // moves the reading position into the dock it opens, so the keyboard and
+  // screen-reader path lands on the details rather than appearing to do
+  // nothing. A click on the canvas itself deliberately does not.
+  const dockFocusPendingRef = useRef(false)
+
   const focusAndSelect = (id: string) => {
+    dockFocusPendingRef.current = true
     select(id)
     setFocusId(id)
     // Re-trigger centring even for the same node.
     setTimeout(() => setFocusId(null), 50)
   }
+
+  useEffect(() => {
+    if (!selectedId || !dockEl || !dockFocusPendingRef.current) return
+    dockFocusPendingRef.current = false
+    dockEl.focus()
+  }, [selectedId, dockEl])
 
   // On a narrow screen the navigator and the detail dock both live at the
   // bottom - selecting a node hands the space to the detail dock.
@@ -1570,7 +1609,7 @@ export function GraphPage() {
           )
           : (
             <>
-              <KnowledgeMap
+              <KnowledgeMap3D
                 nodes={nodes}
                 edges={edges}
                 groupStyles={groupStyles}
@@ -1585,7 +1624,7 @@ export function GraphPage() {
                 onSelect={select}
                 focusId={focusId}
                 insets={insets}
-                hint='Drag to pan · scroll to zoom · click a node to explore it'
+                hint='Drag to orbit · scroll to zoom · click a node to explore it'
               />
 
               {visibleCount === 0
