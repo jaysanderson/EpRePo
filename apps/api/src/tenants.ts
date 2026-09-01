@@ -322,3 +322,6 @@ export class TenantStore {
     })
   }
 }
+
+/** Public tenant-store contract for runtimes without a local filesystem. */
+export type TenantStoreApi = Pick<TenantStore, keyof TenantStore>

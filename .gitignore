@@ -9,6 +9,7 @@ dist/
 build/
 .next/
 .output/
+.wrangler/
 
 # Secrets & local env
 .env

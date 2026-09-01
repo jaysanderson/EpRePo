@@ -1,16 +1,20 @@
-name: Gate and deploy
+name: Gate and deploy CorpusKit
 
-# The only path to production: PR -> main -> fly.io. Nothing deploys from a
-# developer machine, and nothing reaches main except through a pull request that
-# passed CI. A push that fails the gate never reaches the app.
+# Production follows the KSP pattern: repository changes pass the complete gate,
+# then a pinned Wrangler deploy publishes the Worker and static assets. Runtime
+# ARAG and Entra secrets remain attached to the Cloudflare Worker and are never
+# copied through GitHub Actions.
 on:
   push:
     branches: [main]
   workflow_dispatch:
 
 concurrency:
-  group: deploy-noice-fisheries-demo
+  group: deploy-corpuskit-production
   cancel-in-progress: false
+
+permissions:
+  contents: read
 
 jobs:
   gate:
@@ -19,23 +23,24 @@ jobs:
     outputs:
       deployable: ${{ steps.creds.outputs.deployable }}
     steps:
-      - name: Are Fly credentials configured?
+      - name: Check Cloudflare deployment credentials
         id: creds
         env:
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          if [ -n "$FLY_API_TOKEN" ]; then
+          if [ -n "$CLOUDFLARE_API_TOKEN" ] && [ -n "$CLOUDFLARE_ACCOUNT_ID" ]; then
             echo "deployable=true" >> "$GITHUB_OUTPUT"
           else
             echo "deployable=false" >> "$GITHUB_OUTPUT"
           fi
+
       - uses: actions/checkout@v4
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
+
       - name: Install build tooling
-        # Pinned to match the Dockerfile (ESBUILD_VERSION / TAILWINDCSS_VERSION
-        # build args) and local dev tooling (brew) - bump all three together.
         env:
           ESBUILD_VERSION: 0.28.2
           TAILWINDCSS_VERSION: 4.3.3
@@ -44,8 +49,6 @@ jobs:
             "https://github.com/tailwindlabs/tailwindcss/releases/download/v${TAILWINDCSS_VERSION}/tailwindcss-linux-x64" \
             -o /usr/local/bin/tailwindcss
           chmod +x /usr/local/bin/tailwindcss
-          # npm registry tarball is the canonical esbuild source; unpkg mirrors
-          # it and stays as a fallback (it 500'd for hours on 2026-08-28).
           { curl -fsSL --retry 3 --retry-all-errors \
               "https://registry.npmjs.org/@esbuild/linux-x64/-/linux-x64-${ESBUILD_VERSION}.tgz" \
               -o /tmp/esbuild.tgz \
@@ -55,66 +58,80 @@ jobs:
               "https://unpkg.com/@esbuild/linux-x64@${ESBUILD_VERSION}/bin/esbuild" \
               -o /usr/local/bin/esbuild
           sudo chmod +x /usr/local/bin/esbuild
-      - name: Build web
-        run: deno task build:web
+
+      - name: Build production package
+        run: deno task build:cloudflare
+
       - name: Gate
-        # Runs after the web build so the /api/health test (which checks
-        # apps/web/dist/index.html is present) exercises a real bundle, the
-        # same way `deno task dev` and the Dockerfile both build before serving.
         run: deno task check
+
+      - name: Validate Wrangler package
+        run: npx -y wrangler@4.127.1 deploy --config wrangler.jsonc --dry-run
+
       - name: Cache Chromium (astral/e2e)
-        # @astral/astral downloads its own Chromium on first run - cache it
-        # keyed on its pinned version in deno.json so most runs skip the
-        # ~100MB download. Cache dir per astral's cache.ts (XDG on Linux).
         uses: actions/cache@v4
         with:
           path: ~/.cache/astral
           key: astral-chromium-${{ runner.os }}-${{ hashFiles('deno.json') }}
+
       - name: Browser E2E persona journeys
-        # Drives a real headless Chromium against the built SPA + API with a
-        # scripted test-double retrieval provider (no real ARAG account) -
-        # see e2e/persona-journeys.test.ts. Separate from the unit gate above
-        # (deno task test) since it downloads/drives a real browser.
-        # Report-only: the headless Chromium is flaky to boot in the GitHub
-        # runner ("binary refused to boot" / cpufreq sandbox errors) - it must
-        # not block deploys until the launch is hardened (no-sandbox flags,
-        # reliable boot). The robust post-deploy live smoke below is the real
-        # gate. Re-promote to blocking only once this boots reliably in CI.
         continue-on-error: true
         run: deno task test:e2e
 
+      - name: Preserve deployment package
+        uses: actions/upload-artifact@v4
+        with:
+          name: corpuskit-cloudflare-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 2
+          path: |
+            apps/web/dist
+            dist/cloudflare/worker.js
+
   deploy:
-    name: Deploy to fly.io
+    name: Deploy to Cloudflare Workers
     needs: gate
-    # Skipped cleanly in any fork or mirror without Fly credentials, so the gate
-    # can still go green there. The `secrets` context is not available in a
-    # job-level `if`, so the gate job publishes the answer as an output.
     if: needs.gate.outputs.deployable == 'true'
     runs-on: ubuntu-latest
+    environment: production
     steps:
       - uses: actions/checkout@v4
-      - uses: superfly/flyctl-actions/setup-flyctl@master
-      - name: Deploy
-        # Fly's Depot builder failed every attempt on 2026-08-31 ("waiting for
-        # depot builder" -> deadline_exceeded -> "failed to list workers"), so
-        # this pins Fly's own remote builder. Drop `--depot=false` to go back to
-        # Depot once it is healthy again.
-        run: flyctl deploy --remote-only --depot=false --env BUILD_SHA=${GITHUB_SHA}
+      - uses: actions/download-artifact@v4
+        with:
+          name: corpuskit-cloudflare-${{ github.sha }}
+
+      - name: Deploy the tested package
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerVersion: 4.127.1
+          command: deploy --config wrangler.jsonc
+
+      - name: Verify the live Worker
+        if: vars.CORPUSKIT_BASE_URL != ''
         env:
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          BASE_URL: ${{ vars.CORPUSKIT_BASE_URL }}
+        run: |
+          curl --fail --silent --show-error --retry 8 --retry-delay 5 \
+            "$BASE_URL/api/health" | grep '"ok":true'
+
+      - name: Verify Microsoft sign-in is configured
+        if: vars.CORPUSKIT_BASE_URL != '' && vars.CORPUSKIT_RUNTIME_CONFIGURED == 'true'
+        env:
+          BASE_URL: ${{ vars.CORPUSKIT_BASE_URL }}
+        run: |
+          curl --fail --silent --show-error --retry 3 \
+            "$BASE_URL/auth/me" | grep '"authenticated":false'
+
       - uses: denoland/setup-deno@v2
+        if: vars.CORPUSKIT_BASE_URL != '' && vars.CORPUSKIT_RUNTIME_CONFIGURED == 'true'
         with:
           deno-version: v2.x
+
       - name: Post-deploy persona smoke
-        # Live check against the just-deployed portal (real ARAG, no
-        # mocking) - search + one cited in-corpus ask + one refused
-        # out-of-corpus ask, quick mode (a single tenant, 2 LLM asks). Fails
-        # the workflow visibly if a deploy breaks the persona journey. See
-        # apps/api/scripts/persona-smoke.ts.
-        run: deno run --allow-net --allow-env apps/api/scripts/persona-smoke.ts --quick
+        if: vars.CORPUSKIT_BASE_URL != '' && vars.CORPUSKIT_RUNTIME_CONFIGURED == 'true'
         env:
-          BASE_URL: https://arag-research-portal.fly.dev
-          # The live tenant carrying real, connected content. frdc-2 is the
-          # 2,604-document FRDC corpus; add grdc here once it holds real
-          # grains content so the smoke gates on it too.
-          PERSONA_SMOKE_TENANTS: frdc-2
+          BASE_URL: ${{ vars.CORPUSKIT_BASE_URL }}
+          PERSONA_SMOKE_TENANTS: frdc
+        run: deno run --allow-net --allow-env apps/api/scripts/persona-smoke.ts --quick

@@ -8,6 +8,7 @@ import { CommandPalette } from '../components/CommandPalette.tsx'
 import { KbSwitcher } from '../components/KbSwitcher.tsx'
 import { PortalFooter } from '../components/PortalFooter.tsx'
 import { SignInDialog } from '../components/SignInDialog.tsx'
+import { getAuthSession } from '../api/auth.ts'
 
 export type TenantOutletContext = {
   config: TenantConfig
@@ -41,8 +42,6 @@ const MOBILE_NAV_ITEMS: { path: string; label: string; end: boolean }[] = [
 
 // One name each for the help and account controls, read by both the header
 // icons and the phone sheet's rows so the two surfaces cannot drift apart. The
-// portal has no auth yet - SignInDialog is presentational and collects no
-// credential - so there is no signed-in state for these to reflect.
 const HELP_LABEL = 'Help'
 const ACCOUNT_LABEL = 'My account'
 
@@ -127,6 +126,13 @@ export function TenantLayout() {
   const [logoFailed, setLogoFailed] = useState(false)
   const [headerQuery, setHeaderQuery] = useState('')
   const [signInOpen, setSignInOpen] = useState(false)
+  const { data: auth } = useQuery({
+    queryKey: ['auth-session'],
+    queryFn: getAuthSession,
+    staleTime: 60_000,
+    retry: false,
+  })
+  const accountLabel = auth?.user?.name || ACCOUNT_LABEL
   const headerRef = useRef<HTMLElement | null>(null)
   const navPanelRef = useRef<HTMLElement | null>(null)
   const navTriggerRef = useRef<HTMLButtonElement | null>(null)
@@ -468,8 +474,8 @@ export function TenantLayout() {
               <button
                 type='button'
                 onClick={() => setSignInOpen(true)}
-                aria-label={ACCOUNT_LABEL}
-                title={ACCOUNT_LABEL}
+                aria-label={accountLabel}
+                title={accountLabel}
                 aria-haspopup='dialog'
                 className='rp-focus flex h-[calc(2.75rem*var(--rp-density-ctl,1))] w-[calc(2.75rem*var(--rp-density-ctl,1))] shrink-0 items-center justify-center rounded-full border transition-colors duration-150'
                 style={{
@@ -635,7 +641,7 @@ export function TenantLayout() {
                   className='rp-navsheet-action rp-focus-inverse'
                 >
                   <AccountIcon className='h-5 w-5 shrink-0' />
-                  {ACCOUNT_LABEL}
+                  {accountLabel}
                 </button>
               </div>
             </div>
@@ -657,7 +663,7 @@ export function TenantLayout() {
       }
       {isViewportHeightRoute ? null : <PortalFooter slug={config.slug} />}
 
-      {signInOpen ? <SignInDialog onClose={() => setSignInOpen(false)} /> : null}
+      {signInOpen ? <SignInDialog user={auth?.user} onClose={() => setSignInOpen(false)} /> : null}
 
       {paletteOpen
         ? (

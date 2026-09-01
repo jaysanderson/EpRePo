@@ -531,3 +531,10 @@ export class InvestigationStore {
     return artefact
   }
 }
+
+/** Public store contracts used by runtimes without a local filesystem. */
+export type InsightsStoreApi = Pick<InsightsStore, keyof InsightsStore>
+export type SessionsStoreApi = Pick<SessionsStore, keyof SessionsStore>
+export type WatchStoreApi = Pick<WatchStore, keyof WatchStore>
+export type SourceStoreApi = Pick<SourceStore, keyof SourceStore>
+export type InvestigationStoreApi = Pick<InvestigationStore, keyof InvestigationStore>

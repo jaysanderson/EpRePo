@@ -6,6 +6,7 @@ import { ErrorCard, Skeleton } from '../components/ui.tsx'
 import { AddPortal } from './admin/AddPortal.tsx'
 import { MigratePanel } from './admin/MigratePanel.tsx'
 import { PortalRow } from './admin/PortalRow.tsx'
+import { getAuthSession, microsoftLoginUrl } from '../api/auth.ts'
 
 /**
  * Global connections: passcode-gated overview of every portal and its
@@ -22,13 +23,21 @@ export function AdminPage() {
   const [passcode, setPasscode] = useState(() => sessionStorage.getItem('rp-admin-passcode') ?? '')
   const [draft, setDraft] = useState('')
   const [expandedSlug, setExpandedSlug] = useState<string | null>(null)
+  const { data: auth, isLoading: authLoading } = useQuery({
+    queryKey: ['auth-session'],
+    queryFn: getAuthSession,
+    staleTime: 60_000,
+    retry: false,
+  })
+  const ssoAdmin = auth?.user?.isAdmin === true
+  const adminCredential = ssoAdmin ? 'microsoft-sso' : passcode
 
   const { data, isLoading, isError, error, refetch } = useQuery({
     // The passcode is part of the key: submitting a new one must run a fresh
     // check, not replay the cached 401 from an earlier wrong entry.
-    queryKey: ['admin-overview', passcode],
-    queryFn: () => getAdminOverview(passcode),
-    enabled: passcode.length > 0,
+    queryKey: ['admin-overview', adminCredential],
+    queryFn: () => getAdminOverview(adminCredential),
+    enabled: adminCredential.length > 0,
     retry: false,
   })
 
@@ -40,12 +49,27 @@ export function AdminPage() {
     setPasscode(draft)
   }
 
-  if (!passcode || unauthorised) {
+  if (authLoading && !passcode) {
+    return <main className='min-h-screen bg-app' aria-busy='true' />
+  }
+
+  if (!adminCredential || unauthorised) {
     return (
       <main className='flex min-h-screen flex-col items-center justify-center bg-app px-6'>
         <div className='rp-card w-full max-w-sm p-8'>
           <p className='rp-eyebrow text-ink-3'>Research portal</p>
           <h1 className='mt-1 text-xl font-semibold tracking-tight text-ink'>Knowledge boxes</h1>
+          {auth?.user
+            ? (
+              <p className='mt-4 text-sm text-ink-2'>
+                {auth.user.email} is signed in but does not have the CorpusKit administrator role.
+              </p>
+            )
+            : (
+              <a href={microsoftLoginUrl('/admin')} className='rp-btn rp-btn-primary mt-5 w-full'>
+                Sign in with Microsoft
+              </a>
+            )}
           <form onSubmit={submitPasscode} className='mt-5 space-y-4'>
             <div>
               <label htmlFor='admin-passcode' className='mb-1.5 block text-sm font-medium text-ink'>
@@ -117,14 +141,14 @@ export function AdminPage() {
 
         {data && (
           <div className='mt-8 space-y-4'>
-            <AddPortal passcode={passcode} />
+            <AddPortal passcode={adminCredential} />
 
             <div className='space-y-3'>
               {data.map((row) => (
                 <PortalRow
                   key={row.tenant.slug}
                   row={row}
-                  passcode={passcode}
+                  passcode={adminCredential}
                   expanded={expandedSlug === row.tenant.slug}
                   onToggleExpanded={() =>
                     setExpandedSlug((prev) => (prev === row.tenant.slug ? null : row.tenant.slug))}
@@ -132,7 +156,7 @@ export function AdminPage() {
               ))}
             </div>
 
-            <MigratePanel rows={data} passcode={passcode} />
+            <MigratePanel rows={data} passcode={adminCredential} />
           </div>
         )}
       </div>

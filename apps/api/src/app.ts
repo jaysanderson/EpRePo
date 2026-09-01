@@ -23,8 +23,8 @@ import {
   parseKbUrl,
   type RetrievalProvider,
 } from '@research-portal/retrieval'
-import { type NewTenantInput, TenantStore } from './tenants.ts'
-import { BindingStore } from './bindings.ts'
+import { type NewTenantInput, TenantStore, type TenantStoreApi } from './tenants.ts'
+import { BindingStore, type BindingStoreApi } from './bindings.ts'
 import { accountOpsAvailable, createKnowledgeBox, enableHiddenResources } from './arag-account.ts'
 import { GENERATE_SCHEMAS } from './generate-schemas.ts'
 import { analyseTenant } from './analyse.ts'
@@ -32,6 +32,7 @@ import {
   type GraphStrategyInput,
   implementKgStrategy,
   KgProposalStore,
+  type KgProposalStoreApi,
   proposeKgStrategy,
   replaceGraphStrategy,
   validateGraphStrategy,
@@ -46,16 +47,27 @@ import {
 } from './crawl.ts'
 import {
   InsightsStore,
+  type InsightsStoreApi,
   InvestigationStore,
+  type InvestigationStoreApi,
   SessionsStore,
+  type SessionsStoreApi,
   SourceStore,
+  type SourceStoreApi,
   WatchStore,
+  type WatchStoreApi,
 } from './stores.ts'
 import { MAX_SYNC_CAP, READ_ONLY_BOX_MESSAGE, recordSyncFailure, syncSource } from './scheduler.ts'
-import { implementSuggestion, runInterrogation, SuggestionStore } from './interrogate.ts'
+import {
+  implementSuggestion,
+  runInterrogation,
+  SuggestionStore,
+  type SuggestionStoreApi,
+} from './interrogate.ts'
 import { clientIp, rateLimit, SlidingWindowLimiter } from './rate-limit.ts'
 import {
   EnrichmentStore,
+  type EnrichmentStoreApi,
   generateEnrichment,
   merchandiseCatalogPage,
   merchandiseCitation,
@@ -311,6 +323,20 @@ const labelsetBodySchema = z.object({
 const cleanToken = (raw: string) =>
   raw.trim().replace(/^["']|["']$/g, '').replace(/^Bearer\s+/i, '').trim()
 
+/** Compare credentials without leaking the first mismatching byte through timing. */
+async function secretsEqual(left: string, right: string): Promise<boolean> {
+  const encoder = new TextEncoder()
+  const [leftHash, rightHash] = await Promise.all([
+    crypto.subtle.digest('SHA-256', encoder.encode(left)),
+    crypto.subtle.digest('SHA-256', encoder.encode(right)),
+  ])
+  const a = new Uint8Array(leftHash)
+  const b = new Uint8Array(rightHash)
+  let difference = 0
+  for (let index = 0; index < a.length; index += 1) difference |= a[index]! ^ b[index]!
+  return difference === 0
+}
+
 /**
  * Whether a model-written "source" label on a comparison cell actually names
  * one of the sources retrieved for this query. Guards against the model
@@ -327,26 +353,50 @@ const sourceIsKnown = (source: string, knownTitles: string[]): boolean => {
   )
 }
 
+export type BrandingKind = 'logo' | 'hero' | 'font-heading' | 'font-body'
+
+export interface BrandingAsset {
+  bytes: Uint8Array<ArrayBuffer>
+  contentType: string
+  version: string
+}
+
+export interface BrandingAssetStore {
+  get(slug: string, kind: BrandingKind): BrandingAsset | null
+  put(slug: string, kind: BrandingKind, asset: BrandingAsset): void
+}
+
 export interface BuildAppOptions {
   provider: RetrievalProvider
   /** Tenant registry; a fresh store (seeds only) when omitted. */
-  tenants?: TenantStore
+  tenants?: TenantStoreApi
   /** The live provider's management surface; absent in tests. */
   management?: AragProvider
-  bindings?: BindingStore
+  bindings?: BindingStoreApi
+  insights?: InsightsStoreApi
+  sessions?: SessionsStoreApi
   /** Source registry; shared with startScheduler in server.ts so a scheduled sync and a
    *  concurrent HTTP write don't clobber each other. A fresh store when omitted (tests). */
-  sources?: SourceStore
+  sources?: SourceStoreApi
   /** Watch registry; same sharing rationale as `sources`. */
-  watches?: WatchStore
+  watches?: WatchStoreApi
+  investigations?: InvestigationStoreApi
+  suggestions?: SuggestionStoreApi
+  kgProposals?: KgProposalStoreApi
   /** Merchandising enrichment cache; a fresh store when omitted (tests). */
-  enrichments?: EnrichmentStore
+  enrichments?: EnrichmentStoreApi
   zone?: string
   adminPasscode?: string
+  /** A platform adapter may authenticate an administrator before the request reaches Hono. */
+  trustedAdmin?: (request: Request) => boolean
   /** Where the built SPA lives; overridable in tests. Defaults to ./apps/web/dist. */
   webDistPath?: string
+  /** Runtime adapters that serve assets outside the local filesystem set this explicitly. */
+  webAvailable?: boolean
+  buildSha?: string
   /** Where uploaded branding assets live; overridable in tests. Defaults to BRANDING_PATH or ./data/branding. */
   brandingPath?: string
+  branding?: BrandingAssetStore
   /** Called after a tenant is rebound so the provider can drop its caches. */
   invalidate?: (slug: string) => void
   /** Requests/min/IP for the paid-LLM routes (ask, generate, summarize, subqueries, verdicts,
@@ -361,12 +411,13 @@ export function buildApp(opts: BuildAppOptions): Hono {
   const { provider } = opts
   const bindings = opts.bindings ?? new BindingStore({})
   const tenants = opts.tenants ?? new TenantStore({})
-  const insights = new InsightsStore()
-  const sessions = new SessionsStore()
+  const insights = opts.insights ?? new InsightsStore()
+  const sessions = opts.sessions ?? new SessionsStore()
   const watches = opts.watches ?? new WatchStore()
   const sources = opts.sources ?? new SourceStore()
-  const investigations = new InvestigationStore()
-  const suggestions = new SuggestionStore()
+  const investigations = opts.investigations ?? new InvestigationStore()
+  const suggestions = opts.suggestions ?? new SuggestionStore()
+  const kgProposals = opts.kgProposals ?? new KgProposalStore()
   const enrichments = opts.enrichments ?? new EnrichmentStore()
   const clientId = (c: Context): string => c.req.header('x-rp-client') ?? 'anonymous'
   const app = new Hono()
@@ -509,8 +560,11 @@ export function buildApp(opts: BuildAppOptions): Hono {
   // of shipping a 404-everywhere deploy (the bug this endpoint exists for).
   const webDistPath = opts.webDistPath ?? './apps/web/dist'
   app.get('/api/health', (c) => {
-    const web = existsSync(`${webDistPath}/index.html`)
-    return c.json({ ok: web, web, version: process.env.BUILD_SHA ?? 'dev' }, web ? 200 : 503)
+    const web = opts.webAvailable ?? existsSync(`${webDistPath}/index.html`)
+    return c.json(
+      { ok: web, web, version: opts.buildSha ?? process.env.BUILD_SHA ?? 'dev' },
+      web ? 200 : 503,
+    )
   })
 
   app.get('/api/tenants', (c) => c.json(tenants.list()))
@@ -518,7 +572,6 @@ export function buildApp(opts: BuildAppOptions): Hono {
   const brandingDir = opts.brandingPath ?? process.env.BRANDING_PATH ?? './data/branding'
   const BRANDING_IMAGE_EXTS = ['png', 'jpg', 'jpeg', 'webp', 'svg'] as const
   const BRANDING_FONT_EXTS = ['woff2', 'woff', 'ttf', 'otf'] as const
-  type BrandingKind = 'logo' | 'hero' | 'font-heading' | 'font-body'
   const isBrandingKind = (kind: string): kind is BrandingKind =>
     kind === 'logo' || kind === 'hero' || kind === 'font-heading' || kind === 'font-body'
   const brandingExts = (kind: BrandingKind): readonly string[] =>
@@ -532,6 +585,10 @@ export function buildApp(opts: BuildAppOptions): Hono {
   }
   // mtime-versioned so replacing a file behind the stable path busts caches.
   const brandingUrl = (slug: string, kind: BrandingKind): string | null => {
+    if (opts.branding) {
+      const asset = opts.branding.get(slug, kind)
+      return asset ? `/api/t/${slug}/branding/${kind}?v=${asset.version}` : null
+    }
     const path = brandingFile(slug, kind)
     if (!path) return null
     return `/api/t/${slug}/branding/${kind}?v=${Math.round(statSync(path).mtimeMs)}`
@@ -564,6 +621,12 @@ export function buildApp(opts: BuildAppOptions): Hono {
     const kind = c.req.param('kind')
     if (!config || !isBrandingKind(kind)) {
       return c.json({ error: 'not_found' }, 404)
+    }
+    const stored = opts.branding?.get(config.slug, kind)
+    if (stored) {
+      return new Response(stored.bytes, {
+        headers: { 'content-type': stored.contentType, 'cache-control': 'public, max-age=300' },
+      })
     }
     const path = brandingFile(config.slug, kind)
     if (!path) return c.json({ error: 'not_found' }, 404)
@@ -1364,6 +1427,10 @@ export function buildApp(opts: BuildAppOptions): Hono {
   // KB id and service-account token in the app; both stay server-side. When
   // ADMIN_PASSCODE is configured every admin call must present it.
   app.use('/api/admin/*', async (c, next) => {
+    if (opts.trustedAdmin?.(c.req.raw)) {
+      await next()
+      return
+    }
     // Fail closed: with no passcode configured the admin surface is disabled,
     // never open. Local dev sets ADMIN_PASSCODE in .env.
     if (!opts.adminPasscode) {
@@ -1372,7 +1439,7 @@ export function buildApp(opts: BuildAppOptions): Hono {
         message: 'Administration is not configured on this server - set ADMIN_PASSCODE.',
       }, 503)
     }
-    if (c.req.header('x-admin-passcode') !== opts.adminPasscode) {
+    if (!(await secretsEqual(c.req.header('x-admin-passcode') ?? '', opts.adminPasscode))) {
       return c.json({ error: 'unauthorised' }, 401)
     }
     await next()
@@ -1610,8 +1677,6 @@ export function buildApp(opts: BuildAppOptions): Hono {
       }
     })
   })
-
-  const kgProposals = new KgProposalStore()
 
   app.patch('/api/admin/tenants/:slug', async (c) => {
     const config = tenant(c.req.param('slug'))
@@ -1906,6 +1971,14 @@ export function buildApp(opts: BuildAppOptions): Hono {
     const bytes = new Uint8Array(await c.req.arrayBuffer())
     if (bytes.length === 0) return c.json({ error: 'empty_file' }, 400)
     if (bytes.length > 5 * 1024 * 1024) return c.json({ error: 'file_too_large' }, 413)
+    if (opts.branding) {
+      opts.branding.put(config.slug, kind, {
+        bytes,
+        contentType,
+        version: String(Date.now()),
+      })
+      return c.json({ ok: true, url: `/api/t/${config.slug}/branding/${kind}` })
+    }
     mkdirSync(brandingDir, { recursive: true })
     // Drop any previous file for this slot so only one extension exists.
     for (const old of brandingExts(kind)) {

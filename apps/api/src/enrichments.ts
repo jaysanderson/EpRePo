@@ -84,6 +84,9 @@ export class EnrichmentStore {
   }
 }
 
+/** Public enrichment-store contract for alternate durable runtimes. */
+export type EnrichmentStoreApi = Pick<EnrichmentStore, keyof EnrichmentStore>
+
 // ---------------------------------------------------------------------------
 // Overlays: apply cached enrichments to provider results before they leave the
 // API, so every user-facing surface merchandises from the same source. The
@@ -104,7 +107,7 @@ function overlay(
 }
 
 export function merchandiseSummary(
-  store: EnrichmentStore,
+  store: EnrichmentStoreApi,
   slug: string,
   resource: ResourceSummary,
 ): ResourceSummary {
@@ -121,7 +124,7 @@ export function merchandiseSummary(
 }
 
 export function merchandiseSummaries(
-  store: EnrichmentStore,
+  store: EnrichmentStoreApi,
   slug: string,
   resources: ResourceSummary[],
 ): ResourceSummary[] {
@@ -129,7 +132,7 @@ export function merchandiseSummaries(
 }
 
 export function merchandiseScored(
-  store: EnrichmentStore,
+  store: EnrichmentStoreApi,
   slug: string,
   resource: ScoredResource,
 ): ScoredResource {
@@ -137,7 +140,7 @@ export function merchandiseScored(
 }
 
 export function merchandiseSearchResults(
-  store: EnrichmentStore,
+  store: EnrichmentStoreApi,
   slug: string,
   results: SearchResults,
 ): SearchResults {
@@ -145,7 +148,7 @@ export function merchandiseSearchResults(
 }
 
 export function merchandiseCatalogItem(
-  store: EnrichmentStore,
+  store: EnrichmentStoreApi,
   slug: string,
   item: CatalogItem,
 ): CatalogItem {
@@ -165,7 +168,7 @@ export function merchandiseCatalogItem(
 }
 
 export function merchandiseCatalogPage(
-  store: EnrichmentStore,
+  store: EnrichmentStoreApi,
   slug: string,
   page: CatalogPage,
 ): CatalogPage {
@@ -179,7 +182,7 @@ export function merchandiseCatalogPage(
  * never shows a raw filename or project code when a real enrichment exists.
  */
 export function merchandiseSources(
-  store: EnrichmentStore,
+  store: EnrichmentStoreApi,
   slug: string,
   resources: ScoredResource[],
 ): ScoredResource[] {
@@ -194,7 +197,7 @@ export function merchandiseSources(
  * platform's own evidence and are left untouched.
  */
 export function merchandiseCitation(
-  store: EnrichmentStore,
+  store: EnrichmentStoreApi,
   slug: string,
   citation: Citation,
 ): Citation {
@@ -203,7 +206,7 @@ export function merchandiseCitation(
 }
 
 export function merchandiseContent(
-  store: EnrichmentStore,
+  store: EnrichmentStoreApi,
   slug: string,
   content: ResourceContent,
 ): ResourceContent {
@@ -513,7 +516,7 @@ async function withEnrichmentBackoff<T>(
  */
 export async function* runEnrichmentOverCorpus(
   management: AragProvider,
-  store: EnrichmentStore,
+  store: EnrichmentStoreApi,
   config: TenantConfig,
   opts: EnrichmentRunOptions,
 ): AsyncGenerator<EnrichmentRunEvent> {

@@ -1,6 +1,6 @@
 import type { AnalyseEvent, TenantConfig } from '@research-portal/core'
 import type { AragProvider } from '@research-portal/retrieval'
-import type { TenantStore } from './tenants.ts'
+import type { TenantStoreApi } from './tenants.ts'
 
 /**
  * Corpus analysis: interrogate a knowledge box and derive its portal
@@ -69,7 +69,7 @@ const slugify = (raw: string) =>
 
 export async function* analyseTenant(
   management: AragProvider,
-  tenants: TenantStore,
+  tenants: TenantStoreApi,
   config: TenantConfig,
   invalidate: (slug: string) => void,
 ): AsyncGenerator<AnalyseEvent> {

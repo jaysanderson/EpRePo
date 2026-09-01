@@ -47,8 +47,11 @@ jobs:
               -o /usr/local/bin/esbuild
           sudo chmod +x /usr/local/bin/esbuild
 
-      - name: Build the web bundle
-        run: deno task build:web
+      - name: Build the Cloudflare bundle
+        run: deno task build:cloudflare
+
+      - name: Validate the Worker deployment package
+        run: npx -y wrangler@4.127.1 deploy --config wrangler.jsonc --dry-run
 
       - name: Gate
         run: deno task check

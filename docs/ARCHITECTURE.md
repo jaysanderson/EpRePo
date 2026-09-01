@@ -1,7 +1,7 @@
-# Architecture (proposed) - Research Portal
+# Architecture - CorpusKit
 
-Status: **proposed 2026-08-21, awaiting Jay's sign-off.** Companion to `VISION.md` (the locked
-decisions) and `PARITY.md` (the feature floor).
+Status: **current, updated 2026-09-01 for Cloudflare production.** Companion to `VISION.md` (the
+locked decisions) and `PARITY.md` (the feature floor).
 
 ## Shape of the system
 
@@ -10,6 +10,7 @@ research-portal/                      Deno workspace (no package manager, no nod
   apps/
     web/                              React + TS SPA, built with esbuild + Tailwind standalone
     api/                              Deno + Hono + Zod (thin typed API server)
+    cloudflare/                       Worker, Entra auth and Durable Object storage adapters
   packages/
     core/                             shared types & Zod schemas (Tenant, Answer,
                                       Citation, Entity, Relation, Assessment, ...)
@@ -35,9 +36,9 @@ tokens, nav labels, hero copy, graph legend, topic rows - renders from it. Nothi
 FRDC-specific or GRDC-specific ever appears in a component.
 
 Server-side, a tenant record also holds the knowledge-box binding: zone, KB id, service-account
-token (minted at provision time, never sent to the client). Storage: **plain JSON on the Fly
-volume**, written atomically via `apps/api/src/persist.ts` (see "Persistence rule" below) - no
-database, trivially resettable for demos, no infrastructure to hand over.
+token (minted at provision time, never sent to the client). The Deno development server uses the
+file stores in `apps/api`; Cloudflare production injects equivalent synchronous adapters over a
+SQLite-backed Durable Object. Credentials never reach the browser.
 Routing: path-based (`/t/grdc/...`, `/t/frdc/...`), with a tenant picker at `/`. Subdomains can
 come later at the reverse proxy without code changes.
 
@@ -157,27 +158,23 @@ JSON stores under `apps/api/src/stores.ts` so the portal, not the browser, owns 
 ## Open questions for Jay
 - **REMi / quality signals**: surface per-answer trust panel from day one (needs REMi enabled
   on the KBs) or add after parity?
-- **Admin auth**: a simple shared admin passcode is enough for now? (Full auth is a later
-  factory concern.)
 - **Corpus sourcing**: I plan to pull ~15-20 public FRDC final reports and ~15-20 GRDC
   publications as the starter corpora - any preferred subject areas?
 
 ## Persistence rule
-All app-side state (tenants, bindings, sessions, investigations, watches,
-sources, insights, suggestions) lives in plain JSON / JSONL files on the Fly
-volume. **SQLite and embedded databases are deliberately avoided** (Jay's
-standing directive: keep SQLite use to the absolute minimum - currently zero).
-The stores are small, single-writer, and human-inspectable; if scale ever
-demands more, revisit with Jay first.
+All production app-side state (tenants, bindings, sessions, investigations, watches, sources,
+insights, suggestions, enrichments and branding) lives in the `PortalDurableObject` SQLite
+database. The object serialises writes and SQLite output gates make each mutation durable before
+the response completes. The file-backed stores remain the local Deno adapter and rollback path;
+business routes depend on store interfaces rather than either persistence mechanism.
 
 ## Deployment pipeline
-`local -> repo -> fly.io`, in that order, always.
+`local -> pull request -> Cloudflare`, in that order, always.
 
-- Repo: `github.com/jaysanderson/arag-research-portal` (private), branch `scaffold`.
-- `.github/workflows/deploy.yml` runs the full gate (`deno task check` -
-  typecheck, lint, format, tests - plus `build:web`) on every push, and only
-  deploys to the Fly app `arag-research-portal` when the gate passes.
-- Fly auth in CI is a scoped **deploy token** stored as the repo secret
-  `FLY_API_TOKEN` (not a personal account token).
+- Repo: `github.com/noicework/kb`, production branch `main`.
+- `.github/workflows/deploy.yml` runs the full gate, builds and dry-runs the Worker package, then
+  deploys that preserved package as the `corpuskit` Worker only when the gate passes.
+- Cloudflare auth in CI is a scoped API token stored as `CLOUDFLARE_API_TOKEN`; ARAG and Entra
+  runtime secrets remain attached to the Worker.
 - Deploying from a developer machine is not permitted: it bypasses the gate and
   leaves production ahead of the repo.

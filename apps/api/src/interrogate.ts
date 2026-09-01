@@ -72,6 +72,9 @@ export class SuggestionStore {
   }
 }
 
+/** Public suggestion-store contract for alternate durable runtimes. */
+export type SuggestionStoreApi = Pick<SuggestionStore, keyof SuggestionStore>
+
 const INTERROGATION_SCHEMA = {
   name: 'setup_suggestions',
   description: 'Discrete improvement suggestions for how this knowledge box is organised',
@@ -153,7 +156,7 @@ const slugifyId = (raw: string) =>
 export async function runInterrogation(
   management: AragProvider,
   config: TenantConfig,
-  store: SuggestionStore,
+  store: SuggestionStoreApi,
 ): Promise<Suggestion[]> {
   const [labelsets, strategy, resources] = await Promise.all([
     management.labelsets(config).catch(() => []),

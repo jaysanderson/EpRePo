@@ -93,7 +93,9 @@ This project deliberately does not use the npm registry or any npm-based tooling
   browser via an `<script type="importmap">` in `apps/web/index.html`, loaded at runtime with no
   bundler-side dependency resolution.
 - The web bundle itself is built with the **esbuild** and **tailwindcss** standalone binaries
-  (fetched directly as platform binaries in `Dockerfile` and CI, not through `npm`/`npx`).
+  (fetched directly as platform binaries in `Dockerfile` and CI). Cloudflare deployment is the
+  one tooling exception: CI invokes a pinned Wrangler release through `npx`, without adding npm
+  packages to the application.
 
 If a command in an old doc, issue or PR mentions `npm install` or `npm run <script>`, it is stale -
 the equivalent is `deno task <name>` (see the table below).
@@ -125,6 +127,8 @@ All commands are `deno task <name>`, defined in `deno.json`.
 | ----------- | ------------------------------------------------------------------------------------------------ |
 | `dev`       | Builds the web bundle, then runs the API server with `--watch` on port 8787 (serves the SPA too). |
 | `build:web` | Builds the full web bundle: copies `index.html`, then runs `build:css` and `build:js`.          |
+| `build:worker` | Bundles the Cloudflare Worker entry point for deployment.                                  |
+| `build:cloudflare` | Builds the SPA and Worker as one production package.                                  |
 | `build:css` | Compiles `apps/web/src/styles.css` with the Tailwind CLI into `apps/web/dist/styles.css`.       |
 | `build:js`  | Bundles `apps/web/src/main.tsx` with esbuild into `apps/web/dist/app.js` (React and friends stay external, resolved by the browser's import map). |
 | `check`     | The full gate: `deno check` on the server/scripts/web entry points, `deno lint`, `deno fmt --check`, then `test`. This is what CI runs. |
@@ -141,23 +145,20 @@ gate; run that before considering anything done.
 
 ## Deployment
 
-Deployment order is **local -> repo -> fly.io, always**. Nobody runs `fly deploy` from a developer
-machine. The flow is:
+Deployment order is **local -> pull request -> Cloudflare, always**. Nobody runs a production
+deploy from a developer machine. The flow is:
 
 1. Commit locally and push.
-2. `.github/workflows/deploy.yml` runs the gate job (`deno task build:web` then `deno task check` -
+2. `.github/workflows/deploy.yml` runs the gate job (`deno task build:cloudflare` then `deno task check` -
    typecheck, lint, format, tests) on GitHub's runners.
-3. Only if the gate passes does the `deploy` job run `flyctl deploy --remote-only` against the Fly
-   app named in `fly.toml`.
+3. Only if the gate passes does the deploy job publish the preserved package as the Cloudflare
+   Worker named `corpuskit`.
 
-A push that fails the gate never reaches production. The `app` name in `fly.toml` is the reference
-deployment for this repository; if you fork this project, change it (and the `concurrency.group` in
-`deploy.yml`) to your own Fly app before deploying, or you will attempt to deploy over someone
-else's app.
+A push that fails the gate never reaches production. Cloudflare configuration is in
+`wrangler.jsonc`; the production and Entra runbook is in `docs/CLOUDFLARE.md`.
 
-State (tenant configs, knowledge-box bindings, sessions, investigations, watches, sources, insights,
-suggestions, branding assets) is plain JSON/JSONL on a mounted Fly volume - no database server, see
-`docs/ARCHITECTURE.md`.
+State (tenant configs, knowledge-box bindings, sessions, investigations, watches, sources,
+insights, suggestions and branding assets) is held in a SQLite-backed Durable Object.
 
 ## Architecture
 
@@ -202,7 +203,8 @@ corpuskit/
     seed/                 seed documents for the showcase tenants - see content/seed/README.md
   docs/                   VISION, ARCHITECTURE, ARAG-DEV, PARITY, REFERENCE-PORTAL
   deno.json               import map, compiler options, fmt/lint config, tasks
-  Dockerfile, fly.toml    container build and Fly deployment config
+  wrangler.jsonc          Cloudflare Worker, Assets, Durable Object and custom-domain config
+  Dockerfile, fly.toml    legacy container deployment retained for rollback during migration
   .github/workflows/      CI gate + deploy pipeline
 ```
 

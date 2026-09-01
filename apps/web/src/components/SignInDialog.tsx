@@ -1,11 +1,8 @@
 import { useEffect, useRef } from 'react'
+import type { AuthUser } from '../api/auth.ts'
+import { microsoftLoginUrl } from '../api/auth.ts'
 
-/**
- * The sign-in dialog. Presentational only for now: the portal has no auth, so
- * the provider button is deliberately inert and the dialog never collects a
- * credential of any kind.
- */
-export function SignInDialog({ onClose }: { onClose: () => void }) {
+export function SignInDialog({ onClose, user }: { onClose: () => void; user?: AuthUser | null }) {
   const closeRef = useRef<HTMLButtonElement | null>(null)
 
   useEffect(() => {
@@ -56,24 +53,41 @@ export function SignInDialog({ onClose }: { onClose: () => void }) {
         </div>
 
         <div className='px-6 py-6'>
-          <button
-            type='button'
-            className='rp-focus flex w-full items-center justify-center gap-3 px-5 py-3.5 text-base font-semibold text-[var(--rp-on-primary)] transition-opacity duration-150 hover:opacity-90'
-            style={{ backgroundColor: 'var(--rp-primary)' }}
-          >
-            <svg viewBox='0 0 21 21' aria-hidden='true' className='h-5 w-5'>
-              <rect x='0' y='0' width='9.5' height='9.5' fill='#f25022' />
-              <rect x='11.5' y='0' width='9.5' height='9.5' fill='#7fba00' />
-              <rect x='0' y='11.5' width='9.5' height='9.5' fill='#00a4ef' />
-              <rect x='11.5' y='11.5' width='9.5' height='9.5' fill='#ffb900' />
-            </svg>
-            Sign in with Microsoft
-          </button>
+          {user
+            ? (
+              <div>
+                <p className='font-semibold text-ink'>{user.name}</p>
+                <p className='mt-1 text-sm text-ink-2'>{user.email}</p>
+                {user.isAdmin
+                  ? <span className='rp-badge rp-badge-quiet mt-3'>Administrator</span>
+                  : null}
+                <a href='/auth/logout' className='rp-btn rp-btn-secondary mt-6 w-full'>
+                  Sign out
+                </a>
+              </div>
+            )
+            : (
+              <>
+                <a
+                  href={microsoftLoginUrl()}
+                  className='rp-focus flex w-full items-center justify-center gap-3 px-5 py-3.5 text-base font-semibold text-[var(--rp-on-primary)] transition-opacity duration-150 hover:opacity-90'
+                  style={{ backgroundColor: 'var(--rp-primary)' }}
+                >
+                  <svg viewBox='0 0 21 21' aria-hidden='true' className='h-5 w-5'>
+                    <rect x='0' y='0' width='9.5' height='9.5' fill='#f25022' />
+                    <rect x='11.5' y='0' width='9.5' height='9.5' fill='#7fba00' />
+                    <rect x='0' y='11.5' width='9.5' height='9.5' fill='#00a4ef' />
+                    <rect x='11.5' y='11.5' width='9.5' height='9.5' fill='#ffb900' />
+                  </svg>
+                  Sign in with Microsoft
+                </a>
 
-          <p className='mt-4 text-sm leading-relaxed text-ink-2'>
-            You will be redirected to your organisation's sign-in page. Access is granted by role;
-            if you cannot sign in, ask an administrator to assign you one.
-          </p>
+                <p className='mt-4 text-sm leading-relaxed text-ink-2'>
+                  You will be redirected to your organisation's sign-in page. Access is granted by
+                  role; if you cannot sign in, ask an administrator to assign you one.
+                </p>
+              </>
+            )}
         </div>
       </div>
     </div>

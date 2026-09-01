@@ -58,9 +58,10 @@ Capture the answers in `docs/VISION.md` as they're decided.
   Progress asset.
 - Secrets live in `.env` only (gitignored).
 - **Branching and delivery - this is the process, not a suggestion.**
-  - `main` is production. A push to `main` deploys to fly.io. Nothing else deploys.
-  - **Never commit or push directly to `main`.** Never run `fly deploy` from a
-    developer machine.
+  - `main` is production. A push to `main` deploys the `corpuskit` Cloudflare Worker. Nothing else
+    deploys.
+  - **Never commit or push directly to `main`.** Never run a production deploy from a developer
+    machine.
   - Work on a short-lived branch off `main`, one branch per piece of work, then
     **open a pull request**. CI (typecheck, lint, format, tests, web build) runs
     on every PR; a red PR is not merge-ready.
@@ -69,7 +70,7 @@ Capture the answers in `docs/VISION.md` as they're decided.
     current `main`, merge in a sensible order when PRs touch the same files, and
     stop and escalate rather than force anything through.
   - So the order is: **branch -> PR -> CI green -> orchestrator merges to main ->
-    main deploys to fly.io.** A change that fails the gate never reaches
+    main deploys to Cloudflare.** A change that fails the gate never reaches
     production, and no single agent both writes and ships its own work.
   - **Every agent works in its own git worktree**, never in the shared checkout.
     One worktree, one branch, one PR. Branch from `noicework/main` explicitly

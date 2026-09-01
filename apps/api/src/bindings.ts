@@ -67,6 +67,9 @@ export class BindingStore {
   }
 }
 
+/** Public binding-store contract for alternate durable runtimes. */
+export type BindingStoreApi = Pick<BindingStore, keyof BindingStore>
+
 const displayId = (binding: KbBinding) =>
   binding.kbId ?? binding.baseUrl.split('/').pop() ?? binding.baseUrl
 

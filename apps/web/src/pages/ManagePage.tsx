@@ -17,6 +17,7 @@ import { RenamePortal } from './admin/RenamePortal.tsx'
 import { SourcesPanel } from './admin/SourcesPanel.tsx'
 import { StatTiles } from './admin/StatTiles.tsx'
 import type { TenantOutletContext } from './TenantLayout.tsx'
+import { getAuthSession, microsoftLoginUrl } from '../api/auth.ts'
 
 type TabId =
   | 'overview'
@@ -56,13 +57,21 @@ export function ManagePage() {
   const [draft, setDraft] = useState('')
   const [tab, setTab] = useState<TabId>('overview')
   const [renaming, setRenaming] = useState(false)
+  const { data: auth, isLoading: authLoading } = useQuery({
+    queryKey: ['auth-session'],
+    queryFn: getAuthSession,
+    staleTime: 60_000,
+    retry: false,
+  })
+  const ssoAdmin = auth?.user?.isAdmin === true
+  const adminCredential = ssoAdmin ? 'microsoft-sso' : passcode
 
   const { data, isLoading, isError, error, refetch } = useQuery({
     // Passcode in the key so a corrected entry re-checks instead of replaying
     // a cached 401 (invalidateQueries below matches by prefix, so it still hits).
-    queryKey: ['admin-overview', passcode],
-    queryFn: () => getAdminOverview(passcode),
-    enabled: passcode.length > 0,
+    queryKey: ['admin-overview', adminCredential],
+    queryFn: () => getAdminOverview(adminCredential),
+    enabled: adminCredential.length > 0,
     retry: false,
   })
 
@@ -87,12 +96,32 @@ export function ManagePage() {
     void queryClient.invalidateQueries({ queryKey: ['tenant-config', slug] })
   }
 
-  if (!passcode || unauthorised) {
+  if (authLoading && !passcode) {
+    return (
+      <main className='min-h-[calc(100dvh-var(--rp-header-h,126px))] bg-app' aria-busy='true' />
+    )
+  }
+
+  if (!adminCredential || unauthorised) {
     return (
       <main className='flex min-h-[calc(100dvh-var(--rp-header-h,126px))] flex-col items-center justify-center bg-app px-6'>
         <div className='rp-card w-full max-w-sm p-8'>
           <p className='rp-eyebrow text-ink-3'>{config.branding.productName}</p>
           <h1 className='mt-1 text-xl font-semibold tracking-tight text-ink'>Manage this portal</h1>
+          {auth?.user
+            ? (
+              <p className='mt-4 text-sm text-ink-2'>
+                {auth.user.email} is signed in but does not have the CorpusKit administrator role.
+              </p>
+            )
+            : (
+              <a
+                href={microsoftLoginUrl(`/t/${slug}/manage`)}
+                className='rp-btn rp-btn-primary mt-5 w-full'
+              >
+                Sign in with Microsoft
+              </a>
+            )}
           <form onSubmit={submitPasscode} className='mt-5 space-y-4'>
             <div>
               <label
@@ -200,7 +229,7 @@ export function ManagePage() {
                       <div className='rp-card p-5'>
                         <StatTiles
                           slug={slug}
-                          passcode={passcode}
+                          passcode={adminCredential}
                           resourceCount={row.resourceCount ?? 0}
                         />
                       </div>
@@ -219,7 +248,7 @@ export function ManagePage() {
                       </div>
                     )}
                   <div className='rp-card p-5'>
-                    <RecentList slug={slug} passcode={passcode} />
+                    <RecentList slug={slug} passcode={adminCredential} />
                   </div>
                 </div>
               )}
@@ -227,7 +256,7 @@ export function ManagePage() {
               {tab === 'insights' && (
                 <div className='rp-card p-5'>
                   {reachable
-                    ? <InsightsPanel slug={slug} passcode={passcode} />
+                    ? <InsightsPanel slug={slug} passcode={adminCredential} />
                     : (
                       <p className='text-sm text-ink-3'>
                         Connect a knowledge box to see insights.{' '}
@@ -246,7 +275,13 @@ export function ManagePage() {
                 <div className='space-y-4'>
                   <div className='rp-card p-5'>
                     {reachable
-                      ? <AddContent slug={slug} passcode={passcode} onAdded={onContentAdded} />
+                      ? (
+                        <AddContent
+                          slug={slug}
+                          passcode={adminCredential}
+                          onAdded={onContentAdded}
+                        />
+                      )
                       : (
                         <p className='text-sm text-ink-3'>
                           Connect a knowledge box to add content.{' '}
@@ -259,14 +294,14 @@ export function ManagePage() {
                         </p>
                       )}
                   </div>
-                  {reachable && <SourcesPanel slug={slug} passcode={passcode} />}
-                  {reachable && <CorpusHealthPanel slug={slug} passcode={passcode} />}
+                  {reachable && <SourcesPanel slug={slug} passcode={adminCredential} />}
+                  {reachable && <CorpusHealthPanel slug={slug} passcode={adminCredential} />}
                 </div>
               )}
 
               {tab === 'enrichments' && (
                 reachable
-                  ? <EnrichmentsPanel slug={slug} passcode={passcode} />
+                  ? <EnrichmentsPanel slug={slug} passcode={adminCredential} />
                   : (
                     <div className='rp-card p-5'>
                       <p className='text-sm text-ink-3'>
@@ -289,8 +324,8 @@ export function ManagePage() {
                   {reachable
                     ? (
                       <>
-                        <AnalysePanel slug={slug} passcode={passcode} />
-                        <InterrogatePanel slug={slug} passcode={passcode} />
+                        <AnalysePanel slug={slug} passcode={adminCredential} />
+                        <InterrogatePanel slug={slug} passcode={adminCredential} />
                       </>
                     )
                     : (
@@ -304,7 +339,7 @@ export function ManagePage() {
               {tab === 'graph' && (
                 <div className='rp-card p-5'>
                   {reachable
-                    ? <KgPanel slug={slug} passcode={passcode} open={tab === 'graph'} />
+                    ? <KgPanel slug={slug} passcode={adminCredential} open={tab === 'graph'} />
                     : (
                       <p className='text-sm text-ink-3'>
                         Connect a knowledge box to build a knowledge graph.
@@ -314,10 +349,14 @@ export function ManagePage() {
               )}
 
               {tab === 'appearance' && (
-                <AppearancePanel slug={slug} passcode={passcode} branding={config.branding} />
+                <AppearancePanel
+                  slug={slug}
+                  passcode={adminCredential}
+                  branding={config.branding}
+                />
               )}
 
-              {tab === 'behaviour' && <BehaviourPanel slug={slug} passcode={passcode} />}
+              {tab === 'behaviour' && <BehaviourPanel slug={slug} passcode={adminCredential} />}
 
               {tab === 'details' && (
                 <div className='rp-card p-5'>
@@ -325,7 +364,7 @@ export function ManagePage() {
                     ? (
                       <RenamePortal
                         slug={slug}
-                        passcode={passcode}
+                        passcode={adminCredential}
                         initialName={config.branding.productName}
                         initialOrganisation={config.branding.organisation}
                         initialTagline={config.branding.tagline}

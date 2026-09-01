@@ -109,6 +109,9 @@ export class KgProposalStore {
   }
 }
 
+/** Public proposal-store contract for alternate durable runtimes. */
+export type KgProposalStoreApi = Pick<KgProposalStore, keyof KgProposalStore>
+
 export async function proposeKgStrategy(
   management: AragProvider,
   config: TenantConfig,

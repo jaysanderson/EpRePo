@@ -7,9 +7,9 @@ import {
   extractMainContent,
   looksLikeChallengePage,
 } from './crawl.ts'
-import { type Source, SourceStore, WatchStore } from './stores.ts'
-import { type EnrichmentStore, runEnrichmentOverCorpus } from './enrichments.ts'
-import type { TenantStore } from './tenants.ts'
+import { type Source, type SourceStoreApi, type WatchStoreApi } from './stores.ts'
+import { type EnrichmentStoreApi, runEnrichmentOverCorpus } from './enrichments.ts'
+import type { TenantStoreApi } from './tenants.ts'
 
 // ---------------------------------------------------------------------------
 // Background upkeep: re-sync registered sources (ingest pages that appeared
@@ -46,7 +46,7 @@ export function pagesPerRun(source: Pick<Source, 'maxPages'>): number {
 /** Ingest new pages from one source; reports how many were added vs left for next time. */
 export async function syncSource(
   management: AragProvider,
-  sources: SourceStore,
+  sources: SourceStoreApi,
   config: TenantConfig,
   source: Source,
   emit: (label: string) => void | Promise<void>,
@@ -191,7 +191,7 @@ export async function syncSource(
  * "last synced" time with no hint that nothing had happened since.
  */
 export function recordSyncFailure(
-  sources: SourceStore,
+  sources: SourceStoreApi,
   slug: string,
   source: Source,
   err: unknown,
@@ -209,8 +209,8 @@ export function recordSyncFailure(
 /** Re-run every watch and flag the ones whose top results changed. */
 export async function runWatches(
   management: AragProvider,
-  tenants: TenantStore,
-  watches: WatchStore,
+  tenants: TenantStoreApi,
+  watches: WatchStoreApi,
 ): Promise<void> {
   for (const summary of tenants.list()) {
     const config = tenants.get(summary.slug)
@@ -264,8 +264,8 @@ export function autoEnrichmentCadenceMs(raw: string | undefined): number {
  */
 export async function runAutoEnrichments(
   management: AragProvider,
-  tenants: TenantStore,
-  enrichments: EnrichmentStore,
+  tenants: TenantStoreApi,
+  enrichments: EnrichmentStoreApi,
 ): Promise<void> {
   for (const summary of tenants.list()) {
     const config = tenants.get(summary.slug)
@@ -297,8 +297,8 @@ export async function runAutoEnrichments(
 /** Sync every auto source across all portals (daily job). */
 export async function runAutoSyncs(
   management: AragProvider,
-  tenants: TenantStore,
-  sources: SourceStore,
+  tenants: TenantStoreApi,
+  sources: SourceStoreApi,
 ): Promise<void> {
   for (const summary of tenants.list()) {
     const config = tenants.get(summary.slug)
@@ -332,10 +332,10 @@ export async function runAutoSyncs(
  */
 export function startScheduler(
   management: AragProvider,
-  tenants: TenantStore,
-  sources: SourceStore,
-  watches: WatchStore,
-  enrichments: EnrichmentStore,
+  tenants: TenantStoreApi,
+  sources: SourceStoreApi,
+  watches: WatchStoreApi,
+  enrichments: EnrichmentStoreApi,
 ): () => void {
   const runDaily = async () => {
     await runAutoSyncs(management, tenants, sources).catch(() => {})

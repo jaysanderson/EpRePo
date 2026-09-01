@@ -396,6 +396,19 @@ describe('admin', () => {
     for (const row of rows) AdminTenantOverviewSchema.parse(row)
   })
 
+  it('accepts a platform-authenticated administrator without a fallback passcode', async () => {
+    const app = buildApp({
+      provider: new StubProvider(),
+      tenants: freshTenants(),
+      trustedAdmin: (request) => request.headers.get('x-corpuskit-sso-admin') === '1',
+    })
+    const response = await app.request('/api/admin/overview', {
+      headers: { 'x-corpuskit-sso-admin': '1' },
+    })
+
+    expect(response.status).toBe(200)
+  })
+
   it('reverting a connected binding falls back to the demo box', async () => {
     const dir = Deno.makeTempDirSync()
     const bindings = new BindingStore({
