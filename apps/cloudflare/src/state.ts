@@ -16,6 +16,9 @@ import type { KgProposalStoreApi } from '../../api/src/kg.ts'
 import type { Suggestion, SuggestionStoreApi } from '../../api/src/interrogate.ts'
 import type {
   AskInsight,
+  EnrichmentCollisionPolicy,
+  EnrichmentImportResult,
+  EnrichmentRecords,
   EvidenceItem,
   InsightsStoreApi,
   InsightsSummary,
@@ -72,6 +75,14 @@ export class DurableState {
         version TEXT NOT NULL,
         updated_at INTEGER NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS enrichment_records (
+        tenant_slug TEXT NOT NULL,
+        agent_id TEXT NOT NULL,
+        resource_id TEXT NOT NULL,
+        enrichment TEXT NOT NULL,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (tenant_slug, agent_id, resource_id)
+      );
     `)
   }
 
@@ -117,6 +128,154 @@ export class DurableState {
         return []
       }
     })
+  }
+
+  enrichment(slug: string, agentId: string, resourceId: string): Enrichment | undefined {
+    const row = this.sql.exec<{ enrichment: string }>(
+      `SELECT enrichment FROM enrichment_records
+       WHERE tenant_slug = ? AND agent_id = ? AND resource_id = ?`,
+      slug,
+      agentId,
+      resourceId,
+    ).toArray()[0]
+    return row ? this.parseEnrichment(row.enrichment, slug, agentId, resourceId) : undefined
+  }
+
+  enrichmentRecords(slug: string): EnrichmentRecords {
+    const rows = this.sql.exec<{
+      agent_id: string
+      resource_id: string
+      enrichment: string
+    }>(
+      `SELECT agent_id, resource_id, enrichment FROM enrichment_records
+       WHERE tenant_slug = ? ORDER BY agent_id, resource_id`,
+      slug,
+    ).toArray()
+    const records: EnrichmentRecords = Object.create(null)
+    for (const row of rows) {
+      const enrichment = this.parseEnrichment(
+        row.enrichment,
+        slug,
+        row.agent_id,
+        row.resource_id,
+      )
+      if (!enrichment) continue
+      const bucket = records[row.agent_id] ?? (records[row.agent_id] = Object.create(null))
+      bucket[row.resource_id] = enrichment
+    }
+    return records
+  }
+
+  enrichmentsForAgent(slug: string, agentId: string): Record<string, Enrichment> {
+    return this.enrichmentRecords(slug)[agentId] ?? {}
+  }
+
+  enrichmentCount(slug: string, agentId: string): number {
+    return this.sql.exec<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM enrichment_records WHERE tenant_slug = ? AND agent_id = ?',
+      slug,
+      agentId,
+    ).one().count
+  }
+
+  putEnrichment(slug: string, resourceId: string, enrichment: Enrichment): void {
+    this.sql.exec(
+      `INSERT INTO enrichment_records
+        (tenant_slug, agent_id, resource_id, enrichment, updated_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(tenant_slug, agent_id, resource_id) DO UPDATE SET
+         enrichment = excluded.enrichment, updated_at = excluded.updated_at`,
+      slug,
+      enrichment.schemaId,
+      resourceId,
+      JSON.stringify(enrichment),
+      Date.now(),
+    )
+  }
+
+  importEnrichments(
+    slug: string,
+    records: EnrichmentRecords,
+    collision: EnrichmentCollisionPolicy,
+  ): EnrichmentImportResult {
+    const existing = new Map<string, Set<string>>()
+    for (
+      const row of this.sql.exec<{ agent_id: string; resource_id: string }>(
+        'SELECT agent_id, resource_id FROM enrichment_records WHERE tenant_slug = ?',
+        slug,
+      ).toArray()
+    ) {
+      const resources = existing.get(row.agent_id) ?? new Set<string>()
+      resources.add(row.resource_id)
+      existing.set(row.agent_id, resources)
+    }
+
+    let imported = 0
+    let skipped = 0
+    let overwritten = 0
+    const now = Date.now()
+    const writes: [string, string, string, string, number][] = []
+    for (const [agentId, incoming] of Object.entries(records)) {
+      const resources = existing.get(agentId) ?? new Set<string>()
+      for (const [resourceId, enrichment] of Object.entries(incoming)) {
+        const exists = resources.has(resourceId)
+        if (exists && collision === 'skip') {
+          skipped++
+          continue
+        }
+        writes.push([
+          slug,
+          agentId,
+          resourceId,
+          JSON.stringify(enrichment),
+          now,
+        ])
+        resources.add(resourceId)
+        imported++
+        if (exists) overwritten++
+      }
+      existing.set(agentId, resources)
+    }
+
+    // Twenty rows use exactly 100 bound parameters, the SQLite-backed
+    // Durable Object maximum per query. Batching keeps a 3,163-record restore
+    // comfortably inside the request CPU budget.
+    for (let offset = 0; offset < writes.length; offset += 20) {
+      const batch = writes.slice(offset, offset + 20)
+      const placeholders = batch.map(() => '(?, ?, ?, ?, ?)').join(', ')
+      this.sql.exec(
+        `INSERT INTO enrichment_records
+          (tenant_slug, agent_id, resource_id, enrichment, updated_at)
+         VALUES ${placeholders}
+         ON CONFLICT(tenant_slug, agent_id, resource_id) DO UPDATE SET
+           enrichment = excluded.enrichment, updated_at = excluded.updated_at`,
+        ...batch.flat(),
+      )
+    }
+
+    // SQLite-backed Durable Objects coalesce this uninterrupted synchronous
+    // sequence into one atomic transaction, so no partial import is visible.
+    return { imported, skipped, overwritten, reasons: { existing: skipped } }
+  }
+
+  private parseEnrichment(
+    value: string,
+    slug: string,
+    agentId: string,
+    resourceId: string,
+  ): Enrichment | undefined {
+    try {
+      return JSON.parse(value) as Enrichment
+    } catch (error) {
+      console.error(JSON.stringify({
+        message: 'invalid durable enrichment JSON',
+        slug,
+        agentId,
+        resourceId,
+        error: String(error),
+      }))
+      return undefined
+    }
   }
 
   getAsset(key: string): BrandingAsset | null {
@@ -748,13 +907,20 @@ export class DurableSuggestionStore implements SuggestionStoreApi {
   }
 }
 
-type TenantEnrichments = Record<string, Record<string, Enrichment>>
-
 export class DurableEnrichmentStore implements EnrichmentStoreApi {
+  private readonly migratedSlugs = new Set<string>()
+
   constructor(private readonly state: DurableState) {}
 
-  private all(slug: string): TenantEnrichments {
-    return this.state.get(key('enrichments', slug), {})
+  private migrateLegacy(slug: string): void {
+    if (this.migratedSlugs.has(slug)) return
+    const legacyKey = key('enrichments', slug)
+    const legacy = this.state.get<EnrichmentRecords>(legacyKey, {})
+    if (Object.keys(legacy).length > 0) {
+      this.state.importEnrichments(slug, legacy, 'skip')
+      this.state.delete(legacyKey)
+    }
+    this.migratedSlugs.add(slug)
   }
 
   get(
@@ -762,22 +928,37 @@ export class DurableEnrichmentStore implements EnrichmentStoreApi {
     resourceId: string,
     schemaId = DEFAULT_RESEARCH_ENRICHMENT.id,
   ): Enrichment | undefined {
-    return this.all(slug)[schemaId]?.[resourceId]
+    this.migrateLegacy(slug)
+    return this.state.enrichment(slug, schemaId, resourceId)
   }
 
   forAgent(slug: string, schemaId = DEFAULT_RESEARCH_ENRICHMENT.id): Record<string, Enrichment> {
-    return this.all(slug)[schemaId] ?? {}
+    this.migrateLegacy(slug)
+    return this.state.enrichmentsForAgent(slug, schemaId)
   }
 
   put(slug: string, resourceId: string, enrichment: Enrichment): void {
-    const data = this.all(slug)
-    const bucket = data[enrichment.schemaId] ?? (data[enrichment.schemaId] = {})
-    bucket[resourceId] = enrichment
-    this.state.put(key('enrichments', slug), data)
+    this.migrateLegacy(slug)
+    this.state.putEnrichment(slug, resourceId, enrichment)
   }
 
   count(slug: string, schemaId = DEFAULT_RESEARCH_ENRICHMENT.id): number {
-    return Object.keys(this.all(slug)[schemaId] ?? {}).length
+    this.migrateLegacy(slug)
+    return this.state.enrichmentCount(slug, schemaId)
+  }
+
+  exportRecords(slug: string): EnrichmentRecords {
+    this.migrateLegacy(slug)
+    return this.state.enrichmentRecords(slug)
+  }
+
+  importRecords(
+    slug: string,
+    records: EnrichmentRecords,
+    collision: EnrichmentCollisionPolicy,
+  ): EnrichmentImportResult {
+    this.migrateLegacy(slug)
+    return this.state.importEnrichments(slug, records, collision)
   }
 }
 

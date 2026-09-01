@@ -5,9 +5,11 @@ import { z } from 'zod'
 import {
   DEFAULT_RESEARCH_ENRICHMENT,
   DensityIdSchema,
+  type Enrichment,
   ENRICHMENT_AGENTS,
   type EnrichmentAgentStatus,
   enrichmentJsonSchema,
+  EnrichmentSchema,
   GenerateKindSchema,
   PaletteChoiceSchema,
   ShapeIdSchema,
@@ -46,6 +48,8 @@ import {
   looksLikeChallengePage,
 } from './crawl.ts'
 import {
+  type EnrichmentCollisionPolicy,
+  type EnrichmentRecords,
   InsightsStore,
   type InsightsStoreApi,
   InvestigationStore,
@@ -86,6 +90,162 @@ import { tenantAliasLocation } from './tenant-aliases.ts'
 import { registerMcpRoutes, type TrustedPortalUser } from './mcp.ts'
 
 const searchQuerySchema = z.object({ q: z.string().min(1) })
+const MAX_ENRICHMENT_IMPORT_BYTES = 8 * 1024 * 1024
+const MAX_ENRICHMENT_RECORD_BYTES = 1024 * 1024
+const MAX_ENRICHMENT_IMPORT_AGENTS = 100
+const MAX_ENRICHMENT_IMPORT_RECORDS = 10_000
+const MAX_IMPORT_ISSUES = 12
+
+type BoundedJsonResult =
+  | { ok: true; value: unknown }
+  | { ok: false; error: 'invalid_json' | 'payload_too_large'; message: string }
+
+async function readBoundedJson(request: Request, maxBytes: number): Promise<BoundedJsonResult> {
+  const declaredLength = request.headers.get('content-length')
+  if (declaredLength && /^\d+$/.test(declaredLength) && Number(declaredLength) > maxBytes) {
+    return {
+      ok: false,
+      error: 'payload_too_large',
+      message: 'The enrichment import exceeds the 8 MB limit.',
+    }
+  }
+
+  if (!request.body) {
+    return {
+      ok: false,
+      error: 'invalid_json',
+      message: 'The request body must be valid JSON.',
+    }
+  }
+
+  const reader = request.body.getReader()
+  const chunks: Uint8Array[] = []
+  let length = 0
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    length += value.byteLength
+    if (length > maxBytes) {
+      await reader.cancel().catch(() => undefined)
+      return {
+        ok: false,
+        error: 'payload_too_large',
+        message: 'The enrichment import exceeds the 8 MB limit.',
+      }
+    }
+    chunks.push(value)
+  }
+
+  const bytes = new Uint8Array(length)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  try {
+    return {
+      ok: true,
+      value: JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)),
+    }
+  } catch {
+    return {
+      ok: false,
+      error: 'invalid_json',
+      message: 'The request body must be valid JSON.',
+    }
+  }
+}
+
+type ImportValidationResult =
+  | { success: true; data: EnrichmentRecords }
+  | { success: false; issues: { path: string; message: string }[] }
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function safeImportKey(value: string, maxLength: number): boolean {
+  return value.length > 0 && value.length <= maxLength &&
+    value !== '__proto__' && value !== 'prototype' && value !== 'constructor'
+}
+
+function validateEnrichmentRecords(value: unknown): ImportValidationResult {
+  if (!isRecord(value)) {
+    return { success: false, issues: [{ path: '$', message: 'Expected an object by agent id.' }] }
+  }
+
+  const agents = Object.entries(value)
+  if (agents.length > MAX_ENRICHMENT_IMPORT_AGENTS) {
+    return {
+      success: false,
+      issues: [{
+        path: '$',
+        message: `At most ${MAX_ENRICHMENT_IMPORT_AGENTS} agents can be imported at once.`,
+      }],
+    }
+  }
+
+  const records: EnrichmentRecords = Object.create(null)
+  const issues: { path: string; message: string }[] = []
+  const textEncoder = new TextEncoder()
+  let recordCount = 0
+
+  for (const [agentId, bucketValue] of agents) {
+    if (!safeImportKey(agentId, 200)) {
+      issues.push({ path: '$', message: 'Agent ids must be safe, non-empty strings.' })
+      if (issues.length >= MAX_IMPORT_ISSUES) break
+      continue
+    }
+    if (!isRecord(bucketValue)) {
+      issues.push({ path: agentId, message: 'Expected an object by resource id.' })
+      if (issues.length >= MAX_IMPORT_ISSUES) break
+      continue
+    }
+
+    const bucket: Record<string, Enrichment> = Object.create(null)
+    records[agentId] = bucket
+    for (const [resourceId, enrichmentValue] of Object.entries(bucketValue)) {
+      recordCount++
+      if (recordCount > MAX_ENRICHMENT_IMPORT_RECORDS) {
+        issues.push({
+          path: '$',
+          message: `At most ${MAX_ENRICHMENT_IMPORT_RECORDS} records can be imported at once.`,
+        })
+        break
+      }
+      if (!safeImportKey(resourceId, 1000)) {
+        issues.push({
+          path: agentId,
+          message: 'Resource ids must be safe, non-empty strings.',
+        })
+        if (issues.length >= MAX_IMPORT_ISSUES) break
+        continue
+      }
+
+      const parsed = EnrichmentSchema.safeParse(enrichmentValue)
+      const path = `${agentId}.${resourceId}`
+      if (!parsed.success) {
+        issues.push({
+          path,
+          message: parsed.error.issues[0]?.message ?? 'Invalid enrichment record.',
+        })
+      } else if (parsed.data.schemaId !== agentId) {
+        issues.push({ path, message: 'schemaId must match the containing agent id.' })
+      } else if (
+        textEncoder.encode(JSON.stringify(parsed.data)).byteLength > MAX_ENRICHMENT_RECORD_BYTES
+      ) {
+        issues.push({ path, message: 'An individual enrichment cannot exceed 1 MB.' })
+      } else {
+        bucket[resourceId] = parsed.data
+      }
+      if (issues.length >= MAX_IMPORT_ISSUES) break
+    }
+    if (recordCount > MAX_ENRICHMENT_IMPORT_RECORDS || issues.length >= MAX_IMPORT_ISSUES) break
+  }
+
+  return issues.length > 0 ? { success: false, issues } : { success: true, data: records }
+}
+
 const askBodySchema = z.object({
   query: z.string().min(1),
   context: z
@@ -1842,6 +2002,55 @@ export function buildApp(opts: BuildAppOptions): Hono {
     "platform's existing per-resource page summary where one was already " +
     'generated; a resource whose structured generation fails still gets a ' +
     'partial entry from that page summary rather than being left unenriched.'
+
+  app.get('/api/admin/t/:slug/enrichments/export', (c) => {
+    const config = tenant(c.req.param('slug'))
+    if (!config) return c.json({ error: 'unknown_tenant' }, 404)
+    c.header('cache-control', 'no-store')
+    c.header('content-disposition', `attachment; filename="${config.slug}-enrichments.json"`)
+    return c.json(enrichments.exportRecords(config.slug))
+  })
+
+  app.post('/api/admin/t/:slug/enrichments/import', async (c) => {
+    const config = tenant(c.req.param('slug'))
+    if (!config) return c.json({ error: 'unknown_tenant' }, 404)
+
+    // Skip is the restore-safe default. Overwrite remains an explicit opt-in
+    // through `?collision=overwrite`; no payload field can redirect the slug.
+    const collisionValue = c.req.query('collision') ?? 'skip'
+    if (collisionValue !== 'skip' && collisionValue !== 'overwrite') {
+      return c.json({
+        error: 'invalid_collision_policy',
+        message: 'Use collision=skip or collision=overwrite.',
+      }, 400)
+    }
+    const collision: EnrichmentCollisionPolicy = collisionValue
+
+    const body = await readBoundedJson(c.req.raw, MAX_ENRICHMENT_IMPORT_BYTES)
+    if (!body.ok) {
+      return c.json(
+        { error: body.error, message: body.message },
+        body.error === 'payload_too_large' ? 413 : 400,
+      )
+    }
+    const parsed = validateEnrichmentRecords(body.value)
+    if (!parsed.success) {
+      return c.json({
+        error: 'invalid_enrichment_import',
+        message: 'The enrichment import has an invalid shape.',
+        issues: parsed.issues,
+      }, 400)
+    }
+
+    const result = enrichments.importRecords(config.slug, parsed.data, collision)
+    c.header('cache-control', 'no-store')
+    return c.json({
+      ok: true,
+      targetSlug: config.slug,
+      collisionPolicy: collision,
+      ...result,
+    })
+  })
 
   app.get('/api/admin/t/:slug/enrichments', async (c) => {
     const config = tenant(c.req.param('slug'))

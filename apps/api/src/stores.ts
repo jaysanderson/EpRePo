@@ -1,6 +1,8 @@
 import { appendFileSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import process from 'node:process'
+import type { Enrichment } from '@research-portal/core'
+import { EnrichmentStore } from './enrichments.ts'
 import { readJsonSafe, writeJsonAtomic } from './persist.ts'
 
 // ---------------------------------------------------------------------------
@@ -592,3 +594,84 @@ export type WatchStoreApi = Pick<WatchStore, keyof WatchStore>
 export type SourceStoreApi = Pick<SourceStore, keyof SourceStore>
 export type InvestigationStoreApi = Pick<InvestigationStore, keyof InvestigationStore>
 export type McpKeyStoreApi = Pick<McpKeyStore, keyof McpKeyStore>
+
+// --- Enrichment import/export ----------------------------------------------
+
+/** Persisted enrichment shape: agent id -> resource id -> enrichment. */
+export type EnrichmentRecords = Record<string, Record<string, Enrichment>>
+
+export type EnrichmentCollisionPolicy = 'skip' | 'overwrite'
+
+export interface EnrichmentImportResult {
+  /** New and overwritten records accepted by the store. */
+  imported: number
+  /** Existing records left untouched by the skip policy. */
+  skipped: number
+  /** Imported records that replaced an existing record. */
+  overwritten: number
+  reasons: { existing: number }
+}
+
+export interface EnrichmentTransferStoreApi {
+  exportRecords(slug: string): EnrichmentRecords
+  importRecords(
+    slug: string,
+    records: EnrichmentRecords,
+    collision: EnrichmentCollisionPolicy,
+  ): EnrichmentImportResult
+}
+
+// EnrichmentStore lives in enrichments.ts, which is also the generation path.
+// Keep bulk persistence here with the other runtime store contracts so the
+// import/export work does not couple itself to generation behaviour.
+declare module './enrichments.ts' {
+  interface EnrichmentStore extends EnrichmentTransferStoreApi {}
+}
+
+type VolumeEnrichmentStoreInternals = {
+  cache: Map<string, EnrichmentRecords>
+  load(slug: string): EnrichmentRecords
+  pathFor(slug: string): string
+}
+
+function volumeInternals(store: EnrichmentStore): VolumeEnrichmentStoreInternals {
+  return store as unknown as VolumeEnrichmentStoreInternals
+}
+
+EnrichmentStore.prototype.exportRecords = function (slug): EnrichmentRecords {
+  return structuredClone(volumeInternals(this).load(slug))
+}
+
+EnrichmentStore.prototype.importRecords = function (
+  slug,
+  records,
+  collision,
+): EnrichmentImportResult {
+  const internals = volumeInternals(this)
+  const next = structuredClone(internals.load(slug))
+  let imported = 0
+  let skipped = 0
+  let overwritten = 0
+
+  for (const [agentId, incoming] of Object.entries(records)) {
+    const bucket = next[agentId] ?? (next[agentId] = {})
+    for (const [resourceId, enrichment] of Object.entries(incoming)) {
+      const exists = Object.hasOwn(bucket, resourceId)
+      if (exists && collision === 'skip') {
+        skipped++
+        continue
+      }
+      bucket[resourceId] = enrichment
+      imported++
+      if (exists) overwritten++
+    }
+  }
+
+  if (imported > 0) {
+    // One atomic rename makes the whole validated import visible at once.
+    writeJsonAtomic(internals.pathFor(slug), next)
+    internals.cache.set(slug, next)
+  }
+
+  return { imported, skipped, overwritten, reasons: { existing: skipped } }
+}

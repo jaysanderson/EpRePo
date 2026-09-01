@@ -440,6 +440,195 @@ describe('admin', () => {
   })
 })
 
+describe('admin enrichment import and export', () => {
+  const passcode = 'test-passcode'
+  const adminHeaders = {
+    'x-admin-passcode': passcode,
+    'content-type': 'application/json',
+  }
+  const enrichment = (title: string): Enrichment => ({
+    schemaId: DEFAULT_RESEARCH_ENRICHMENT.id,
+    generatedAt: '2026-08-28T00:00:00.000Z',
+    data: { title, summary: `${title} summary` },
+  })
+  const appWithStore = () => {
+    const store = new EnrichmentStore(Deno.makeTempDirSync())
+    return {
+      store,
+      app: buildApp({
+        provider: new StubProvider(),
+        tenants: freshTenants(),
+        enrichments: store,
+        adminPasscode: passcode,
+      }),
+    }
+  }
+
+  it('keeps both bulk routes behind the admin guard', async () => {
+    const { app } = appWithStore()
+    const exported = await app.request('/api/admin/t/frdc/enrichments/export')
+    const imported = await app.request('/api/admin/t/frdc/enrichments/import', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    })
+
+    expect(exported.status).toBe(401)
+    expect(imported.status).toBe(401)
+  })
+
+  it('rejects an unknown target tenant before reading an import', async () => {
+    const { app } = appWithStore()
+    const response = await app.request('/api/admin/t/unknown/enrichments/import', {
+      method: 'POST',
+      headers: adminHeaders,
+      body: '{}',
+    })
+
+    expect(response.status).toBe(404)
+    expect(await response.json()).toEqual({ error: 'unknown_tenant' })
+  })
+
+  it('rejects a malformed archive without writing its valid records', async () => {
+    const { app, store } = appWithStore()
+    const existing = enrichment('Existing title')
+    store.put('frdc', 'existing', existing)
+    const response = await app.request('/api/admin/t/frdc/enrichments/import', {
+      method: 'POST',
+      headers: adminHeaders,
+      body: JSON.stringify({
+        [DEFAULT_RESEARCH_ENRICHMENT.id]: {
+          valid: enrichment('Would otherwise be valid'),
+          malformed: { generatedAt: '2026-08-28T00:00:00.000Z', data: {} },
+        },
+      }),
+    })
+
+    expect(response.status).toBe(400)
+    const body = await response.json()
+    expect(body.error).toBe('invalid_enrichment_import')
+    expect(body.issues[0].path).toContain('malformed')
+    expect(store.get('frdc', 'valid')).toBeUndefined()
+    expect(store.get('frdc', 'existing')).toEqual(existing)
+  })
+
+  it('imports a legacy-slug archive into the URL tenant and exports the store shape', async () => {
+    const { app } = appWithStore()
+    const archive = {
+      [DEFAULT_RESEARCH_ENRICHMENT.id]: {
+        'stable-resource-id': enrichment('Restored GRDC title'),
+      },
+    }
+    const imported = await app.request('/api/admin/t/grdc/enrichments/import?collision=skip', {
+      method: 'POST',
+      headers: adminHeaders,
+      body: JSON.stringify(archive),
+    })
+
+    expect(imported.status).toBe(200)
+    expect(await imported.json()).toEqual({
+      ok: true,
+      targetSlug: 'grdc',
+      collisionPolicy: 'skip',
+      imported: 1,
+      skipped: 0,
+      overwritten: 0,
+      reasons: { existing: 0 },
+    })
+
+    const exported = await app.request('/api/admin/t/grdc/enrichments/export', {
+      headers: { 'x-admin-passcode': passcode },
+    })
+    expect(exported.status).toBe(200)
+    expect(exported.headers.get('cache-control')).toBe('no-store')
+    expect(await exported.json()).toEqual(archive)
+  })
+
+  it('defaults to skip-existing and overwrites only when explicitly requested', async () => {
+    const { app, store } = appWithStore()
+    store.put('frdc', 'same-id', enrichment('Original title'))
+    const archive = {
+      [DEFAULT_RESEARCH_ENRICHMENT.id]: {
+        'same-id': enrichment('Replacement title'),
+      },
+    }
+    const skipped = await app.request('/api/admin/t/frdc/enrichments/import', {
+      method: 'POST',
+      headers: adminHeaders,
+      body: JSON.stringify(archive),
+    })
+    expect(skipped.status).toBe(200)
+    expect(await skipped.json()).toMatchObject({
+      collisionPolicy: 'skip',
+      imported: 0,
+      skipped: 1,
+      overwritten: 0,
+      reasons: { existing: 1 },
+    })
+    expect(store.get('frdc', 'same-id')?.data.title).toBe('Original title')
+
+    const overwritten = await app.request(
+      '/api/admin/t/frdc/enrichments/import?collision=overwrite',
+      {
+        method: 'POST',
+        headers: adminHeaders,
+        body: JSON.stringify(archive),
+      },
+    )
+    expect(overwritten.status).toBe(200)
+    expect(await overwritten.json()).toMatchObject({
+      collisionPolicy: 'overwrite',
+      imported: 1,
+      skipped: 0,
+      overwritten: 1,
+    })
+    expect(store.get('frdc', 'same-id')?.data.title).toBe('Replacement title')
+  })
+
+  it('rejects a body above the 8 MB import limit', async () => {
+    const { app } = appWithStore()
+    const response = await app.request('/api/admin/t/frdc/enrichments/import', {
+      method: 'POST',
+      headers: adminHeaders,
+      body: 'x'.repeat(8 * 1024 * 1024 + 1),
+    })
+
+    expect(response.status).toBe(413)
+    expect(await response.json()).toEqual({
+      error: 'payload_too_large',
+      message: 'The enrichment import exceeds the 8 MB limit.',
+    })
+  })
+
+  it('accepts a 3.8 MB archive in one request', async () => {
+    const { app } = appWithStore()
+    const bucket: Record<string, Enrichment> = {}
+    for (let index = 0; index < 3163; index++) {
+      bucket[`resource-${index}`] = {
+        schemaId: DEFAULT_RESEARCH_ENRICHMENT.id,
+        generatedAt: '2026-08-28T00:00:00.000Z',
+        data: {
+          title: `Restored resource ${index}`,
+          summary: 'x'.repeat(1120),
+        },
+      }
+    }
+    const body = JSON.stringify({ [DEFAULT_RESEARCH_ENRICHMENT.id]: bucket })
+    const bytes = new TextEncoder().encode(body).byteLength
+    expect(bytes).toBeGreaterThan(3_800_000)
+    expect(bytes).toBeLessThan(8 * 1024 * 1024)
+
+    const response = await app.request('/api/admin/t/frdc/enrichments/import?collision=skip', {
+      method: 'POST',
+      headers: adminHeaders,
+      body,
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ imported: 3163, skipped: 0 })
+  })
+})
+
 describe('GET /api/health', () => {
   it('returns 200 with ok:true and web:true when the SPA bundle exists', async () => {
     const dir = Deno.makeTempDirSync()

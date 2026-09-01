@@ -1,7 +1,141 @@
+import { DatabaseSync, type SQLInputValue } from 'node:sqlite'
 import { expect } from '@std/expect'
+import { DEFAULT_RESEARCH_ENRICHMENT, type Enrichment } from '@research-portal/core'
+import { DurableEnrichmentStore, DurableState, type SqlStorageLike } from './state.ts'
 import type { McpKeyRecord } from '../../api/src/stores.ts'
-import { DurableMcpKeyStore, type DurableState } from './state.ts'
+import { DurableMcpKeyStore } from './state.ts'
 
+class TestSqlStorage implements SqlStorageLike {
+  readonly database = new DatabaseSync(':memory:')
+
+  exec<T extends Record<string, ArrayBuffer | string | number | null>>(
+    query: string,
+    ...bindings: unknown[]
+  ): { toArray(): T[]; one(): T } {
+    let rows: T[] = []
+    if (bindings.length === 0) {
+      this.database.exec(query)
+    } else {
+      const statement = this.database.prepare(query)
+      const values = bindings as SQLInputValue[]
+      if (query.trimStart().toUpperCase().startsWith('SELECT')) {
+        rows = statement.all(...values) as T[]
+      } else {
+        statement.run(...values)
+      }
+    }
+    return {
+      toArray: () => rows,
+      one: () => {
+        if (rows.length !== 1) throw new Error(`Expected one row, received ${rows.length}`)
+        return rows[0]!
+      },
+    }
+  }
+}
+
+function enrichment(title: string): Enrichment {
+  return {
+    schemaId: DEFAULT_RESEARCH_ENRICHMENT.id,
+    generatedAt: '2026-08-28T00:00:00.000Z',
+    data: { title, summary: `${title} summary` },
+  }
+}
+
+function durableStore() {
+  const sql = new TestSqlStorage()
+  const state = new DurableState(sql)
+  state.migrate()
+  return { sql, state, store: new DurableEnrichmentStore(state) }
+}
+
+Deno.test('DurableEnrichmentStore imports per-record rows and honours collision policy', () => {
+  const { sql, store } = durableStore()
+  const original = enrichment('Original')
+  const first = store.importRecords('grdc', {
+    [DEFAULT_RESEARCH_ENRICHMENT.id]: {
+      'resource-1': original,
+      'resource-2': enrichment('Second'),
+    },
+  }, 'skip')
+
+  expect(first).toEqual({
+    imported: 2,
+    skipped: 0,
+    overwritten: 0,
+    reasons: { existing: 0 },
+  })
+  expect(
+    sql.database.prepare('SELECT COUNT(*) AS count FROM enrichment_records').get(),
+  ).toEqual({ count: 2 })
+
+  const skipped = store.importRecords('grdc', {
+    [DEFAULT_RESEARCH_ENRICHMENT.id]: {
+      'resource-1': enrichment('Skipped replacement'),
+    },
+  }, 'skip')
+  expect(skipped).toEqual({
+    imported: 0,
+    skipped: 1,
+    overwritten: 0,
+    reasons: { existing: 1 },
+  })
+  expect(store.get('grdc', 'resource-1')).toEqual(original)
+
+  const replacement = enrichment('Replacement')
+  const overwritten = store.importRecords('grdc', {
+    [DEFAULT_RESEARCH_ENRICHMENT.id]: { 'resource-1': replacement },
+  }, 'overwrite')
+  expect(overwritten).toEqual({
+    imported: 1,
+    skipped: 0,
+    overwritten: 1,
+    reasons: { existing: 0 },
+  })
+  expect(store.exportRecords('grdc')[DEFAULT_RESEARCH_ENRICHMENT.id]?.['resource-1']).toEqual(
+    replacement,
+  )
+  expect(store.exportRecords('gdrc')).toEqual({})
+})
+
+Deno.test('DurableEnrichmentStore migrates the previous tenant-wide state row', () => {
+  const { state, store } = durableStore()
+  const legacy = {
+    [DEFAULT_RESEARCH_ENRICHMENT.id]: {
+      'legacy-resource': enrichment('Legacy title'),
+    },
+  }
+  state.put('enrichments:gdrc', legacy)
+
+  expect(store.exportRecords('gdrc')).toEqual(legacy)
+  expect(state.get('enrichments:gdrc', null)).toBeNull()
+  expect(store.get('gdrc', 'legacy-resource')).toEqual(
+    legacy[DEFAULT_RESEARCH_ENRICHMENT.id]!['legacy-resource'],
+  )
+})
+
+Deno.test('DurableEnrichmentStore writes a production-sized 3.8 MB archive in SQL batches', () => {
+  const { store } = durableStore()
+  const bucket: Record<string, Enrichment> = {}
+  for (let index = 0; index < 3163; index++) {
+    bucket[`resource-${index}`] = {
+      schemaId: DEFAULT_RESEARCH_ENRICHMENT.id,
+      generatedAt: '2026-08-28T00:00:00.000Z',
+      data: {
+        title: `Restored resource ${index}`,
+        summary: 'x'.repeat(1120),
+      },
+    }
+  }
+  const records = { [DEFAULT_RESEARCH_ENRICHMENT.id]: bucket }
+  expect(new TextEncoder().encode(JSON.stringify(records)).byteLength).toBeGreaterThan(3_800_000)
+
+  expect(store.importRecords('frdc', records, 'skip')).toMatchObject({
+    imported: 3163,
+    skipped: 0,
+  })
+  expect(store.count('frdc')).toBe(3163)
+})
 Deno.test('DurableMcpKeyStore mirrors tenant isolation and immediate revocation', () => {
   const values = new Map<string, unknown>()
   const state = {
