@@ -127,6 +127,15 @@ jobs:
           curl --fail --silent --show-error --retry 3 \
             "$BASE_URL/auth/me" | grep '"authenticated":false'
 
+      - name: Verify portal custom domains
+        run: |
+          for target in \
+            "https://frdc.corpuskit.org/t/frdc" \
+            "https://grdc.corpuskit.org/t/grdc"; do
+            curl --fail --silent --show-error --retry 8 --retry-delay 5 \
+              --output /dev/null "$target"
+          done
+
       - uses: denoland/setup-deno@v2
         if: vars.CORPUSKIT_BASE_URL != '' && vars.CORPUSKIT_RUNTIME_CONFIGURED == 'true'
         with:

@@ -29,6 +29,14 @@ Deno.test('/auth/logout expires the encrypted session cookie', async () => {
   )
   expect(response?.status).toBe(302)
   expect(response?.headers.get('location')).toBe('/')
-  expect(response?.headers.get('set-cookie')).toContain('__Host-corpuskit_session=;')
+  expect(response?.headers.get('set-cookie')).toContain('__Secure-corpuskit_session=;')
   expect(response?.headers.get('set-cookie')).toContain('Max-Age=0')
+})
+
+Deno.test('/auth/logout clears a session across every corpuskit.org portal', async () => {
+  const response = await handleAuthRequest(
+    new Request('https://frdc.corpuskit.org/auth/logout'),
+    { ...config, cookieDomain: 'corpuskit.org' },
+  )
+  expect(response?.headers.get('set-cookie')).toContain('Domain=corpuskit.org')
 })

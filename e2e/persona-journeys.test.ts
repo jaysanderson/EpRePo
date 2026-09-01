@@ -8,7 +8,7 @@
 // tenant config, static file serving - is the real production code path.
 //
 // Journeys assert what docs/PERSONAS.md's persona gates require of the
-// researcher journey: the portal picker, the explore page's topic rows, the
+// researcher journey: the CorpusKit front door, the explore page's topic rows, the
 // search page's cited AI Answer panel (inline [n] markers, resources/cited
 // header, Retrieved/Cited toggle), a citation marker's click-through to
 // its source, the Self Assessment page's knowledge-area cards, and that the
@@ -38,15 +38,38 @@ afterAll(async () => {
   await server.close()
 })
 
-describe('portal picker', () => {
-  it('renders both configured portals', async () => {
+describe('CorpusKit front door', () => {
+  it('explains the product and presents both public portals', async () => {
     const page = await browser.newPage(`${server.url}/`)
     try {
       await page.waitForSelector('h1')
       const bodyText = await page.evaluate(() => document.body.innerText)
-      expect(bodyText).toContain('Choose a portal')
+      expect(bodyText).toContain('Turn a corpus into a place people can use.')
+      expect(bodyText).toContain('Continue with Microsoft 365')
+      expect(bodyText).toContain('Explore public portals')
       expect(bodyText).toContain('FRDC Knowledge Hub')
       expect(bodyText).toContain('GRDC Knowledge Hub')
+    } finally {
+      await page.close()
+    }
+  })
+
+  it('keeps the marketing front door usable at a 390px viewport', async () => {
+    const page = await browser.newPage(`${server.url}/`)
+    try {
+      await page.setViewportSize({ width: 390, height: 844 })
+      await page.waitForSelector('#portals')
+      await page.evaluate(() => {
+        document.documentElement.style.fontSize = '137.5%'
+      })
+      const state = await page.evaluate(() => ({
+        horizontalOverflow: document.documentElement.scrollWidth - innerWidth,
+        heading: document.querySelector('h1')?.textContent?.trim(),
+        portalCards: document.querySelectorAll('.mk-portal-card').length,
+      }))
+      expect(state.horizontalOverflow).toBeLessThanOrEqual(0)
+      expect(state.heading).toBe('Turn a corpus into a place people can use.')
+      expect(state.portalCards).toBe(2)
     } finally {
       await page.close()
     }

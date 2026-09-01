@@ -18,6 +18,8 @@ import { tenantAliasLocation } from '../../api/src/tenant-aliases.ts'
 const PORTAL_OBJECT_NAME = 'production'
 const SSO_ADMIN_HEADER = 'x-corpuskit-sso-admin'
 const SSO_USER_ID_HEADER = 'x-corpuskit-sso-user-id'
+const PLATFORM_DOMAIN = 'corpuskit.org'
+const PLATFORM_PORTALS = new Set(['frdc', 'grdc'])
 const SECURITY_HEADERS: Record<string, string> = {
   'permissions-policy': 'camera=(), microphone=(), geolocation=(), payment=()',
   'referrer-policy': 'strict-origin-when-cross-origin',
@@ -92,7 +94,12 @@ export class PortalDurableObject extends DurableObject<Env> {
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url)
-    const auth = authConfig(env)
+    const hostnameLocation = platformHostnameLocation(request)
+    if (hostnameLocation) {
+      return new Response(null, { status: 308, headers: { location: hostnameLocation } })
+    }
+
+    const auth = authConfig(env, url.hostname)
 
     if (url.pathname.startsWith('/auth/')) {
       if (!authConfigured(auth)) {
@@ -145,16 +152,46 @@ export function forwardPortalRequest(request: Request, user: AuthUser | null): R
   return new Request(request, { headers })
 }
 
-function authConfig(env: Env): Partial<AuthConfig> {
+function authConfig(env: Env, hostname: string): Partial<AuthConfig> {
   const values = stringEnv(env)
+  const onPlatformDomain = hostname === PLATFORM_DOMAIN || hostname.endsWith(`.${PLATFORM_DOMAIN}`)
   return {
     clientId: values.ENTRA_CLIENT_ID,
     clientSecret: values.ENTRA_CLIENT_SECRET,
     tenantId: values.ENTRA_TENANT_ID,
     sessionSecret: values.SESSION_SECRET,
-    redirectUri: values.ENTRA_REDIRECT_URI,
+    redirectUri: onPlatformDomain
+      ? values.ENTRA_REDIRECT_URI
+      : hostname === 'corpuskit.noice.net.au' || hostname === 'fisheries-demo.noice.net.au'
+      ? `https://${hostname}/auth/callback`
+      : values.ENTRA_REDIRECT_URI,
     adminEmails: values.ENTRA_ADMIN_EMAILS,
+    cookieDomain: onPlatformDomain ? PLATFORM_DOMAIN : undefined,
   }
+}
+
+/**
+ * Give every provisioned portal a stable hostname while the SPA retains its
+ * existing tenant-prefixed routes. Keeping the mapping explicit matches the
+ * exact Custom Domains attached in Wrangler and prevents arbitrary hostnames
+ * from becoming tenant selectors.
+ */
+export function platformHostnameLocation(
+  request: Pick<Request, 'method' | 'url'>,
+): string | null {
+  if (request.method !== 'GET' && request.method !== 'HEAD') return null
+  const url = new URL(request.url)
+  const hostname = url.hostname.toLowerCase()
+
+  if (hostname === `www.${PLATFORM_DOMAIN}`) {
+    return `https://${PLATFORM_DOMAIN}${url.pathname}${url.search}`
+  }
+
+  const suffix = `.${PLATFORM_DOMAIN}`
+  if (!hostname.endsWith(suffix)) return null
+  const slug = hostname.slice(0, -suffix.length)
+  if (!PLATFORM_PORTALS.has(slug) || url.pathname !== '/') return null
+  return `/t/${slug}${url.search}`
 }
 
 function numberBinding(value: string | undefined, fallback: number): number {

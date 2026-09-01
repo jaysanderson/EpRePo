@@ -31,6 +31,41 @@ type WorkerHarness = {
 const workerModule = await loadWorker()
 const worker = workerModule.default
 
+Deno.test('Worker sends each portal custom domain to its tenant route', async () => {
+  for (const slug of ['frdc', 'grdc']) {
+    const harness = workerHarness()
+    const response = await worker.fetch(
+      new Request(`https://${slug}.corpuskit.org/?from=directory`),
+      harness.env,
+    )
+
+    expect(response.status).toBe(308)
+    expect(response.headers.get('location')).toBe(`/t/${slug}?from=directory`)
+    expect(harness.assetRequests).toHaveLength(0)
+    expect(harness.portalRequests).toHaveLength(0)
+  }
+})
+
+Deno.test('Worker keeps the apex canonical when www is requested', async () => {
+  const harness = workerHarness()
+  const response = await worker.fetch(
+    new Request('https://www.corpuskit.org/why?ref=www'),
+    harness.env,
+  )
+
+  expect(response.status).toBe(308)
+  expect(response.headers.get('location')).toBe('https://corpuskit.org/why?ref=www')
+})
+
+Deno.test('Worker serves the marketing app at the CorpusKit apex', async () => {
+  const harness = workerHarness()
+  const response = await worker.fetch(new Request('https://corpuskit.org/'), harness.env)
+
+  expect(response.status).toBe(200)
+  expect(await response.text()).toBe('asset')
+  expect(harness.assetRequests).toHaveLength(1)
+})
+
 Deno.test('Worker permanently redirects the Assistant route alias for GET and HEAD', async () => {
   for (const method of ['GET', 'HEAD']) {
     const harness = workerHarness()
@@ -150,7 +185,7 @@ function workerHarness(): WorkerHarness {
     ENVIRONMENT: 'production',
     ENTRA_CLIENT_ID: '147a13c9-2a9e-4e32-aa01-3f020d2a18cd',
     ENTRA_TENANT_ID: '15c1eb19-1f38-4a09-bb25-7ff9892387b8',
-    ENTRA_REDIRECT_URI: 'https://corpuskit.noice.net.au/auth/callback',
+    ENTRA_REDIRECT_URI: 'https://corpuskit.org/auth/callback',
     PORTAL: {
       getByName() {
         return {

@@ -5,6 +5,7 @@ export interface AuthConfig {
   sessionSecret: string
   redirectUri?: string
   adminEmails?: string
+  cookieDomain?: string
 }
 
 export interface AuthUser {
@@ -51,8 +52,8 @@ interface IdTokenClaims {
   roles?: string[]
 }
 
-const STATE_COOKIE = '__Host-corpuskit_oidc'
-const SESSION_COOKIE = '__Host-corpuskit_session'
+const STATE_COOKIE = '__Secure-corpuskit_oidc'
+const SESSION_COOKIE = '__Secure-corpuskit_session'
 const textEncoder = new TextEncoder()
 const textDecoder = new TextDecoder()
 
@@ -93,7 +94,7 @@ export async function handleAuthRequest(
       headers: {
         location: '/',
         'cache-control': 'no-store',
-        'set-cookie': clearCookie(SESSION_COOKIE),
+        'set-cookie': clearCookie(SESSION_COOKIE, config.cookieDomain),
       },
     })
   }
@@ -107,7 +108,7 @@ async function beginLogin(url: URL, config: AuthConfig): Promise<Response> {
   const nonce = randomToken(32)
   const state = randomToken(32)
   const redirectUri = config.redirectUri || `${url.origin}/auth/callback`
-  const returnTo = safeReturnTo(url.searchParams.get('returnTo'))
+  const returnTo = safeReturnTo(url.searchParams.get('returnTo'), url, config.cookieDomain)
   const challenge = base64Url(
     new Uint8Array(
       await crypto.subtle.digest(
@@ -144,7 +145,7 @@ async function beginLogin(url: URL, config: AuthConfig): Promise<Response> {
     headers: {
       location: authorize.toString(),
       'cache-control': 'no-store',
-      'set-cookie': setCookie(STATE_COOKIE, sealed, 10 * 60),
+      'set-cookie': setCookie(STATE_COOKIE, sealed, 10 * 60, config.cookieDomain),
     },
   })
 }
@@ -224,11 +225,14 @@ async function finishLogin(request: Request, url: URL, config: AuthConfig): Prom
     SESSION_COOKIE,
   )
   const headers = new Headers({
-    location: new URL(state.returnTo, url.origin).toString(),
+    location: state.returnTo,
     'cache-control': 'no-store',
   })
-  headers.append('set-cookie', setCookie(SESSION_COOKIE, session, 8 * 60 * 60))
-  headers.append('set-cookie', clearCookie(STATE_COOKIE))
+  headers.append(
+    'set-cookie',
+    setCookie(SESSION_COOKIE, session, 8 * 60 * 60, config.cookieDomain),
+  )
+  headers.append('set-cookie', clearCookie(STATE_COOKIE, config.cookieDomain))
   return new Response(null, { status: 302, headers })
 }
 
@@ -295,17 +299,35 @@ async function openIdConfiguration(tenantId: string): Promise<OpenIdConfiguratio
   return body as OpenIdConfiguration
 }
 
-function safeReturnTo(value: string | null): string {
-  if (!value || !value.startsWith('/') || value.startsWith('//')) return '/'
-  return value.slice(0, 2048)
+function safeReturnTo(value: string | null, requestUrl: URL, cookieDomain?: string): string {
+  const fallback = new URL('/', requestUrl.origin).toString()
+  if (!value || value.length > 2048) return fallback
+
+  let target: URL
+  try {
+    target = new URL(value, requestUrl.origin)
+  } catch {
+    return fallback
+  }
+
+  if (target.protocol !== 'https:' && target.protocol !== 'http:') return fallback
+  if (target.origin === requestUrl.origin) return target.toString()
+  if (!cookieDomain || target.protocol !== 'https:') return fallback
+  if (target.username || target.password || (target.port && target.port !== '443')) return fallback
+  const hostname = target.hostname.toLowerCase()
+  const domain = cookieDomain.toLowerCase()
+  if (hostname !== domain && !hostname.endsWith(`.${domain}`)) return fallback
+  return target.toString()
 }
 
-function setCookie(name: string, value: string, maxAge: number): string {
-  return `${name}=${value}; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=${maxAge}`
+function setCookie(name: string, value: string, maxAge: number, domain?: string): string {
+  const cookieDomain = domain ? `; Domain=${domain}` : ''
+  return `${name}=${value}; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${cookieDomain}`
 }
 
-function clearCookie(name: string): string {
-  return `${name}=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0`
+function clearCookie(name: string, domain?: string): string {
+  const cookieDomain = domain ? `; Domain=${domain}` : ''
+  return `${name}=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0${cookieDomain}`
 }
 
 function cookie(request: Request, name: string): string | null {
