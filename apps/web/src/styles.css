@@ -1289,7 +1289,9 @@ label.rp-btn:has(input:focus-visible) {
   padding: 1rem 1.1rem;
   text-align: left;
   border: 1px solid var(--rp-line);
-  border-radius: var(--rp-radius-btn);
+  /* Surface radius, not button: these are two-line cards, and the button
+   * dial goes full pill at the soft shape. */
+  border-radius: var(--rp-radius);
   background: var(--rp-surface);
   color: var(--rp-ink);
   transition: background-color 150ms var(--rp-ease), border-color 150ms var(--rp-ease),
