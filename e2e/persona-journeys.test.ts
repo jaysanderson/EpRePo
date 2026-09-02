@@ -44,10 +44,14 @@ describe('CorpusKit front door', () => {
     try {
       await page.waitForSelector('h1')
       const bodyText = await page.evaluate(() => document.body.innerText)
-      expect(bodyText).toContain('Put your organisation’s')
+      const navigationText = await page.evaluate(() =>
+        document.querySelector('.site-header')?.textContent ?? ''
+      )
+      expect(bodyText.replace(/\s+/g, ' ')).toContain('Put your organisation’s')
       expect(bodyText).toContain('Inside a CorpusKit portal')
       expect(bodyText).toContain('Run CorpusKit with your collection')
       expect(bodyText).toContain('Be a part of CorpusKit')
+      expect(navigationText).not.toContain('Sign in')
     } finally {
       await page.close()
     }
@@ -305,12 +309,92 @@ describe('CorpusKit front door', () => {
     }
   })
 
+  it('uses explicit walkthrough controls and connectors at the tablet breakpoint', async () => {
+    const page = await browser.newPage(`${server.url}/`)
+    try {
+      await page.setViewportSize({ width: 980, height: 1200 })
+      await page.reload()
+      await page.waitForSelector('#evidence-anatomy')
+      await page.evaluate(async () => {
+        await document.fonts.ready
+        await new Promise((resolve) => setTimeout(resolve, 150))
+      })
+      const state = await page.evaluate(() => {
+        const display = (selector: string) => {
+          const element = document.querySelector<HTMLElement>(selector)
+          return element ? getComputedStyle(element).display : 'missing'
+        }
+        const length = (selector: string) =>
+          document.querySelector<SVGPathElement>(selector)?.getTotalLength() ?? 0
+        const bounds = (selector: string) =>
+          document.querySelector<HTMLElement>(selector)?.getBoundingClientRect()
+        const description = bounds('.psig-head p')
+        const steps = bounds('.psig-steps')
+        const answer = bounds('.psig-answer')
+        const source = bounds('#psigSource')
+        const evidenceSvg = document.querySelector<SVGSVGElement>('#psigThread')
+        const evidenceDot = document.querySelector<SVGCircleElement>('#psigThreadDot')
+        const citation = bounds('#psigCite')
+        const svgBounds = evidenceSvg?.getBoundingClientRect()
+        const citationX = citation && svgBounds
+          ? (citation.left + citation.right) / 2 - svgBounds.left
+          : 10_000
+        const citationY = citation && svgBounds
+          ? (citation.top + citation.bottom) / 2 - svgBounds.top
+          : 10_000
+        return {
+          heroThreadDisplay: display('#heroThread'),
+          heroThreadLength: length('#heroThreadPath'),
+          closingThreadDisplay: display('#closingThread'),
+          closingThreadLength: length('#closingThreadPath'),
+          externalTabsDisplay: display('.mobile-view-tabs'),
+          portalTabsDisplay: display('.portal-nav'),
+          descriptionBottom: description?.bottom ?? 0,
+          stepsTop: steps?.top ?? 0,
+          stepsBottom: steps?.bottom ?? 0,
+          answerTop: answer?.top ?? 0,
+          answerBottom: answer?.bottom ?? 0,
+          sourceTop: source?.top ?? 0,
+          evidenceThreadDisplay: display('#psigThread'),
+          evidenceThreadLength: length('#psigThreadPath'),
+          evidenceTargetX: Number(evidenceDot?.getAttribute('cx') ?? 0),
+          evidenceTargetY: Number(evidenceDot?.getAttribute('cy') ?? 0),
+          citationX,
+          citationY,
+        }
+      })
+      expect(state.heroThreadDisplay).toBe('block')
+      expect(state.heroThreadLength).toBeGreaterThan(0)
+      expect(state.closingThreadDisplay).toBe('block')
+      expect(state.closingThreadLength).toBeGreaterThan(0)
+      expect(state.externalTabsDisplay).toBe('grid')
+      expect(state.portalTabsDisplay).toBe('none')
+      expect(state.descriptionBottom).toBeLessThan(state.stepsTop)
+      expect(state.stepsBottom).toBeLessThan(state.answerTop)
+      expect(state.answerBottom).toBeLessThan(state.sourceTop)
+      expect(state.evidenceThreadDisplay).toBe('block')
+      expect(state.evidenceThreadLength).toBeGreaterThan(0)
+      expect(state.evidenceTargetX).toBeGreaterThan(state.citationX)
+      expect(state.evidenceTargetY).toBeGreaterThan(state.citationY)
+    } finally {
+      await page.close()
+    }
+  })
+
   it('aligns the How it works link with the pinned walkthrough', async () => {
     const page = await browser.newPage(`${server.url}/`)
     try {
-      await page.setViewportSize({ width: 1920, height: 1080 })
+      await page.setViewportSize({ width: 2048, height: 914 })
       await page.reload()
       await page.waitForSelector('#workings')
+      await page.evaluate(async () => await document.fonts.ready)
+      const heroLines = await page.evaluate(() => {
+        const heading = document.querySelector<HTMLElement>('.hero h1')
+        if (!heading) return 0
+        const lineHeight = Number.parseFloat(getComputedStyle(heading).lineHeight)
+        return Math.round(heading.getBoundingClientRect().height / lineHeight)
+      })
+      expect(heroLines).toBe(3)
       await page.evaluate(() => {
         document.querySelector<HTMLAnchorElement>('a[href="#workings"]')?.click()
       })
@@ -321,11 +405,37 @@ describe('CorpusKit front door', () => {
         sectionTop: document.querySelector('#workings')?.getBoundingClientRect().top,
         headerTheme: document.querySelector('.site-header')?.className,
         activeFeature: document.querySelector('.view-tab.active')?.textContent?.trim(),
+        laptopLayout: (() => {
+          const heading = document.querySelector<HTMLElement>('.workings .section-head')
+          const caption = document.querySelector<HTMLElement>('.workings .ways-caption')
+          const frame = document.querySelector<HTMLElement>('.workings .portal-frame')
+          const headingBounds = heading?.getBoundingClientRect()
+          const captionBounds = caption?.getBoundingClientRect()
+          const frameBounds = frame?.getBoundingClientRect()
+          return {
+            headingLeft: headingBounds?.left ?? 0,
+            headingRight: headingBounds?.right ?? 0,
+            captionLeft: captionBounds?.left ?? 0,
+            captionBottom: captionBounds?.bottom ?? 0,
+            frameLeft: frameBounds?.left ?? 0,
+            frameTop: frameBounds?.top ?? 0,
+            frameBottom: frameBounds?.bottom ?? 10_000,
+            frameWidth: frameBounds?.width ?? 0,
+          }
+        })(),
       }))
       expect(arrival.hash).toBe('#workings')
       expect(Math.abs((arrival.sectionTop ?? 0) - 76)).toBeLessThanOrEqual(2)
       expect(arrival.headerTheme).toContain('nav-dark')
       expect(arrival.activeFeature).toBe('Ask')
+      expect(Math.abs(arrival.laptopLayout.headingLeft - arrival.laptopLayout.captionLeft))
+        .toBeLessThanOrEqual(1)
+      expect(arrival.laptopLayout.frameLeft).toBeGreaterThan(arrival.laptopLayout.headingRight)
+      expect(arrival.laptopLayout.frameTop).toBeGreaterThanOrEqual(76)
+      expect(arrival.laptopLayout.frameBottom).toBeLessThanOrEqual(914)
+      expect(arrival.laptopLayout.frameWidth).toBeGreaterThan(700)
+      expect(arrival.laptopLayout.captionBottom)
+        .toBeLessThanOrEqual(arrival.laptopLayout.frameBottom + 1)
 
       await page.evaluate(() => globalThis.scrollBy(0, 900))
       await page.evaluate(async () => await new Promise((resolve) => setTimeout(resolve, 800)))
@@ -333,6 +443,75 @@ describe('CorpusKit front door', () => {
         document.querySelector('.view-tab.active')?.textContent?.trim()
       )
       expect(activeFeature).toBe('Search')
+
+      await page.evaluate(() => {
+        document.querySelector('#evidence-anatomy')?.scrollIntoView()
+        window.scrollBy(0, 100)
+      })
+      await page.evaluate(async () => await new Promise((resolve) => setTimeout(resolve, 1_200)))
+      const evidenceLayout = await page.evaluate(() => {
+        const bounds = (selector: string) =>
+          document.querySelector<HTMLElement>(selector)?.getBoundingClientRect()
+        const heading = bounds('.psig-head')
+        const description = bounds('.psig-head p')
+        const steps = bounds('.psig-steps')
+        const answer = bounds('.psig-answer')
+        const source = bounds('#psigSource')
+        const quality = bounds('#psigConf')
+        return {
+          headingRight: heading?.right ?? 0,
+          descriptionBottom: description?.bottom ?? 0,
+          stepsTop: steps?.top ?? 0,
+          answerLeft: answer?.left ?? 0,
+          answerBottom: answer?.bottom ?? 0,
+          sourceTop: source?.top ?? 0,
+          sourceBottom: source?.bottom ?? 10_000,
+          qualityTop: quality?.top ?? 0,
+          qualityBottom: quality?.bottom ?? 10_000,
+        }
+      })
+      expect(evidenceLayout.stepsTop).toBeGreaterThan(evidenceLayout.descriptionBottom)
+      expect(evidenceLayout.answerLeft).toBeGreaterThan(evidenceLayout.headingRight)
+      expect(evidenceLayout.sourceTop).toBeGreaterThan(evidenceLayout.answerBottom)
+      expect(evidenceLayout.qualityTop).toBeGreaterThan(evidenceLayout.sourceBottom)
+      expect(evidenceLayout.sourceBottom).toBeLessThanOrEqual(914)
+      expect(evidenceLayout.qualityBottom).toBeLessThanOrEqual(914)
+    } finally {
+      await page.close()
+    }
+  })
+
+  it('keeps the evidence walkthrough in editorial order on tall desktop screens', async () => {
+    const page = await browser.newPage(`${server.url}/`)
+    try {
+      await page.setViewportSize({ width: 1920, height: 1400 })
+      await page.reload()
+      await page.waitForSelector('#evidence-anatomy')
+      await page.evaluate(async () => await document.fonts.ready)
+      const layout = await page.evaluate(() => {
+        const bounds = (selector: string) =>
+          document.querySelector<HTMLElement>(selector)?.getBoundingClientRect()
+        const heading = bounds('.psig-head')
+        const description = bounds('.psig-head p')
+        const steps = bounds('.psig-steps')
+        const answer = bounds('.psig-answer')
+        const source = bounds('#psigSource')
+        const quality = bounds('#psigConf')
+        return {
+          headingRight: heading?.right ?? 0,
+          descriptionBottom: description?.bottom ?? 0,
+          stepsTop: steps?.top ?? 0,
+          answerLeft: answer?.left ?? 0,
+          answerBottom: answer?.bottom ?? 0,
+          sourceTop: source?.top ?? 0,
+          sourceBottom: source?.bottom ?? 0,
+          qualityTop: quality?.top ?? 0,
+        }
+      })
+      expect(layout.stepsTop).toBeGreaterThan(layout.descriptionBottom)
+      expect(layout.answerLeft).toBeGreaterThan(layout.headingRight)
+      expect(layout.sourceTop).toBeGreaterThan(layout.answerBottom)
+      expect(layout.qualityTop).toBeGreaterThan(layout.sourceBottom)
     } finally {
       await page.close()
     }
