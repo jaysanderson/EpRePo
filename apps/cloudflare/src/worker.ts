@@ -147,7 +147,9 @@ export function marketingHomeRequest(request: Request): Request {
     return request
   }
 
-  url.pathname = '/home.html'
+  // Ask Assets for its extensionless route. Requesting `home.html` directly
+  // invokes pretty-URL handling and would leak a `/home` redirect to visitors.
+  url.pathname = '/home'
   return new Request(url, {
     method: request.method,
     headers: request.headers,
