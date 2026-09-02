@@ -446,7 +446,7 @@ describe('CorpusKit front door', () => {
 
       await page.evaluate(() => {
         document.querySelector('#evidence-anatomy')?.scrollIntoView()
-        window.scrollBy(0, 100)
+        globalThis.scrollBy(0, 100)
       })
       await page.evaluate(async () => await new Promise((resolve) => setTimeout(resolve, 1_200)))
       const evidenceLayout = await page.evaluate(() => {
