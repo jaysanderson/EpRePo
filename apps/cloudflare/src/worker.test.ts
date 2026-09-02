@@ -9,6 +9,7 @@ type WorkerHandler = {
 
 type WorkerModule = {
   default: WorkerHandler
+  marketingHomeRequest(request: Request): Request
   forwardPortalRequest(
     request: Request,
     user: {
@@ -63,7 +64,19 @@ Deno.test('Worker serves the marketing app at the CorpusKit apex', async () => {
 
   expect(response.status).toBe(200)
   expect(await response.text()).toBe('asset')
-  expect(harness.assetRequests).toHaveLength(1)
+  expect(harness.assetRequests.map((request) => new URL(request.url).pathname)).toEqual([
+    '/home.html',
+  ])
+})
+
+Deno.test('Worker preserves the marketing URL query while selecting the homepage asset', () => {
+  const request = workerModule.marketingHomeRequest(
+    new Request('https://corpuskit.org/?campaign=launch', { method: 'HEAD' }),
+  )
+
+  expect(new URL(request.url).pathname).toBe('/home.html')
+  expect(new URL(request.url).search).toBe('?campaign=launch')
+  expect(request.method).toBe('HEAD')
 })
 
 Deno.test('Worker permanently redirects the Assistant route alias for GET and HEAD', async () => {

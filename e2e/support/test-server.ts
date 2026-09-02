@@ -29,6 +29,8 @@ export function startTestServer(): TestServer {
     tenants: freshTenants(),
     webDistPath: WEB_DIST,
   })
+  const homeHtml = Deno.readTextFileSync(`${WEB_DIST}/home.html`)
+  app.get('/', (c) => c.html(homeHtml))
   app.use('*', serveStatic({ root: WEB_DIST }))
   app.get('*', serveStatic({ path: `${WEB_DIST}/index.html` }))
 

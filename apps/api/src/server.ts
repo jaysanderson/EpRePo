@@ -60,10 +60,12 @@ function localBuildId(): string {
 
 const buildSha = process.env.BUILD_SHA ?? localBuildId()
 let indexHtml = ''
+let homeHtml = ''
 try {
   indexHtml = readFileSync('./apps/web/dist/index.html', 'utf8')
     .replace('"/app.js"', `"/app.js?v=${buildSha}"`)
     .replace('"/styles.css"', `"/styles.css?v=${buildSha}"`)
+  homeHtml = readFileSync('./apps/web/dist/home.html', 'utf8')
 } catch {
   // No build present (e.g. a dev server before build:web) - the health check
   // reports web:false and the catch-all below returns 503.
@@ -76,9 +78,9 @@ try {
 // the `*` fallback covers every client-side route. serveStatic in between
 // serves the real asset files (app.js, styles.css, thumbnails).
 app.get('/', (c) => {
-  if (!indexHtml) return c.text('The web build is not available.', 503)
+  if (!homeHtml) return c.text('The web build is not available.', 503)
   c.header('Cache-Control', 'no-cache')
-  return c.html(indexHtml)
+  return c.html(homeHtml)
 })
 app.use('*', serveStatic({ root: './apps/web/dist' }))
 app.get('*', (c) => {

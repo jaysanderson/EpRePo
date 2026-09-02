@@ -123,7 +123,7 @@ export default {
       return env.PORTAL.getByName(PORTAL_OBJECT_NAME, { locationHint: 'oc' }).fetch(forwarded)
     }
 
-    return secureAssetResponse(await env.ASSETS.fetch(request))
+    return secureAssetResponse(await env.ASSETS.fetch(marketingHomeRequest(request)))
   },
 
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext) {
@@ -139,6 +139,21 @@ export default {
     )
   },
 } satisfies ExportedHandler<Env>
+
+/** Serve the dedicated marketing document at the apex without changing its canonical URL. */
+export function marketingHomeRequest(request: Request): Request {
+  const url = new URL(request.url)
+  if ((request.method !== 'GET' && request.method !== 'HEAD') || url.pathname !== '/') {
+    return request
+  }
+
+  url.pathname = '/home.html'
+  return new Request(url, {
+    method: request.method,
+    headers: request.headers,
+    redirect: request.redirect,
+  })
+}
 
 /**
  * Forward only identity markers derived from a validated encrypted session.

@@ -39,16 +39,15 @@ afterAll(async () => {
 })
 
 describe('CorpusKit front door', () => {
-  it('explains the product and presents both public portals', async () => {
+  it('explains the product and presents the ways to take part', async () => {
     const page = await browser.newPage(`${server.url}/`)
     try {
       await page.waitForSelector('h1')
       const bodyText = await page.evaluate(() => document.body.innerText)
-      expect(bodyText).toContain('Turn a corpus into a place people can use.')
-      expect(bodyText).toContain('Continue with Microsoft 365')
-      expect(bodyText).toContain('Explore public portals')
-      expect(bodyText).toContain('FRDC Knowledge Hub')
-      expect(bodyText).toContain('GRDC Knowledge Hub')
+      expect(bodyText).toContain('Put your organisation’s')
+      expect(bodyText).toContain('Inside a CorpusKit portal')
+      expect(bodyText).toContain('Run CorpusKit with your collection')
+      expect(bodyText).toContain('Be a part of CorpusKit')
     } finally {
       await page.close()
     }
@@ -58,18 +57,51 @@ describe('CorpusKit front door', () => {
     const page = await browser.newPage(`${server.url}/`)
     try {
       await page.setViewportSize({ width: 390, height: 844 })
-      await page.waitForSelector('#portals')
+      await page.waitForSelector('#contribute')
       await page.evaluate(() => {
         document.documentElement.style.fontSize = '137.5%'
       })
       const state = await page.evaluate(() => ({
         horizontalOverflow: document.documentElement.scrollWidth - innerWidth,
         heading: document.querySelector('h1')?.textContent?.trim(),
-        portalCards: document.querySelectorAll('.mk-portal-card').length,
+        nextSteps: document.querySelectorAll('.next-step').length,
       }))
       expect(state.horizontalOverflow).toBeLessThanOrEqual(0)
-      expect(state.heading).toBe('Turn a corpus into a place people can use.')
-      expect(state.portalCards).toBe(2)
+      expect(state.heading).toContain('Put your organisation’s')
+      expect(state.nextSteps).toBe(3)
+    } finally {
+      await page.close()
+    }
+  })
+
+  it('aligns the How it works link with the pinned walkthrough', async () => {
+    const page = await browser.newPage(`${server.url}/`)
+    try {
+      await page.setViewportSize({ width: 1920, height: 1080 })
+      await page.reload()
+      await page.waitForSelector('#workings')
+      await page.evaluate(() => {
+        document.querySelector<HTMLAnchorElement>('a[href="#workings"]')?.click()
+      })
+      await page.evaluate(async () => await new Promise((resolve) => setTimeout(resolve, 1_200)))
+
+      const arrival = await page.evaluate(() => ({
+        hash: location.hash,
+        sectionTop: document.querySelector('#workings')?.getBoundingClientRect().top,
+        headerTheme: document.querySelector('.site-header')?.className,
+        activeFeature: document.querySelector('.view-tab.active')?.textContent?.trim(),
+      }))
+      expect(arrival.hash).toBe('#workings')
+      expect(Math.abs((arrival.sectionTop ?? 0) - 76)).toBeLessThanOrEqual(2)
+      expect(arrival.headerTheme).toContain('nav-dark')
+      expect(arrival.activeFeature).toBe('Ask')
+
+      await page.evaluate(() => globalThis.scrollBy(0, 900))
+      await page.evaluate(async () => await new Promise((resolve) => setTimeout(resolve, 800)))
+      const activeFeature = await page.evaluate(() =>
+        document.querySelector('.view-tab.active')?.textContent?.trim()
+      )
+      expect(activeFeature).toBe('Search')
     } finally {
       await page.close()
     }
