@@ -884,13 +884,13 @@
     }
 
     @media (max-width: 680px) {
-      :root { --page: calc(100vw - 32px); }
+      :root { --page: calc(100vw - 48px); }
       body { font-size: 16px; }
       .site-header { height: 64px; }
       .nav-links a:not(.sign-in) { display: none; }
       .sign-in { padding-left: 1rem; }
       .hero { min-height: 760px; padding-top: 8.2rem; padding-bottom: 2.5rem; }
-      .hero h1 { min-width: 0; font-size: clamp(3.4rem, 17vw, 5.2rem); line-height: .9; text-wrap: wrap; }
+      .hero h1 { min-width: 0; font-size: min(13vw, 4.25rem); line-height: .92; text-wrap: wrap; }
       .hero-copy { min-width: 0; max-width: 100%; }
       .hero-copy { margin-top: 2.4rem; }
       .hero-note { margin-top: 4rem; align-items: flex-start; flex-direction: column; }

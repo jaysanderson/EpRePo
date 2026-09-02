@@ -64,10 +64,17 @@ describe('CorpusKit front door', () => {
       const state = await page.evaluate(() => ({
         horizontalOverflow: document.documentElement.scrollWidth - innerWidth,
         heading: document.querySelector('h1')?.textContent?.trim(),
+        headingOverflow: (() => {
+          const heading = document.querySelector<HTMLElement>('.hero h1')
+          return heading ? heading.scrollWidth - heading.clientWidth : 10_000
+        })(),
+        pageInset: document.querySelector<HTMLElement>('.hero')?.getBoundingClientRect().left ?? 0,
         nextSteps: document.querySelectorAll('.next-step').length,
       }))
       expect(state.horizontalOverflow).toBeLessThanOrEqual(0)
       expect(state.heading).toContain('Put your organisation’s')
+      expect(state.headingOverflow).toBeLessThanOrEqual(0)
+      expect(state.pageInset).toBeGreaterThanOrEqual(24)
       expect(state.nextSteps).toBe(3)
     } finally {
       await page.close()
