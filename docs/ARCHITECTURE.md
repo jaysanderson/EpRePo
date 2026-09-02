@@ -171,7 +171,7 @@ business routes depend on store interfaces rather than either persistence mechan
 ## Deployment pipeline
 `local -> pull request -> Cloudflare`, in that order, always.
 
-- Repo: `github.com/noicework/kb`, production branch `main`.
+- Repo: `github.com/noicework/corpuskit`, production branch `main`.
 - `.github/workflows/deploy.yml` runs the full gate, builds and dry-runs the Worker package, then
   deploys that preserved package as the `corpuskit` Worker only when the gate passes.
 - Cloudflare auth in CI is a scoped API token stored as `CLOUDFLARE_API_TOKEN`; ARAG and Entra
