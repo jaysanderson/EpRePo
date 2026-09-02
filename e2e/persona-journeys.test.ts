@@ -69,13 +69,237 @@ describe('CorpusKit front door', () => {
           return heading ? heading.scrollWidth - heading.clientWidth : 10_000
         })(),
         pageInset: document.querySelector<HTMLElement>('.hero')?.getBoundingClientRect().left ?? 0,
+        heroThread: (() => {
+          const thread = document.querySelector<SVGSVGElement>('#heroThread')
+          const path = document.querySelector<SVGPathElement>('#heroThreadPath')
+          return {
+            display: thread ? getComputedStyle(thread).display : 'missing',
+            length: path?.getTotalLength() ?? 0,
+          }
+        })(),
+        closingThread: (() => {
+          const thread = document.querySelector<SVGSVGElement>('#closingThread')
+          const path = document.querySelector<SVGPathElement>('#closingThreadPath')
+          const dot = document.querySelector<SVGCircleElement>('#closingThreadDot')
+          const cards = document.querySelector<HTMLElement>('.next-steps')
+          const threadBounds = thread?.getBoundingClientRect()
+          const cardsBounds = cards?.getBoundingClientRect()
+          const cardsCentre = threadBounds && cardsBounds
+            ? (cardsBounds.left + cardsBounds.right) / 2 - threadBounds.left
+            : 0
+          return {
+            display: thread ? getComputedStyle(thread).display : 'missing',
+            length: path?.getTotalLength() ?? 0,
+            targetOffset: Math.abs(Number(dot?.getAttribute('cx') ?? 10_000) - cardsCentre),
+          }
+        })(),
+        evidenceFlow: (() => {
+          const description = document.querySelector<HTMLElement>('.psig-head p')
+          const steps = document.querySelector<HTMLElement>('.psig-steps')
+          const answer = document.querySelector<HTMLElement>('.psig-answer')
+          const source = document.querySelector<HTMLElement>('#psigSource')
+          const thread = document.querySelector<SVGSVGElement>('#psigThread')
+          const path = document.querySelector<SVGPathElement>('#psigThreadPath')
+          return {
+            descriptionBottom: description?.getBoundingClientRect().bottom ?? 0,
+            stepsTop: steps?.getBoundingClientRect().top ?? 0,
+            stepsBottom: steps?.getBoundingClientRect().bottom ?? 0,
+            answerTop: answer?.getBoundingClientRect().top ?? 0,
+            answerBottom: answer?.getBoundingClientRect().bottom ?? 0,
+            sourceTop: source?.getBoundingClientRect().top ?? 0,
+            threadDisplay: thread ? getComputedStyle(thread).display : 'missing',
+            threadLength: path?.getTotalLength() ?? 0,
+          }
+        })(),
+        portalInset: (() => {
+          const frame = document.querySelector<HTMLElement>('.portal-frame')
+          if (!frame) return { left: 0, right: 0 }
+          const bounds = frame.getBoundingClientRect()
+          return { left: bounds.left, right: innerWidth - bounds.right }
+        })(),
+        portalScreen: (() => {
+          const frame = document.querySelector<HTMLElement>('.portal-frame')
+          const main = document.querySelector<HTMLElement>('.portal-main')
+          return {
+            height: frame?.getBoundingClientRect().height ?? 0,
+            contentHeight: main?.clientHeight ?? 0,
+            scrollHeight: main?.scrollHeight ?? 0,
+            overflowY: main ? getComputedStyle(main).overflowY : 'missing',
+            touchAction: main ? getComputedStyle(main).touchAction : 'missing',
+            pageSmootherActive: Boolean(
+              (window as unknown as { ScrollSmoother?: { get: () => unknown } }).ScrollSmoother
+                ?.get(),
+            ),
+          }
+        })(),
+        mobileTabs: {
+          display:
+            getComputedStyle(document.querySelector<HTMLElement>('.mobile-view-tabs')!).display,
+          portalDisplay:
+            getComputedStyle(document.querySelector<HTMLElement>('.portal-nav')!).display,
+          portalTopDisplay:
+            getComputedStyle(document.querySelector<HTMLElement>('.portal-top')!).display,
+        },
+        headerPosition:
+          getComputedStyle(document.querySelector<HTMLElement>('.site-header')!).position,
         nextSteps: document.querySelectorAll('.next-step').length,
       }))
       expect(state.horizontalOverflow).toBeLessThanOrEqual(0)
       expect(state.heading).toContain('Put your organisation’s')
       expect(state.headingOverflow).toBeLessThanOrEqual(0)
       expect(state.pageInset).toBeGreaterThanOrEqual(24)
+      expect(state.heroThread.display).toBe('block')
+      expect(state.heroThread.length).toBeGreaterThan(0)
+      expect(state.closingThread.display).toBe('block')
+      expect(state.closingThread.length).toBeGreaterThan(0)
+      expect(state.closingThread.targetOffset).toBeLessThanOrEqual(1)
+      expect(state.evidenceFlow.descriptionBottom).toBeLessThan(state.evidenceFlow.stepsTop)
+      expect(state.evidenceFlow.stepsBottom).toBeLessThan(state.evidenceFlow.answerTop)
+      expect(state.evidenceFlow.answerBottom).toBeLessThan(state.evidenceFlow.sourceTop)
+      expect(state.evidenceFlow.threadDisplay).toBe('block')
+      expect(state.evidenceFlow.threadLength).toBeGreaterThan(0)
+      expect(state.portalInset.left).toBeGreaterThanOrEqual(24)
+      expect(state.portalInset.right).toBeGreaterThanOrEqual(24)
+      expect(state.portalScreen.height).toBeLessThanOrEqual(844 * 0.78 + 1)
+      expect(state.portalScreen.scrollHeight).toBeGreaterThan(state.portalScreen.contentHeight)
+      expect(state.portalScreen.overflowY).toBe('auto')
+      expect(state.portalScreen.touchAction).toBe('pan-y')
+      expect(state.portalScreen.pageSmootherActive).toBe(false)
+      expect(state.mobileTabs.display).toBe('grid')
+      expect(state.mobileTabs.portalDisplay).toBe('none')
+      expect(state.mobileTabs.portalTopDisplay).toBe('none')
+      expect(state.headerPosition).toBe('absolute')
       expect(state.nextSteps).toBe(3)
+
+      await page.evaluate(() => {
+        document.querySelector<HTMLButtonElement>('#mobile-tab-search')?.click()
+      })
+      await page.evaluate(async () => await new Promise((resolve) => setTimeout(resolve, 750)))
+      const selectedFeature = await page.evaluate(() => ({
+        tab: document.querySelector('.mobile-view-tab.active')?.textContent?.trim(),
+        caption: document.getElementById('waysCaptionText')?.textContent,
+        view: document.querySelector('.portal-view.active')?.id,
+      }))
+      expect(selectedFeature.tab).toBe('Search')
+      expect(selectedFeature.caption).toContain('Search for words, topics or document kinds')
+      expect(selectedFeature.view).toBe('view-search')
+
+      const searchControls = await page.evaluate(() => ({
+        direction:
+          getComputedStyle(document.querySelector<HTMLElement>('#view-search .pv-controls')!)
+            .flexDirection,
+        modesDisplay:
+          getComputedStyle(document.querySelector<HTMLElement>('#view-search .sr-modes')!).display,
+        modesWidth:
+          document.querySelector<HTMLElement>('#view-search .sr-modes')?.getBoundingClientRect()
+            .width ?? 0,
+        statusAlign:
+          getComputedStyle(document.querySelector<HTMLElement>('#view-search .pv-meta')!).textAlign,
+      }))
+      expect(searchControls.direction).toBe('column')
+      expect(searchControls.modesDisplay).toBe('grid')
+      expect(searchControls.modesWidth).toBeGreaterThan(250)
+      expect(searchControls.statusAlign).toBe('left')
+
+      const internalScrollTop = await page.evaluate(() => {
+        const main = document.querySelector<HTMLElement>('.portal-main')
+        if (!main) return 0
+        main.scrollTop = 120
+        return main.scrollTop
+      })
+      expect(internalScrollTop).toBeGreaterThan(0)
+
+      await page.evaluate(() => {
+        document.querySelector<HTMLButtonElement>('#mobile-tab-map')?.click()
+      })
+      await page.evaluate(async () => await new Promise((resolve) => setTimeout(resolve, 750)))
+      const mobileMap = await page.evaluate(() => ({
+        view: document.querySelector('.portal-view.active')?.id,
+        desktopDisplay:
+          getComputedStyle(document.querySelector<SVGSVGElement>('.kg-desktop')!).display,
+        mobileDisplay:
+          getComputedStyle(document.querySelector<SVGSVGElement>('.kg-mobile')!).display,
+        scrollTop: document.querySelector<HTMLElement>('.portal-main')?.scrollTop,
+        label: document.querySelector<SVGSVGElement>('.kg-mobile')?.getAttribute('aria-label'),
+      }))
+      expect(mobileMap.view).toBe('view-map')
+      expect(mobileMap.desktopDisplay).toBe('none')
+      expect(mobileMap.mobileDisplay).toBe('block')
+      expect(mobileMap.scrollTop).toBe(0)
+      expect(mobileMap.label).toContain('mobile knowledge graph')
+
+      const mapControls = await page.evaluate(() => ({
+        direction: getComputedStyle(document.querySelector<HTMLElement>('#view-map .pv-controls')!)
+          .flexDirection,
+        statusAlign:
+          getComputedStyle(document.querySelector<HTMLElement>('#view-map .pv-meta')!).textAlign,
+      }))
+      expect(mapControls.direction).toBe('column')
+      expect(mapControls.statusAlign).toBe('left')
+
+      await page.evaluate(() => {
+        document.querySelector<HTMLButtonElement>('#mobile-tab-library')?.click()
+      })
+      await page.evaluate(async () => await new Promise((resolve) => setTimeout(resolve, 750)))
+      const libraryControls = await page.evaluate(() => ({
+        direction:
+          getComputedStyle(document.querySelector<HTMLElement>('#view-library .pv-controls')!)
+            .flexDirection,
+        statusAlign:
+          getComputedStyle(document.querySelector<HTMLElement>('#view-library .pv-meta')!)
+            .textAlign,
+      }))
+      expect(libraryControls.direction).toBe('column')
+      expect(libraryControls.statusAlign).toBe('left')
+
+      await page.evaluate(() => {
+        document.querySelector<HTMLButtonElement>('#mobile-tab-ask')?.click()
+      })
+      await page.evaluate(async () => await new Promise((resolve) => setTimeout(resolve, 750)))
+      const confidence = await page.evaluate(() => {
+        const confidence = document.querySelector<HTMLElement>('#view-ask .confidence')
+        const label = confidence?.querySelector<HTMLElement>('strong')
+        const detail = confidence?.querySelector<HTMLElement>('span')
+        return {
+          display: confidence ? getComputedStyle(confidence).display : 'missing',
+          labelTop: label?.getBoundingClientRect().top ?? 0,
+          detailTop: detail?.getBoundingClientRect().top ?? 0,
+        }
+      })
+      expect(confidence.display).toBe('grid')
+      expect(confidence.detailTop).toBeGreaterThan(confidence.labelTop)
+
+      await page.evaluate(() => {
+        const commands = [
+          'git clone https://github.com/noicework/kb.git',
+          'cd kb',
+          'cp .env.example .env',
+          'deno task provision',
+          'deno task dev',
+        ]
+        document.querySelectorAll<HTMLElement>('.typed-command').forEach((command, index) => {
+          command.textContent = commands[index] ?? ''
+        })
+        const comment = document.querySelector<HTMLElement>('.typed-comment')
+        if (comment) comment.textContent = '   # knowledge service credentials'
+      })
+      const completedTerminal = await page.evaluate(() => {
+        const card = document.querySelector<HTMLElement>('.code-card')
+        const pre = card?.querySelector<HTMLElement>('pre')
+        const bounds = card?.getBoundingClientRect()
+        return {
+          horizontalOverflow: document.documentElement.scrollWidth - innerWidth,
+          left: bounds?.left ?? 0,
+          rightInset: bounds ? innerWidth - bounds.right : 0,
+          preOverflow: pre ? pre.scrollWidth - pre.clientWidth : 10_000,
+          command: card?.querySelector('.terminal-line')?.textContent,
+        }
+      })
+      expect(completedTerminal.horizontalOverflow).toBeLessThanOrEqual(0)
+      expect(completedTerminal.left).toBeGreaterThanOrEqual(24)
+      expect(completedTerminal.rightInset).toBeGreaterThanOrEqual(24)
+      expect(completedTerminal.preOverflow).toBeLessThanOrEqual(0)
+      expect(completedTerminal.command).toContain('https://github.com/noicework/kb.git')
     } finally {
       await page.close()
     }

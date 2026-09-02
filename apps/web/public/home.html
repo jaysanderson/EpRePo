@@ -2,7 +2,7 @@
 <html lang="en-AU">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="description" content="CorpusKit is an open source research portal for searching collections, asking cited questions and exploring connections between sources.">
   <meta name="theme-color" content="#f2efe7">
   <title>CorpusKit – open source research portal</title>
@@ -82,7 +82,8 @@
       position: fixed;
       inset: 0 0 auto;
       z-index: 12;
-      height: 76px;
+      height: calc(76px + env(safe-area-inset-top));
+      padding-top: env(safe-area-inset-top);
       border-bottom: 1px solid rgba(28, 28, 25, .15);
       background: rgba(242, 239, 231, .91);
       backdrop-filter: blur(16px);
@@ -140,7 +141,7 @@
     .site-header.nav-dark .sign-in, .site-header.nav-blue .sign-in { border-left-color: rgba(255, 255, 255, .24); }
 
     main { overflow: hidden; }
-    #top, #workings, #run, #contribute { scroll-margin-top: 76px; }
+    #top, #workings, #run, #contribute { scroll-margin-top: calc(76px + env(safe-area-inset-top)); }
 
     .hero {
       width: var(--page);
@@ -625,6 +626,7 @@
 
     .pv-mapcard { padding: .8rem; background: #fff; }
     .pv-mapcard svg { display: block; width: 100%; height: auto; max-height: 520px; margin: 0 auto; }
+    .kg-mobile { display: none; }
     .kg-legend-panel { fill: #fbfbf8; stroke: #deddd7; }
     .kg-legend-title, .kg-legend-label, .kg-legend-count, .kg-node-label { font-family: var(--sans); fill: #5e5c56; }
     .kg-legend-title { font-size: 9px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
@@ -689,6 +691,8 @@
     .ways-caption .wc-n { display: inline; margin-right: .8rem; font-family: var(--display); font-size: .9rem; font-weight: 600; color: var(--blue-pale); }
     .ways-caption .wc-t { display: inline; color: #c6c2b8; font-size: .9rem; line-height: 1.55; }
     .ways-caption .wc-n, .ways-caption .wc-t { will-change: opacity, transform; }
+
+    .mobile-view-tabs { display: none; }
 
     @media (min-width: 1900px) {
       .ways-caption {
@@ -768,6 +772,7 @@
     @media (max-width: 900px) { .run-cols { grid-template-columns: 1fr; } }
     .run-intro p + p { margin-top: 1.1rem; font-size: .98rem; }
     .run-grid { width: var(--page); margin: 0 auto; display: grid; grid-template-columns: minmax(360px, .9fr) minmax(0, 1.1fr); gap: clamp(3rem, 7vw, 8rem); }
+    .run-grid > * { min-width: 0; }
     .run-intro h2 { font-size: clamp(2.6rem, 4vw, 4.5rem); }
     .run-intro p { max-width: 600px; margin: 2rem 0 0; color: #dce8f4; font-size: 1.08rem; }
 
@@ -886,11 +891,15 @@
     @media (max-width: 680px) {
       :root { --page: calc(100vw - 48px); }
       body { font-size: 16px; }
-      .site-header { height: 64px; }
+      .site-header {
+        position: absolute;
+        height: calc(64px + env(safe-area-inset-top));
+      }
       .nav-links a:not(.sign-in) { display: none; }
       .sign-in { padding-left: 1rem; }
       .hero { min-height: 760px; padding-top: 8.2rem; padding-bottom: 2.5rem; }
       .hero h1 { min-width: 0; font-size: min(13vw, 4.25rem); line-height: .92; text-wrap: wrap; }
+      .hero-thread { display: block; }
       .hero-copy { min-width: 0; max-width: 100%; }
       .hero-copy { margin-top: 2.4rem; }
       .hero-note { margin-top: 4rem; align-items: flex-start; flex-direction: column; }
@@ -900,18 +909,58 @@
       .section-head h2, .run-intro h2, .library-copy h2, .closing h2 { font-size: clamp(3.2rem, 15vw, 4.4rem); }
       .closing h2 { font-size: clamp(3.4rem, 17vw, 5.2rem); line-height: .9; }
       .run-intro h2 { font-size: clamp(2.4rem, 10.5vw, 3.1rem); }
-      .portal-frame { margin-inline: -8px; }
-      .portal-top { min-height: 64px; padding: .75rem; grid-template-columns: 1fr; }
+      .mobile-view-tabs {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        margin-bottom: 1.35rem;
+        border-bottom: 1px solid #4b4a45;
+      }
+      .mobile-view-tab {
+        min-width: 0;
+        padding: .78rem .1rem .72rem;
+        border: 0;
+        border-bottom: 2px solid transparent;
+        background: transparent;
+        color: #aaa69d;
+        font-family: var(--display);
+        font-size: .8rem;
+        font-weight: 500;
+        letter-spacing: -.02em;
+        cursor: pointer;
+      }
+      .mobile-view-tab.active {
+        border-bottom-color: rgb(220, 232, 244);
+        color: var(--paper-soft);
+        font-weight: 600;
+      }
+      .ways-caption { padding-top: 0; border-top: 0; }
+      .ways-caption .wc-n { display: none; }
+      .portal-frame {
+        display: flex;
+        flex-direction: column;
+        height: clamp(520px, 78svh, 700px);
+        overflow: hidden;
+      }
+      .portal-top { display: none; }
       .portal-name { display: none; }
       .portal-search { font-size: .79rem; }
-      .portal-nav { padding: .5rem; }
+      .portal-nav { display: none; }
       .view-tab { min-width: auto; flex: 1; padding: .7rem .55rem; font-size: .8rem; justify-content: center; }
       .view-tab::after { display: none; }
-      .portal-main { padding: 1.15rem; }
-      .portal-body { min-height: 700px; }
+      .portal-main { min-height: 0; padding: 2rem 1.15rem 1.15rem; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; -webkit-overflow-scrolling: touch; }
+      .portal-body { flex: 1; min-height: 0; grid-template-rows: minmax(0, 1fr); }
       .portal-view h3 { font-size: 2.3rem; margin-bottom: 1.3rem; }
       .question-card { padding: 1rem; }
       .answer p { font-size: 1rem; }
+      .confidence {
+        display: grid;
+        grid-template-columns: 36px minmax(0, 1fr);
+        gap: .3rem .75rem;
+        align-items: start;
+      }
+      .confidence::before { grid-column: 1; grid-row: 1; margin: .42rem 0 0; }
+      .confidence strong { grid-column: 2; grid-row: 1; }
+      .confidence span { grid-column: 2; grid-row: 2; }
       .passage-drawer { min-height: 220px; }
       .no-evidence { font-size: .84rem; }
       .result { grid-template-columns: 46px minmax(0, 1fr); gap: .75rem; }
@@ -920,6 +969,43 @@
       .resource-card { min-height: 170px; }
       .resource-card:nth-child(n+3) { display: none; }
       .map-canvas { min-height: 480px; }
+      .pv-mapcard { padding: 0; }
+      .pv-mapcard .kg-desktop { display: none; }
+      .pv-mapcard .kg-mobile { display: block; max-height: none; }
+      .kg-mobile .kg-node-label { font-size: 11px; stroke-width: 4px; }
+      .kg-mobile .kg-node-label.key { font-size: 12px; }
+      .kg-mobile .kg-cluster-label { font-size: 9px; }
+      .pv-controls {
+        flex-direction: column;
+        align-items: stretch;
+        gap: .75rem;
+        margin-bottom: 1rem;
+      }
+      .pv-querybar { flex-basis: auto; width: 100%; padding: .78rem .85rem; font-size: .86rem; }
+      .sr-modes {
+        display: grid;
+        grid-auto-flow: column;
+        grid-auto-columns: minmax(0, 1fr);
+        width: 100%;
+        gap: .2rem;
+      }
+      .sr-modes span {
+        min-width: 0;
+        padding: .38rem .2rem;
+        font-size: .64rem;
+        text-align: center;
+        white-space: nowrap;
+      }
+      .pv-chiprow { width: 100%; gap: .35rem; }
+      .chip { padding: .3rem .58rem; font-size: .69rem; }
+      .pv-chiprow .pv-meta,
+      .pv-controls > .pv-meta {
+        flex-basis: 100%;
+        width: 100%;
+        margin: .45rem 0 0;
+        font-size: .78rem;
+        text-align: left;
+      }
       .node-a { left: 4%; top: 19%; }
       .node-b { right: 3%; top: 25%; }
       .node-c { right: 5%; bottom: 16%; }
@@ -935,13 +1021,22 @@
       .blue-note { width: 80px; right: 0; font-size: .64rem; }
       .run-section { padding: 5.5rem 0; }
       .run-grid { gap: 3rem; }
+      .code-card { width: 100%; min-width: 0; max-width: 100%; overflow: hidden; }
+      .code-card pre {
+        max-width: 100%;
+        overflow-x: hidden;
+        overflow-wrap: anywhere;
+        white-space: pre-wrap;
+      }
+      .terminal-line { max-width: 100%; }
       .requirement { grid-template-columns: 1fr; gap: .25rem; }
       .stewardship { padding: 6rem 0; }
       .stewardship blockquote { font-size: clamp(3rem, 14vw, 4.5rem); }
       .closing { min-height: auto; padding-top: 5.5rem; }
+      .closing-thread { display: block; }
       .next-steps { grid-template-columns: 1fr; margin-top: 5rem; }
       .next-step { min-height: 175px; }
-      .site-footer { flex-direction: column; gap: .4rem; }
+      .site-footer { flex-direction: column; gap: .4rem; padding-bottom: calc(2rem + env(safe-area-inset-bottom)); }
     }
 
     @media (prefers-reduced-motion: reduce) {
@@ -978,9 +1073,9 @@
     .psig-thread {
       position: absolute; inset: 0; z-index: 4;
       pointer-events: none; overflow: visible;
-      display: none;
+      display: none; width: 100%; height: 100%;
     }
-    .psig-thread path { fill: none; stroke: var(--blue); stroke-width: 1.5; }
+    .psig-thread path { fill: none; stroke: var(--blue); stroke-width: 1.5; stroke-linecap: round; }
     .psig-thread circle { fill: var(--blue); }
     @media (min-width: 1024px) {
       .psig-thread { display: block; }
@@ -1006,6 +1101,11 @@
     .psig-steps li.is-active .n { color: var(--blue); }
     @media (max-width: 1023px) {
       .psig-stage { min-height: 0; padding-block: clamp(4rem, 9vw, 6rem); }
+      .psig-head { margin-bottom: 1.6rem; }
+      .psig-thread { display: block; }
+      .psig-left { display: flex; flex-direction: column; }
+      .psig-answer { order: 2; }
+      .psig-steps { order: 1; margin: 0 0 2.2rem; }
       .psig-steps li, .psig-steps .n { color: var(--ink); }
       .psig-steps .n { color: var(--blue); }
     }
@@ -1083,6 +1183,13 @@
             </div>
 
             <div class="portal-stage">
+              <div class="mobile-view-tabs" role="tablist" aria-label="Choose a portal feature">
+                <button class="mobile-view-tab active" id="mobile-tab-ask" role="tab" aria-selected="true" aria-controls="view-ask" data-view="ask">Ask</button>
+                <button class="mobile-view-tab" id="mobile-tab-search" role="tab" aria-selected="false" aria-controls="view-search" data-view="search" tabindex="-1">Search</button>
+                <button class="mobile-view-tab" id="mobile-tab-library" role="tab" aria-selected="false" aria-controls="view-library" data-view="library" tabindex="-1">Library</button>
+                <button class="mobile-view-tab" id="mobile-tab-map" role="tab" aria-selected="false" aria-controls="view-map" data-view="map" tabindex="-1">Map</button>
+                <button class="mobile-view-tab" id="mobile-tab-manage" role="tab" aria-selected="false" aria-controls="view-manage" data-view="manage" tabindex="-1">Manage</button>
+              </div>
               <p class="ways-caption"><span class="wc-n" id="waysCaptionLabel">Ask</span><span class="wc-t" id="waysCaptionText">Enter a question in Ask. CorpusKit searches the collection and returns an answer with citations, sources and a confidence rating. Deep research is available when a broad question needs to be broken into smaller ones.</span></p>
 
               <!-- All example research titles, dates, passages and relevance values are illustrative placeholders. -->
@@ -1201,7 +1308,7 @@
                       <span class="pv-meta">Select a connection to see the resources behind it</span>
                     </div>
                     <div class="pv-card pv-mapcard">
-                      <svg viewBox="0 0 720 330" role="img" aria-label="A two-dimensional knowledge graph of environmental pressures, habitats, species and research topics, with related entities joined by lines">
+                      <svg class="kg-desktop" viewBox="0 0 720 330" role="img" aria-label="A two-dimensional knowledge graph of environmental pressures, habitats, species and research topics, with related entities joined by lines">
                         <rect class="kg-legend-panel" x="4" y="4" width="118" height="322" rx="2"/>
                         <text class="kg-legend-title" x="16" y="23">Entity types</text>
                         <circle class="kg-node crop" cx="19" cy="42" r="5"/><text class="kg-legend-label" x="30" y="45">Research topic</text><text class="kg-legend-count" x="108" y="45" text-anchor="end">26</text>
@@ -1259,6 +1366,70 @@
                         <text class="kg-node-label key" x="279" y="235" font-style="italic">Zostera muelleri</text>
                         <text class="kg-node-label" x="183" y="289">Halophila ovalis</text>
                       </svg>
+                      <svg class="kg-mobile" viewBox="0 0 320 460" role="img" aria-label="A mobile knowledge graph showing how floods, turbidity, seagrass and related research entities connect">
+                        <rect width="320" height="460" fill="#fff"/>
+
+                        <g aria-hidden="true">
+                          <circle class="kg-node crop" cx="18" cy="24" r="5"/><text class="kg-legend-label" x="29" y="28">Topic</text>
+                          <circle class="kg-node habitat" cx="88" cy="24" r="5"/><text class="kg-legend-label" x="99" y="28">Habitat</text>
+                          <circle class="kg-node pressure" cx="180" cy="24" r="5"/><text class="kg-legend-label" x="191" y="28">Pressure</text>
+                          <circle class="kg-node species" cx="263" cy="24" r="5"/><text class="kg-legend-label" x="274" y="28">Species</text>
+                          <line class="kg-legend-rule" x1="12" y1="43" x2="308" y2="43"/>
+
+                          <ellipse class="kg-cluster crop" cx="145" cy="172" rx="125" ry="105"/>
+                          <ellipse class="kg-cluster habitat" cx="230" cy="290" rx="76" ry="103"/>
+                          <ellipse class="kg-cluster pressure" cx="79" cy="306" rx="70" ry="96"/>
+                          <ellipse class="kg-cluster kg-cluster-species" cx="173" cy="411" rx="72" ry="38"/>
+                          <text class="kg-cluster-label crop" x="24" y="66">RESEARCH TOPICS</text>
+                          <text class="kg-cluster-label habitat" x="232" y="211">HABITATS</text>
+                          <text class="kg-cluster-label pressure" x="17" y="227">PRESSURES</text>
+                          <text class="kg-cluster-label species" x="114" y="451">SPECIES</text>
+
+                          <path class="kg-edge crop" d="M72 132L154 178M154 178L236 131M154 178L214 227M154 178L93 205M72 132L111 91M154 178L177 103M236 131L277 167M93 205L48 176"/>
+                          <path class="kg-edge habitat" d="M214 227L252 274M252 274L265 344M214 227L201 310M201 310L265 344M252 274L294 247"/>
+                          <path class="kg-edge pressure" d="M93 205L65 279M65 279L103 342M65 279L31 323M103 342L146 315M48 176L65 279M154 178L103 342"/>
+                          <path class="kg-edge species" d="M201 310L174 405M265 344L174 405M103 342L132 416M174 405L220 422"/>
+                          <path class="kg-edge habitat" d="M72 132L252 274M111 91L214 227M177 103L265 344"/>
+
+                          <circle class="kg-node crop" cx="72" cy="132" r="11"/>
+                          <circle class="kg-node crop" cx="111" cy="91" r="7"/>
+                          <circle class="kg-node crop selected" cx="154" cy="178" r="18"/>
+                          <circle class="kg-node crop" cx="177" cy="103" r="8"/>
+                          <circle class="kg-node crop" cx="236" cy="131" r="12"/>
+                          <circle class="kg-node crop" cx="214" cy="227" r="8"/>
+                          <circle class="kg-node crop" cx="93" cy="205" r="7"/>
+                          <circle class="kg-node crop" cx="48" cy="176" r="6"/>
+                          <circle class="kg-node crop" cx="277" cy="167" r="6"/>
+
+                          <circle class="kg-node habitat" cx="252" cy="274" r="20"/>
+                          <circle class="kg-node habitat" cx="201" cy="310" r="9"/>
+                          <circle class="kg-node habitat" cx="265" cy="344" r="12"/>
+                          <circle class="kg-node habitat" cx="294" cy="247" r="6"/>
+
+                          <circle class="kg-node pressure" cx="65" cy="279" r="17"/>
+                          <circle class="kg-node pressure" cx="103" cy="342" r="11"/>
+                          <circle class="kg-node pressure" cx="31" cy="323" r="7"/>
+                          <circle class="kg-node pressure" cx="146" cy="315" r="6"/>
+
+                          <circle class="kg-node species" cx="174" cy="405" r="14"/>
+                          <circle class="kg-node species" cx="132" cy="416" r="7"/>
+                          <circle class="kg-node species" cx="220" cy="422" r="6"/>
+
+                          <text class="kg-node-label" x="25" y="124">water quality</text>
+                          <text class="kg-node-label" x="76" y="83">monitoring</text>
+                          <text class="kg-node-label key" x="166" y="175">winter turbidity</text>
+                          <text class="kg-node-label" x="187" y="99">light availability</text>
+                          <text class="kg-node-label" x="244" y="128">recovery</text>
+                          <text class="kg-node-label key" x="218" y="270">seagrass</text>
+                          <text class="kg-node-label" x="209" y="306">estuary</text>
+                          <text class="kg-node-label" x="224" y="361">coastal habitat</text>
+                          <text class="kg-node-label key" x="19" y="274">2022 floods</text>
+                          <text class="kg-node-label" x="109" y="339">sediment</text>
+                          <text class="kg-node-label" x="15" y="342">runoff</text>
+                          <text class="kg-node-label key" x="113" y="398" font-style="italic">Zostera muelleri</text>
+                        </g>
+                        <text class="kg-legend-count" x="308" y="449" text-anchor="end">54 entities · 87 links</text>
+                      </svg>
                     </div>
                   </section>
 
@@ -1287,7 +1458,7 @@
               <p>CorpusKit links claims in an answer to the source passages that support them. Quality scores show how relevant the retrieved material is, how closely the answer follows it and whether enough context was found.</p>
             </div>
             <div class="psig-grid">
-              <div>
+              <div class="psig-left">
                 <p class="psig-answer">Seagrass recovered more slowly at sites where winter turbidity remained above the long-term median. At those sites, light at the canopy fell below the minimum required by <i>Zostera muelleri</i> on 63 per cent of monitored days.<span class="psig-cite" id="psigCite">2</span></p>
                 <ol class="psig-steps" id="psigSteps">
                   <li><span class="n">1</span>Choose a claim to check</li>
@@ -1409,7 +1580,8 @@
   <script type="module">
     const { gsap, ScrollTrigger, ScrollSmoother } = window;
     (function () {
-      const tabs = Array.from(document.querySelectorAll('.view-tab'));
+      const tabs = Array.from(document.querySelectorAll('.view-tab, .mobile-view-tab'));
+      const viewNames = ['ask', 'search', 'library', 'map', 'manage'];
       const views = Array.from(document.querySelectorAll('.portal-view'));
       const citations = Array.from(document.querySelectorAll('.citation'));
       const passage = document.getElementById('passage');
@@ -1439,6 +1611,9 @@
           tab.setAttribute('aria-selected', String(selected));
           tab.tabIndex = selected ? 0 : -1;
         });
+
+        const portalMain = document.querySelector('.portal-main');
+        if (portalMain) portalMain.scrollTop = 0;
 
         const nextView = document.getElementById('view-' + name);
         const activeView = document.querySelector('.portal-view.active');
@@ -1488,18 +1663,22 @@
 
       window.__showPortalView = showView;
 
-      tabs.forEach(function (tab, index) {
+      tabs.forEach(function (tab) {
         tab.addEventListener('click', function () {
-          if (window.__setPortalStep) window.__setPortalStep(index);
+          const stepIndex = viewNames.indexOf(tab.dataset.view);
+          if (window.__setPortalStep) window.__setPortalStep(stepIndex);
           else showView(tab.dataset.view);
         });
         tab.addEventListener('keydown', function (event) {
           if (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft') return;
           event.preventDefault();
+          const groupTabs = Array.from(tab.closest('[role="tablist"]').querySelectorAll('[data-view]'));
+          const index = groupTabs.indexOf(tab);
           const direction = event.key === 'ArrowRight' ? 1 : -1;
-          const nextIndex = (index + direction + tabs.length) % tabs.length;
-          const next = tabs[nextIndex];
-          if (window.__setPortalStep) window.__setPortalStep(nextIndex);
+          const nextIndex = (index + direction + groupTabs.length) % groupTabs.length;
+          const next = groupTabs[nextIndex];
+          const stepIndex = viewNames.indexOf(next.dataset.view);
+          if (window.__setPortalStep) window.__setPortalStep(stepIndex);
           else showView(next.dataset.view);
           next.focus();
         });
@@ -1519,7 +1698,11 @@
 
       if (window.gsap && window.ScrollTrigger && window.ScrollSmoother && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
         gsap.registerPlugin(ScrollTrigger, ScrollSmoother);
-        ScrollSmoother.create({ wrapper: '#smooth-wrapper', content: '#smooth-content', smooth: 1.05, effects: false, normalizeScroll: true });
+        var smootherMedia = gsap.matchMedia();
+        smootherMedia.add('(min-width: 1024px)', function () {
+          var smoother = ScrollSmoother.create({ wrapper: '#smooth-wrapper', content: '#smooth-content', smooth: 1.05, effects: false, normalizeScroll: true });
+          return function () { smoother.kill(); };
+        });
 
         gsap.fromTo('.passage-drawer',
           { clipPath: 'inset(0 100% 0 0)' },
@@ -1581,11 +1764,18 @@
         var y1 = (citationBounds.top + citationBounds.bottom) / 2 - bounds.top;
         var x2 = descriptionBounds.left - bounds.left - 13;
         var y2 = descriptionBounds.top - bounds.top + lineHeight * .55;
-        var distance = Math.max(60, x2 - x1);
-        var bend = Math.min(110, distance * .5);
+        var stacked = descriptionBounds.top > citationBounds.bottom + lineHeight;
 
         svg.setAttribute('viewBox', '0 0 ' + bounds.width + ' ' + bounds.height);
-        path.setAttribute('d', 'M' + x1 + ' ' + y1 + ' C ' + (x1 + bend) + ' ' + y1 + ', ' + (x2 - bend) + ' ' + y2 + ', ' + x2 + ' ' + y2);
+        if (stacked) {
+          x2 = descriptionBounds.right - bounds.left - 32;
+          y2 = descriptionBounds.top - bounds.top - 10;
+          path.setAttribute('d', 'M' + x1 + ' ' + y1 + ' Q ' + x2 + ' ' + y1 + ', ' + x2 + ' ' + y2);
+        } else {
+          var distance = Math.max(60, x2 - x1);
+          var bend = Math.min(110, distance * .5);
+          path.setAttribute('d', 'M' + x1 + ' ' + y1 + ' C ' + (x1 + bend) + ' ' + y1 + ', ' + (x2 - bend) + ' ' + y2 + ', ' + x2 + ' ' + y2);
+        }
         dot.setAttribute('cx', x2);
         dot.setAttribute('cy', y2);
 
@@ -1658,6 +1848,7 @@
         var bounds = svg.getBoundingClientRect();
         var citationBounds = cite.getBoundingClientRect();
         var cardsBounds = cards.getBoundingClientRect();
+        var isMobile = window.matchMedia('(max-width: 680px)').matches;
         var x1 = citationBounds.right - bounds.left + 8;
         var y1 = (citationBounds.top + citationBounds.bottom) / 2 - bounds.top;
         var x2 = cardsBounds.left - bounds.left + cardsBounds.width * (5 / 6);
@@ -1665,7 +1856,17 @@
         var rise = Math.max(70, y2 - y1);
 
         svg.setAttribute('viewBox', '0 0 ' + bounds.width + ' ' + bounds.height);
-        path.setAttribute('d', 'M' + x1 + ' ' + y1 + ' C ' + x1 + ' ' + (y1 + rise * .4) + ', ' + x2 + ' ' + (y2 - rise * .4) + ', ' + x2 + ' ' + y2);
+        if (isMobile) {
+          x1 = Math.min(bounds.width - 4, x1);
+          x2 = (cardsBounds.left + cardsBounds.right) / 2 - bounds.left;
+          var outerX = Math.min(bounds.width - 2, x1 + 18);
+          path.setAttribute('d', 'M' + x1 + ' ' + y1 +
+            ' C ' + outerX + ' ' + (y1 + rise * .12) + ', ' + outerX + ' ' + (y1 + rise * .42) + ', ' + (x1 - 4) + ' ' + (y1 + rise * .5) +
+            ' S ' + (x2 + 46) + ' ' + (y1 + rise * .6) + ', ' + (x2 + 28) + ' ' + (y1 + rise * .66) +
+            ' S ' + x2 + ' ' + (y2 - rise * .12) + ', ' + x2 + ' ' + y2);
+        } else {
+          path.setAttribute('d', 'M' + x1 + ' ' + y1 + ' C ' + x1 + ' ' + (y1 + rise * .4) + ', ' + x2 + ' ' + (y2 - rise * .4) + ', ' + x2 + ' ' + y2);
+        }
         dot.setAttribute('cx', x2);
         dot.setAttribute('cy', y2);
 
@@ -1836,6 +2037,81 @@
 
         return function () {
           steps.forEach(function (li) { li.classList.remove('is-active'); });
+          path.style.strokeDasharray = '';
+          path.style.strokeDashoffset = '';
+        };
+      });
+
+      mm.add('(max-width: 1023px)', function () {
+        var cite = document.getElementById('psigCite');
+        var source = document.getElementById('psigSource');
+        var svg = document.getElementById('psigThread');
+        var path = document.getElementById('psigThreadPath');
+        var dot = document.getElementById('psigThreadDot');
+        if (!cite || !source || !svg || !path || !dot) return;
+
+        var threadLen = 0;
+        var hasDrawn = false;
+
+        function layoutMobileThread() {
+          var bounds = svg.getBoundingClientRect();
+          var citationBounds = cite.getBoundingClientRect();
+          var sourceBounds = source.getBoundingClientRect();
+          var x1 = Math.min(bounds.width - 4, citationBounds.right - bounds.left + 7);
+          var y1 = (citationBounds.top + citationBounds.bottom) / 2 - bounds.top;
+          var x2 = sourceBounds.left - bounds.left + sourceBounds.width * .72;
+          var y2 = sourceBounds.top - bounds.top - 10;
+          var drop = Math.max(48, y2 - y1);
+          var outerX = Math.min(bounds.width - 2, x1 + 18);
+
+          svg.setAttribute('viewBox', '0 0 ' + bounds.width + ' ' + bounds.height);
+          path.setAttribute('d', 'M' + x1 + ' ' + y1 +
+            ' C ' + outerX + ' ' + (y1 + drop * .2) + ', ' + (x2 + 44) + ' ' + (y2 - drop * .24) + ', ' + x2 + ' ' + y2);
+          dot.setAttribute('cx', x2);
+          dot.setAttribute('cy', y2);
+          threadLen = path.getTotalLength();
+          path.style.strokeDasharray = threadLen;
+          path.style.strokeDashoffset = hasDrawn ? 0 : threadLen;
+        }
+
+        function showMobileThread() {
+          hasDrawn = true;
+          cite.style.backgroundColor = '#155da6';
+          cite.style.borderColor = '#155da6';
+          cite.style.color = '#f8f6f0';
+          path.style.strokeDashoffset = 0;
+          dot.style.opacity = 1;
+        }
+
+        layoutMobileThread();
+        if (document.fonts && document.fonts.ready) document.fonts.ready.then(layoutMobileThread);
+
+        if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+          showMobileThread();
+          return;
+        }
+
+        gsap.set(dot, { opacity: 0 });
+        var timeline = gsap.timeline({ paused: true, onComplete: function () { hasDrawn = true; } })
+          .to(cite, { backgroundColor: '#155da6', borderColor: '#155da6', color: '#f8f6f0', duration: .2, ease: 'power2.out' })
+          .to(path, { strokeDashoffset: 0, duration: .8, ease: 'power2.inOut' })
+          .to(dot, { opacity: 1, duration: .12, ease: 'none' });
+
+        var trigger = ScrollTrigger.create({
+          trigger: cite,
+          start: 'top 78%',
+          once: true,
+          onEnter: function () { timeline.play(); },
+          onRefresh: layoutMobileThread
+        });
+
+        function requestLayout() { window.requestAnimationFrame(layoutMobileThread); }
+        window.addEventListener('resize', requestLayout);
+
+        return function () {
+          trigger.kill();
+          timeline.kill();
+          window.removeEventListener('resize', requestLayout);
           path.style.strokeDasharray = '';
           path.style.strokeDashoffset = '';
         };
@@ -2042,7 +2318,11 @@
 
           smoother.scrollTo(destination, smooth && !reduceMotion);
         } else {
-          target.scrollIntoView({ behavior: smooth && !reduceMotion ? 'smooth' : 'auto', block: 'start' });
+          var header = document.querySelector('.site-header');
+          var headerIsFixed = header && ['fixed', 'sticky'].includes(window.getComputedStyle(header).position);
+          var headerOffset = hash === '#top' || !headerIsFixed ? 0 : header.getBoundingClientRect().height;
+          var destination = window.scrollY + target.getBoundingClientRect().top - headerOffset;
+          window.scrollTo({ top: destination, behavior: smooth && !reduceMotion ? 'smooth' : 'auto' });
         }
 
         if (updateHistory && window.history && history.pushState) {

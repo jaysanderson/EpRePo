@@ -8,6 +8,8 @@ Deno.test('marketing homepage keeps its approved structure and destinations', ()
   }
 
   expect(homepage).toContain('Put your organisation’s')
+  expect(homepage).toContain('viewport-fit=cover')
+  expect(homepage).toContain('env(safe-area-inset-top)')
   expect(homepage).toContain('Be a part of')
   expect(homepage).toContain('href="https://opax.corpuskit.org"')
   expect(homepage).toContain('href="https://github.com/noicework/corpuskit"')
