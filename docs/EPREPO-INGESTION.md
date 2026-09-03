@@ -62,7 +62,7 @@ Written by the PATCH straight after upload (and in the create body for text reso
   licence code.
 - **`extra.metadata`** - the portal's `PortalMetadata` shape plus the bibliographic record:
   `summary` (abstract), `keyFacts` (author keywords, then MeSH headings, up to five), `topic`
-  (initial topic id, see below), `type` (`article` | `supplement` | `video`), `published`, and
+  (initial topic id, see below), `type` (the portal's viewer kind: `pdf` | `video` | `document`), `published`, and
   `authors`, `journal`, `year`, `doi`, `pmid`, `pmcid`, `license`, `authorGroup`, and for
   supplements and media `parentPmcid` and `parentTitle`. The library and resource pages read
   `summary`, `keyFacts` and `published` from here before any enrichment has run, so nothing
