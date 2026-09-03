@@ -2896,6 +2896,9 @@ export function buildApp(opts: BuildAppOptions): Hono {
       ? (config.intents ?? []).find((i) => i.id === parsed.data.intent)
       : undefined
     if (parsed.data.intent && !intentDef) return c.json({ error: 'unknown_intent' }, 400)
+    // Declare the charset: an API client that assumes Latin-1 renders the
+    // minus signs and en dashes in answers as mojibake (review 2, P2-14).
+    c.header('content-type', 'text/event-stream; charset=utf-8')
     return streamSSE(c, async (stream) => {
       const { query, ...askOpts } = parsed.data
       const settings = tenants.promptsFor(config.slug)
