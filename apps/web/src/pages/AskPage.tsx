@@ -1033,7 +1033,34 @@ function AnswerCard({
           panel stays navigable - and the evidence table opens with it rather
           than asking for a second click on the same evidence. */
       }
-      {!message.pending && (message.sources.length > 0 || message.citations.length > 0)
+      {
+        /* The answer streams before its sources and citations have settled, so
+          the reader would otherwise stare at a finished answer with nothing
+          beneath it for a few seconds. Say what is happening instead - and
+          show the sources as soon as they exist rather than holding them until
+          every post-answer step has completed. */
+      }
+      {message.pending && message.text.length > 0 && message.sources.length === 0 &&
+          message.citations.length === 0
+        ? (
+          <div
+            className='rp-answer-tail mt-4 flex items-center gap-2.5 border-t border-line pt-3 text-xs text-ink-3'
+            role='status'
+            aria-live='polite'
+          >
+            <span
+              className='inline-block h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-line border-t-[var(--rp-accent)]'
+              aria-hidden='true'
+            />
+            <span>Retrieving evidence…</span>
+            <span
+              className='rp-shimmer h-3 w-28 rounded-[var(--rp-radius)] bg-surface-3'
+              aria-hidden='true'
+            />
+          </div>
+        )
+        : null}
+      {message.sources.length > 0 || message.citations.length > 0
         ? (
           <div
             className='rp-answer-tail mt-4 border-t border-line pt-3'
