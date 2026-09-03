@@ -71,3 +71,22 @@ for this fork.
 - **Extraction Lab** - `docs/EXTRACTION-LAB.md`. Profile a document, compare the default, table-aware and
   visual extraction methods in a sandbox box with a judge's score and a before/after ask, and set routing
   rules per document class. Manage > Extraction, linked from Tools.
+
+## Deployment
+
+The portal runs on Fly.io as the app `eprepo-portal` (Sydney, `fly.toml`), separate from
+corpuskit's Cloudflare pipeline. From this checkout:
+
+```sh
+fly deploy --remote-only --app eprepo-portal
+```
+
+- Secrets (`ARAG_*`, `ARAG_KB_EPREPO*`, `ARAG_KB_EPREPO_LAB*`, `ADMIN_PASSCODE`) are set with
+  `fly secrets import` from `.env`; never commit them.
+- App state lives on the `rp_data` volume at `/app/data`: tenant overrides from corpus analysis,
+  the enrichment cache, knowledge-graph proposals and the routing log. It was seeded once from the
+  developer machine's `data/` directory (`fly ssh sftp shell`, then `tar xzf` on the machine).
+  Re-seeding is only needed if the volume is recreated.
+- After a fresh box or a change to the intents, converge the stored search configurations:
+  `POST /api/admin/t/eprepo/search-configs/ensure` with the admin passcode.
+- The image carries poppler for the Extraction Lab profiler and the run permission it needs.
