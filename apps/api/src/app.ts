@@ -2896,10 +2896,9 @@ export function buildApp(opts: BuildAppOptions): Hono {
       ? (config.intents ?? []).find((i) => i.id === parsed.data.intent)
       : undefined
     if (parsed.data.intent && !intentDef) return c.json({ error: 'unknown_intent' }, 400)
-    // Declare the charset: an API client that assumes Latin-1 renders the
-    // minus signs and en dashes in answers as mojibake (review 2, P2-14).
-    c.header('content-type', 'text/event-stream; charset=utf-8')
-    return streamSSE(c, async (stream) => {
+    // The finished response declares UTF-8 (the streaming helper sets its own
+    // content type); a Latin-1-assuming API client otherwise sees mojibake.
+    return withUtf8EventStream(streamSSE(c, async (stream) => {
       const { query, ...askOpts } = parsed.data
       const settings = tenants.promptsFor(config.slug)
       // An intent's mandatory sub-questions (a safety check for a treatment
@@ -3091,7 +3090,7 @@ export function buildApp(opts: BuildAppOptions): Hono {
       } catch {
         // insights are best-effort - never fail the answer over them
       }
-    })
+    }))
   })
 
   // The Help assistant: a grounded, cited answer about USING the portal,
@@ -3121,4 +3120,14 @@ export function buildApp(opts: BuildAppOptions): Hono {
   })
 
   return app
+} /** The same SSE response with an explicit UTF-8 charset on its content type. */
+function withUtf8EventStream(res: Response): Response {
+  try {
+    res.headers.set('content-type', 'text/event-stream; charset=utf-8')
+    return res
+  } catch {
+    const headers = new Headers(res.headers)
+    headers.set('content-type', 'text/event-stream; charset=utf-8')
+    return new Response(res.body, { status: res.status, headers })
+  }
 }
