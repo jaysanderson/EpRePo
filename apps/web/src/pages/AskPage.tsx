@@ -850,6 +850,7 @@ function AnswerCard({
     referenceChunk: source.referenceChunk,
     published: source.published,
     sourceName: source.sourceName,
+    type: source.type,
   }))
 
   // What the collapsed evidence panel says about itself: enough to decide

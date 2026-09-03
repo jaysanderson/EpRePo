@@ -638,7 +638,14 @@ function ResourceViewer(
         <div className='space-y-4'>
           {passage ? <MatchedPassageCard passage={passage} page={page} /> : null}
           {fileUrl
-            ? <PdfReader fileUrl={fileUrl} title={content.title} initialPage={page} />
+            ? (
+              <PdfReader
+                fileUrl={fileUrl}
+                title={content.title}
+                initialPage={page}
+                highlight={passage}
+              />
+            )
             : (
               <EmptyState
                 title='This PDF is not available'

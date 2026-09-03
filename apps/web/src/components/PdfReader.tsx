@@ -1,6 +1,7 @@
 import { type KeyboardEvent, type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 import type { PDFDocumentProxy, PDFPageProxy, RenderTask } from 'pdfjs-dist'
 import { ErrorCard, LiveStatus, Skeleton } from './ui.tsx'
+import { findPassageRange, passageNeedles } from '../lib/pdf-highlight.ts'
 
 /**
  * Wiring note (see docs/PARITY.md section 4 and CLAUDE.md's "keep the
@@ -133,11 +134,36 @@ const ICON_PROPS = {
 /** Inline PDF viewer built on pdfjs-dist, canvas-rendering one page at a
  * time. Falls back to the plain iframe embed (`fallback`) whenever pdfjs
  * cannot be loaded or fails to open the document. */
+/** A highlight box over the rendered page, in CSS pixels of the canvas. */
+interface HighlightRect {
+  left: number
+  top: number
+  width: number
+  height: number
+}
+
+/** The shape of a pdfjs text-content item that carries text and a position. */
+interface PositionedRun {
+  str?: string
+  transform?: number[]
+  width?: number
+  height?: number
+}
+
+/** How many pages to search for a passage when the citation carries no page number. */
+const PASSAGE_SCAN_LIMIT = 80
+
 export function PdfReader(
-  { fileUrl, title, initialPage }: {
+  { fileUrl, title, initialPage, highlight = null }: {
     fileUrl: string
     title: string
     initialPage: number | null
+    /**
+     * The cited passage. When set, the viewer locates it in the page's text
+     * layer and paints a highlight over it - and, if no page was given, scans
+     * the document for the page that carries it.
+     */
+    highlight?: string | null
   },
 ) {
   const [libFailed, setLibFailed] = useState(false)
@@ -160,6 +186,10 @@ export function PdfReader(
    * for "current zoom" when the user zooms in/out from fit-width, since
    * fit-width itself has no single fixed scale. */
   const effectiveScaleRef = useRef(1)
+  const [highlightRects, setHighlightRects] = useState<HighlightRect[]>([])
+  const [highlightPage, setHighlightPage] = useState<number | null>(null)
+  /** Guards the one-off passage scan so paging never re-triggers it. */
+  const scannedForRef = useRef<string | null>(null)
 
   // Load the document whenever the file or retry token changes.
   useEffect(() => {
@@ -281,6 +311,38 @@ export function PdfReader(
       renderTaskRef.current = task
       try {
         await task.promise
+        if (cancelled) return
+        if (highlight && passageNeedles(highlight).length > 0) {
+          const content = await page.getTextContent()
+          if (cancelled) return
+          const runs = content.items as PositionedRun[]
+          const range = findPassageRange(runs.map((r) => ({ str: r.str ?? '' })), highlight)
+          if (range) {
+            const rects: HighlightRect[] = []
+            for (let i = range.start; i <= range.end; i++) {
+              const run = runs[i]
+              const t = run?.transform
+              if (!run || !t || !run.str?.trim()) continue
+              const x = t[4] ?? 0
+              const y = t[5] ?? 0
+              const h = run.height || Math.hypot(t[1] ?? 0, t[3] ?? 0) || 10
+              const w = run.width || 0
+              const [x1, y1, x2, y2] = viewport.convertToViewportRectangle([x, y, x + w, y + h])
+              rects.push({
+                left: Math.min(x1, x2),
+                top: Math.min(y1, y2),
+                width: Math.abs(x2 - x1),
+                height: Math.abs(y2 - y1),
+              })
+            }
+            setHighlightRects(rects)
+            setHighlightPage(pageNumber)
+            if (rects.length > 0) setAnnouncement(`Cited passage highlighted on page ${pageNumber}`)
+          } else {
+            setHighlightRects([])
+            setHighlightPage(null)
+          }
+        }
       } catch (err) {
         // A cancelled render (superseded by a newer page/zoom) is expected
         // and not an error.
@@ -299,7 +361,34 @@ export function PdfReader(
     return () => {
       cancelled = true
     }
-  }, [status, pageNumber, zoomMode, containerWidth, getPage])
+  }, [status, pageNumber, zoomMode, containerWidth, getPage, highlight])
+
+  // A citation with a passage but no page: find the page that carries it,
+  // once per document, scanning from the front within a sane limit.
+  useEffect(() => {
+    if (status !== 'ready' || initialPage || !highlight) return
+    const key = `${fileUrl}::${highlight}`
+    if (scannedForRef.current === key) return
+    scannedForRef.current = key
+    if (passageNeedles(highlight).length === 0) return
+    let cancelled = false
+    ;(async () => {
+      const limit = Math.min(numPages, PASSAGE_SCAN_LIMIT)
+      for (let n = 1; n <= limit && !cancelled; n++) {
+        const pagePromise = getPage(n)
+        if (!pagePromise) return
+        const content = await (await pagePromise).getTextContent()
+        const runs = content.items as PositionedRun[]
+        if (findPassageRange(runs.map((r) => ({ str: r.str ?? '' })), highlight)) {
+          if (!cancelled) setPageNumber(n)
+          return
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [status, initialPage, highlight, numPages, getPage, fileUrl])
 
   function goToPage(n: number) {
     setPageNumber(Math.min(Math.max(1, n), Math.max(1, numPages)))
@@ -489,7 +578,27 @@ export function PdfReader(
           onKeyDown={handleKeyDown}
           className={`rp-focus flex justify-center p-4 ${status === 'ready' ? '' : 'hidden'}`}
         >
-          <canvas ref={canvasRef} className='rp-shadow-sm bg-white' />
+          <div className='relative'>
+            <canvas ref={canvasRef} className='rp-shadow-sm bg-white' />
+            {highlightPage === pageNumber
+              ? highlightRects.map((rect, i) => (
+                <div
+                  key={i}
+                  aria-hidden='true'
+                  className='pointer-events-none absolute rounded-[2px]'
+                  style={{
+                    left: rect.left - 1,
+                    top: rect.top - 1,
+                    width: rect.width + 2,
+                    height: rect.height + 2,
+                    backgroundColor: 'var(--rp-accent)',
+                    opacity: 0.3,
+                    mixBlendMode: 'multiply',
+                  }}
+                />
+              ))
+              : null}
+          </div>
         </div>
       </div>
     </div>

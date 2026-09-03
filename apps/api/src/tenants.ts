@@ -168,6 +168,7 @@ const eprepo: TenantConfig = TenantConfigSchema.parse({
       heroFrom: '#1f1740',
       heroTo: '#4a3a8f',
     },
+    logoUrl: '/brand/eprepo-logo.svg',
   },
   searchPlaceholder: 'Search seizure forecasting, genetics, antiseizure medications, surgery…',
   // A global research initiative: the corpus is not organised by Australian
