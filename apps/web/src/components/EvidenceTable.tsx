@@ -56,6 +56,8 @@ export interface EvidenceSource {
   sourceName?: string
   /** What the source is (a PDF, a page, a video) - drives the document cue and the open link. */
   type?: ResourceType
+  /** Where the matched passage came from; a generated summary cannot be highlighted in the PDF. */
+  matchedField?: 'body' | 'summary'
 }
 
 /** A small document glyph so a PDF reads as something you can open, not just a title. */
@@ -217,7 +219,13 @@ function EvidenceRow({
   const scorePct = typeof source.score === 'number' ? Math.round(source.score * 100) : null
   const isWeak = scorePct !== null && scorePct < 35
   const isCited = citationIndices.length > 0
-  const href = withPage(citationHref(slug, source.id, passage), source.matchedPage)
+  const summaryMatch = source.matchedField === 'summary'
+  // A passage from a generated summary has no page or position in the
+  // document, so the link opens the resource plainly rather than promising a
+  // highlight it cannot deliver.
+  const href = summaryMatch
+    ? citationHref(slug, source.id, undefined)
+    : withPage(citationHref(slug, source.id, passage), source.matchedPage)
   const showUnusedFlag = citationsKnown && !isCited && verdict?.verdict === 'supports'
 
   useEffect(() => {
@@ -270,6 +278,16 @@ function EvidenceRow({
             : null}
           {source.referenceChunk
             ? <span className='text-[11px] text-ink-3'>reference list</span>
+            : null}
+          {summaryMatch
+            ? (
+              <span
+                className='text-[11px] text-ink-3'
+                title='The match came from the generated summary, not the document text'
+              >
+                matched the summary
+              </span>
+            )
             : null}
           {isWeak ? <span className='rp-badge rp-badge-warn'>weak match</span> : null}
           {judging
@@ -338,7 +356,7 @@ function EvidenceRow({
             aria-label={`${openLabel(source.type, source.matchedPage)}: ${source.title}`}
             className='rp-focus inline-flex items-center gap-1 rounded-[var(--rp-radius)] text-xs font-medium text-[var(--rp-accent-fg)] hover:underline'
           >
-            {openLabel(source.type, source.matchedPage)}
+            {openLabel(source.type, summaryMatch ? undefined : source.matchedPage)}
             <svg
               viewBox='0 0 24 24'
               fill='none'

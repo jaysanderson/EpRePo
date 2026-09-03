@@ -220,12 +220,21 @@ const eprepo: TenantConfig = TenantConfigSchema.parse({
       label: 'Exact lookup',
       description: 'An identifier or a bare term: the reader wants the documents, not an essay.',
       examples: ['SCN8A', 'PMC8371239', 'cenobamate', 'Dravet'],
-      retrieval: { features: ['keyword'], topK: 30, reranker: 'noop' },
+      retrieval: {
+        features: ['keyword'],
+        topK: 30,
+        reranker: 'noop',
+        exclude: [
+          { labelset: 'format', label: 'supplement' },
+          { labelset: 'format', label: 'media' },
+        ],
+      },
       answer: { surfaces: ['search'], strategy: 'none', promptVariant: 'default' },
+      // One or two bare words only: "levetiracetam pregnancy malformation" is a question.
       rules: [
         '^\\s*PMC\\d+\\s*$',
         '^\\s*[A-Z][A-Z0-9]{2,7}\\s*$',
-        '^\\s*[A-Za-z][a-z-]+(?:\\s+[A-Za-z][a-z-]+){0,2}\\s*$',
+        '^\\s*[A-Za-z][a-z-]+(?:\\s+[A-Za-z][a-z-]+)?\\s*$',
       ],
     },
     {
@@ -322,7 +331,7 @@ const eprepo: TenantConfig = TenantConfigSchema.parse({
       ],
       retrieval: {
         features: ['keyword', 'semantic'],
-        topK: 24,
+        topK: 12,
         reranker: 'predict',
         exclude: [
           { labelset: 'format', label: 'supplement' },

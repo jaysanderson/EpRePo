@@ -1646,6 +1646,7 @@ export interface RouteDecision {
   rationale: string
   configuration: string
   entities: string[]
+  rule?: string
   latencyMs?: number
 }
 
@@ -1653,12 +1654,13 @@ export interface RouteDecision {
 export async function routeIntent(
   slug: string,
   query: string,
+  surface: 'ask' | 'search' = 'ask',
   signal?: AbortSignal,
 ): Promise<RouteDecision> {
   const res = await fetch(`/api/t/${encodeURIComponent(slug)}/route`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ query }),
+    body: JSON.stringify({ query, surface }),
     signal,
   })
   if (!res.ok) throw new ApiError(res.status, 'Routing is unavailable')

@@ -25,6 +25,7 @@ export {
   intentFilterExpression,
   intentSearchConfigs,
   intentStrategies,
+  isGeneratedField,
   shapeSourcesForIntent,
 } from './providers/arag/index.ts'
 export { DEFAULT_VISUAL_RULE, methodFromStrategy, strategyBody } from './providers/arag/index.ts'

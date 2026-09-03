@@ -278,8 +278,13 @@ export function LibraryBrowser(
     const fromUrl = searchParams.get('format')
     return fromUrl ? [fromUrl] : []
   })
-  const toggleFormat = (id: string) =>
+  // Until the reader touches the facet, a corpus filed by format opens on its
+  // articles: the last-uploaded videos and supplements make a poor first screen.
+  const [formatTouched, setFormatTouched] = useState(() => searchParams.get('format') !== null)
+  const toggleFormat = (id: string) => {
+    setFormatTouched(true)
     setSelectedFormats((prev) => prev.includes(id) ? prev.filter((f) => f !== id) : [...prev, id])
+  }
   const [filtersOpen, setFiltersOpen] = useState(false)
   /** The filter rail, and therefore the sidebar grid track, need topics to filter by. */
   const showFilterRail = !bare && config.topics.length > 0
@@ -325,6 +330,11 @@ export function LibraryBrowser(
     { id: 'media', label: 'Video and audio' },
   ]
   const formatFacets = FORMATS.filter((f) => (formatCounts[f.id] ?? 0) > 0)
+  useEffect(() => {
+    if (!formatTouched && selectedFormats.length === 0 && (formatCounts.article ?? 0) > 0) {
+      setSelectedFormats(['article'])
+    }
+  }, [formatTouched, selectedFormats.length, formatCounts.article])
 
   const {
     data,
@@ -588,7 +598,10 @@ export function LibraryBrowser(
                           ? (
                             <button
                               type='button'
-                              onClick={() => setSelectedFormats([])}
+                              onClick={() => {
+                                setFormatTouched(true)
+                                setSelectedFormats([])
+                              }}
                               className='text-xs font-medium text-[var(--rp-ink-3)] transition-colors duration-150 hover:text-[var(--rp-ink)]'
                             >
                               Clear

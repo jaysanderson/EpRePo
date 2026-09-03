@@ -55,6 +55,16 @@ export interface RouteContext {
   intents: readonly Intent[]
   defaultIntent: string
   lexicon?: readonly string[]
+  /** The surface asking: an intent that cannot serve it (search-only on Ask) is never chosen. */
+  surface?: 'ask' | 'search'
+}
+
+/** Intents that can serve the context's surface. */
+export function eligibleIntents(ctx: RouteContext): Intent[] {
+  const surface = ctx.surface
+  return ctx.intents.filter((i) =>
+    !surface || i.answer.surfaces.includes(surface) || i.id === ctx.defaultIntent
+  )
 }
 
 /** First intent whose rule matches; null when no rule fires. */
@@ -62,7 +72,7 @@ export function routeByRules(query: string, ctx: RouteContext): RouteDecision | 
   const q = query.trim()
   if (!q) return null
   const entities = extractEntities(q, ctx.lexicon ?? [])
-  for (const intent of ctx.intents) {
+  for (const intent of eligibleIntents(ctx)) {
     for (const rule of intent.rules) {
       let re: RegExp
       try {
@@ -79,6 +89,7 @@ export function routeByRules(query: string, ctx: RouteContext): RouteDecision | 
         rationale: describeRule(intent, entities),
         configuration: configurationFor(intent.id, ctx.defaultIntent),
         entities,
+        rule,
       }
     }
   }
@@ -117,7 +128,7 @@ export function decideFromClassifier(
   const confidence = typeof raw.confidence === 'number'
     ? Math.max(0, Math.min(1, raw.confidence))
     : 0
-  const known = ctx.intents.find((i) => i.id === intent)
+  const known = eligibleIntents(ctx).find((i) => i.id === intent)
   if (!known || confidence < threshold) {
     return defaultDecision(ctx, 'No confident match, using the default configuration', entities)
   }

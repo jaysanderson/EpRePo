@@ -116,7 +116,7 @@ describe('intent search configurations', () => {
         ...data,
         answer: { ...data.answer, minScore: 0.5, sortByPublished: true },
       }).map((s) => s.id),
-    ).toEqual(['b'])
+    ).toEqual(['b', 'a'])
     expect(shapeSourcesForIntent(sources, undefined)).toHaveLength(2)
   })
 })

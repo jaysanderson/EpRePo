@@ -51,10 +51,17 @@ import {
 import {
   decideFromClassifier,
   defaultDecision,
+  eligibleIntents,
   extractEntities,
   fillPrequeries,
   routeByRules,
 } from './intent-router.ts'
+import {
+  auditAddendum,
+  drugsFlaggedInSources,
+  drugsMissingFromAnswer,
+  numbersMissing,
+} from './answer-audit.ts'
 import {
   compareExtraction,
   ensureLabMethods,
@@ -268,7 +275,10 @@ function validateEnrichmentRecords(value: unknown): ImportValidationResult {
   return issues.length > 0 ? { success: false, issues } : { success: true, data: records }
 }
 
-const routeBodySchema = z.object({ query: z.string().min(1).max(2000) })
+const routeBodySchema = z.object({
+  query: z.string().min(1).max(2000),
+  surface: z.enum(['ask', 'search']).optional(),
+})
 const extractionProfileSchema = z.object({ resourceId: z.string().min(1) })
 const extractionCompareSchema = z.object({
   resourceId: z.string().min(1),
@@ -880,16 +890,22 @@ export function buildApp(opts: BuildAppOptions): Hono {
     if (!parsed.success) return c.json({ error: 'invalid_query' }, 400)
     const intents = config.intents ?? []
     const defaultIntent = config.defaultIntent ?? intents[0]?.id ?? 'general'
-    const ctx = { intents, defaultIntent, lexicon: config.entityTerms ?? [] }
+    const ctx = {
+      intents,
+      defaultIntent,
+      lexicon: config.entityTerms ?? [],
+      surface: parsed.data.surface,
+    }
     const started = Date.now()
     let decision = intents.length > 0 ? routeByRules(parsed.data.query, ctx) : null
     if (!decision && intents.length > 0) {
       const entities = extractEntities(parsed.data.query, ctx.lexicon)
       if (opts.management) {
         try {
+          const allowed = eligibleIntents(ctx).map((i) => i.id)
           const raw = await Promise.race([
             opts.management.augmentationModel(config).then((model) =>
-              opts.management!.classifyIntent(config, parsed.data.query, { model })
+              opts.management!.classifyIntent(config, parsed.data.query, { model, allowed })
             ),
             new Promise<Record<string, never>>((resolve) => setTimeout(() => resolve({}), 12000)),
           ])
@@ -2936,6 +2952,14 @@ export function buildApp(opts: BuildAppOptions): Hono {
         opts.management.rephrase(config, query).then((v) => interpreted = v, () => {})
       }
       let interpretedSent = false
+      // Grounding guard and post-answer audit (docs/CLINICIAN-REVIEW-2.md P0-1..3):
+      // an answer never streams over weak grounding, and for the safety and
+      // data intents the finished answer is checked against the cited texts.
+      const GROUNDING_FLOOR = 0.3
+      let answerText = ''
+      const citedIds: string[] = []
+      const citationIndexById = new Map<string, number>()
+      let heldDone: unknown = null
       const record = {
         citations: 0,
         durationSec: null as number | null,
@@ -2953,7 +2977,41 @@ export function buildApp(opts: BuildAppOptions): Hono {
             ...(settings.images ? { images: true } : {}),
           })
         ) {
-          if (event.type === 'citation') record.citations += 1
+          if (event.type === 'citation') {
+            record.citations += 1
+            if (!citedIds.includes(event.citation.resourceId)) {
+              citedIds.push(event.citation.resourceId)
+            }
+            citationIndexById.set(event.citation.resourceId, event.citation.index)
+          }
+          if (event.type === 'delta') answerText += event.text
+          if (event.type === 'sources' && !askOpts.resourceId) {
+            const best = event.resources.reduce((m, r) => Math.max(m, r.relevance), 0)
+            // An empty retrieval is the provider's own refusal path; the guard
+            // covers the other failure, weak matches that would be answered over.
+            if (event.resources.length > 0 && best < GROUNDING_FLOOR) {
+              await stream.writeSSE({
+                data: JSON.stringify({
+                  ...event,
+                  resources: merchandiseSources(enrichments, config.slug, event.resources),
+                }),
+              })
+              const pct = Math.round(best * 100)
+              const decline = "This portal's corpus does not hold material that answers this " +
+                `question directly. The closest passages found were only weakly related (best match ${pct}%), ` +
+                'so no answer has been generated from them. Try narrowing the question to what the ' +
+                'corpus covers, or browse the Library to see what it holds.'
+              await stream.writeSSE({ data: JSON.stringify({ type: 'delta', text: decline }) })
+              await stream.writeSSE({ data: JSON.stringify({ type: 'done', refused: true }) })
+              record.refused = true
+              break
+            }
+          }
+          if (event.type === 'done') {
+            heldDone = event
+            if (event.refused) record.refused = true
+            continue
+          }
           if (event.type === 'usage') record.durationSec = event.totalSec ?? null
           if (event.type === 'quality') {
             record.answerRelevance = event.answerRelevance
@@ -2961,7 +3019,6 @@ export function buildApp(opts: BuildAppOptions): Hono {
             record.contextRelevance = event.contextRelevance
           }
           if (event.type === 'error') record.failed = true
-          if (event.type === 'done' && event.refused) record.refused = true
           if (!interpretedSent && interpreted) {
             interpretedSent = true
             await stream.writeSSE({
@@ -2987,6 +3044,35 @@ export function buildApp(opts: BuildAppOptions): Hono {
         await stream.writeSSE({
           data: JSON.stringify({ type: 'error', message: publicErrorMessage(err) }),
         })
+      }
+      if (heldDone) {
+        const variant = intentDef?.answer.promptVariant
+        // Figures are checked on every cited answer; the contraindication
+        // check only makes sense for a treatment-decision question.
+        if (citedIds.length > 0 && !askOpts.resourceId && opts.management) {
+          try {
+            const texts = await Promise.all(
+              citedIds.slice(0, 6).map(async (id) => ({
+                index: citationIndexById.get(id) ?? 0,
+                text: (await opts.management!.resourceExtraction(config, id)).text,
+              })),
+            )
+            const missingNumbers = numbersMissing(answerText, texts.map((t) => t.text))
+            const missingDrugs = variant === 'safety'
+              ? drugsMissingFromAnswer(
+                answerText,
+                drugsFlaggedInSources(texts, config.entityTerms ?? []),
+              )
+              : []
+            const addendum = auditAddendum({ missingDrugs, missingNumbers })
+            if (addendum) {
+              await stream.writeSSE({ data: JSON.stringify({ type: 'delta', text: addendum }) })
+            }
+          } catch {
+            // the audit is best-effort; the answer stands without it
+          }
+        }
+        await stream.writeSSE({ data: JSON.stringify(heldDone) })
       }
       try {
         insights.record(config.slug, {

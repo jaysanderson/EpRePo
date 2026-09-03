@@ -261,6 +261,8 @@ export const RouteDecisionSchema = z.object({
   configuration: z.string(),
   /** Entities the router found in the question, when any. */
   entities: z.string().array().default([]),
+  /** The stage-1 rule that fired, for the audit trail and the chip's tooltip. */
+  rule: z.string().optional(),
 })
 export type RouteDecision = z.infer<typeof RouteDecisionSchema>
 
@@ -733,6 +735,8 @@ export const ScoredResourceSchema = ResourceSummarySchema.extend({
   matchedPage: z.number().int().positive().optional(),
   /** True when the matched passage looks like a reference list or front matter. */
   referenceChunk: z.boolean().optional(),
+  /** Where the matched passage came from: the document body, or a generated summary field. */
+  matchedField: z.enum(['body', 'summary']).optional(),
 })
 
 export const SearchResultsSchema = z.object({

@@ -497,7 +497,7 @@ export function SearchPage() {
   const intents = config.intents ?? []
   const { data: route, isFetched: routeFetched } = useQuery({
     queryKey: ['route', config.slug, q],
-    queryFn: () => routeIntent(config.slug, q),
+    queryFn: () => routeIntent(config.slug, q, 'search'),
     enabled: q.trim().length > 0 && intents.length > 0 && mode === 'hybrid',
     staleTime: 5 * 60_000,
     retry: false,

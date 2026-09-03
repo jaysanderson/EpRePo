@@ -52,7 +52,9 @@ export function RouteChip(
       <button
         type='button'
         onClick={() => onOverride && setOpen((v) => !v)}
-        title={`${decision.rationale} · ${decision.configuration}`}
+        title={`${decision.rationale} · ${decision.configuration}${
+          decision.rule ? ` · rule /${decision.rule}/` : ''
+        }`}
         aria-haspopup={onOverride ? 'menu' : undefined}
         aria-expanded={onOverride ? open : undefined}
         className='rp-chip rp-focus inline-flex h-7 items-center gap-1.5 text-xs'

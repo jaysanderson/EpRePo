@@ -517,12 +517,19 @@ export function shapeSourcesForIntent(
   intent: Intent | undefined,
 ): ScoredResource[] {
   if (!intent) return sources
-  let shaped = sources.filter((s) => s.relevance >= intent.answer.minScore)
-  if (shaped.length === 0) shaped = sources
+  // Every source the platform grounded on stays visible: a citation the
+  // reader cannot open is worse than a weak source they can judge. The
+  // intent's minScore is a display hint (the evidence card marks weak
+  // matches), never a filter after grounding.
   if (intent.answer.sortByPublished) {
-    shaped = [...shaped].sort((a, b) => (b.published ?? '').localeCompare(a.published ?? ''))
+    return [...sources].sort((a, b) => (b.published ?? '').localeCompare(a.published ?? ''))
   }
-  return shaped
+  return sources
+}
+
+/** A field written by a data-augmentation agent (a generated summary), not the document itself. */
+export function isGeneratedField(fieldKey: string): boolean {
+  return /da-|summary|\/a\/|^a\//i.test(fieldKey)
 }
 
 /** The platform's stored extraction strategy shape (as read back from /extract_strategies). */
@@ -1150,13 +1157,15 @@ export class AragProvider implements RetrievalProvider {
         let best = 0
         let passage: string | undefined
         let page: number | undefined
-        for (const field of Object.values(raw.fields ?? {})) {
+        let matchedField: 'body' | 'summary' = 'body'
+        for (const [fieldKey, field] of Object.entries(raw.fields ?? {})) {
           for (const paragraph of Object.values(field.paragraphs ?? {})) {
             const score = paragraph.score ?? 0
             if (score >= best) {
               best = score
               passage = paragraph.text ?? passage
               page = (paragraph as { position?: { page_number?: number } }).position?.page_number
+              matchedField = isGeneratedField(fieldKey) ? 'summary' : 'body'
             }
           }
         }
@@ -1171,6 +1180,7 @@ export class AragProvider implements RetrievalProvider {
           passage,
           page,
           reference,
+          matchedField,
         }
       })
       .filter((s) => s.best >= MIN_SCORE)
@@ -1197,13 +1207,14 @@ export class AragProvider implements RetrievalProvider {
     // normalised to the top hit - a weak best match must LOOK weak.
     const calibrate = (s: number): number => s <= 1 ? Math.max(0, Math.min(1, s)) : s / (s + 2)
     const resources: ScoredResource[] = deduped.map(
-      ({ id, raw, best, passage, page, reference }) => ({
+      ({ id, raw, best, passage, page, reference, matchedField }) => ({
         ...(byId.get(id) ?? this.toSummary(id, raw)),
         relevance: Math.round(calibrate(best) * 100) / 100,
         citedCount: 0,
         matchedPassage: passage,
         ...(page ? { matchedPage: page } : {}),
         ...(reference ? { referenceChunk: true } : {}),
+        ...(passage ? { matchedField } : {}),
       }),
     )
     const relatedQuestions = deriveRelatedQuestions(trimmed, tenant.suggestedQuestions)
@@ -1621,9 +1632,11 @@ export class AragProvider implements RetrievalProvider {
   async classifyIntent(
     tenant: TenantConfig,
     query: string,
-    opts: { model?: string } = {},
+    opts: { model?: string; allowed?: string[] } = {},
   ): Promise<{ intent?: unknown; confidence?: unknown; rationale?: unknown }> {
-    const intents = tenant.intents ?? []
+    const intents = (tenant.intents ?? []).filter((i) =>
+      !opts.allowed || opts.allowed.includes(i.id)
+    )
     if (intents.length === 0) return {}
     const schema = {
       name: 'route_intent',
@@ -2770,7 +2783,9 @@ export class AragProvider implements RetrievalProvider {
             : `You are a research analyst for ${tenant.branding.organisation}. Always answer the ` +
               'question using the provided context. Synthesise across sources even when the ' +
               'context is partial - surface what IS known and be specific. Never reply that there ' +
-              'is not enough data, and never refuse, when any relevant context is present. Write ' +
+              'is not enough data, and never refuse, when any relevant context is present. For any ' +
+              "part of the question the context does not address, say plainly that the portal's " +
+              'sources do not cover it rather than answering that part from general knowledge. Write ' +
               'clear, well-structured prose with Markdown, in Australian English. Cite evidence ' +
               'at claim level: after each factual claim, add a bracketed marker like [1] to show ' +
               'a citation belongs there. The number itself does not matter and does not need to ' +
@@ -2860,13 +2875,15 @@ export class AragProvider implements RetrievalProvider {
         let best = 0
         let passage: string | undefined
         let page: number | undefined
-        for (const field of Object.values(raw.fields ?? {})) {
+        let matchedField: 'body' | 'summary' = 'body'
+        for (const [fieldKey, field] of Object.entries(raw.fields ?? {})) {
           for (const paragraph of Object.values(field.paragraphs ?? {})) {
             if (paragraph.text) contextTexts.push(paragraph.text)
             if ((paragraph.score ?? 0) >= best) {
               best = paragraph.score ?? 0
               passage = paragraph.text ?? passage
               page = (paragraph as { position?: { page_number?: number } }).position?.page_number
+              matchedField = isGeneratedField(fieldKey) ? 'summary' : 'body'
             }
           }
         }
@@ -2882,6 +2899,7 @@ export class AragProvider implements RetrievalProvider {
           matchedPassage: passage,
           ...(page ? { matchedPage: page } : {}),
           ...(reference ? { referenceChunk: true } : {}),
+          ...(passage ? { matchedField } : {}),
         }
       })
 

@@ -13,7 +13,9 @@ export const PROMPT_VARIANTS: Record<Exclude<PromptVariant, 'default'>, string> 
     'information before acting.',
   synthesis: 'This is an evidence review. Structure the answer by theme, name where studies ' +
     'agree and where they disagree, and say how strong the evidence is for each theme (study ' +
-    'design, size). Close with what remains uncertain.',
+    'design, size). If the context contains only reviews and no primary study of the ' +
+    'intervention asked about, say so plainly rather than describing the evidence as strong. ' +
+    'Close with what remains uncertain.',
   recency: 'The reader wants the newest evidence. Order findings newest first and state the ' +
     'year of each study as you cite it. Say plainly when the most recent source is older than ' +
     'two years.',

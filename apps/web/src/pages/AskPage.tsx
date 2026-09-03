@@ -256,17 +256,26 @@ function renderCitationMarkers(
   slug: string,
   keyPrefix: string,
 ): ReactNode[] {
-  const segments = text.split(/(\[\d+\])/g)
+  // Bracketed runs are either the answer's own citation markers (bound to a
+  // source below) or a paper's citation numbers copied verbatim ("[16,17]"),
+  // which mean nothing here and are dropped; "[inference]" becomes prose.
+  const segments = text.split(/(\[\d+(?:\s*,\s*\d+)*\]|\[inference\])/gi)
   return segments.map((segment, index) => {
+    if (/^\[inference\]$/i.test(segment)) {
+      return <span key={`${keyPrefix}-${index}`} className='text-ink-3'>(inference)</span>
+    }
     const match = /^\[(\d+)\]$/.exec(segment)
     const citationIndex = match?.[1] ? Number(match[1]) : null
     const citation = citationIndex === null
       ? undefined
       : citations.find((item) => item.index === citationIndex)
 
+    if (!citation && /^\[[\d,\s]+\]$/.test(segment) && citations.length > 0) {
+      return <span key={`${keyPrefix}-${index}`} />
+    }
     if (citation) {
-      const matchedPassage = sources.find((source) => source.id === citation.resourceId)
-        ?.matchedPassage
+      const source = sources.find((s) => s.id === citation.resourceId)
+      const matchedPassage = source?.matchedField === 'summary' ? undefined : source?.matchedPassage
       return (
         <sup key={`${keyPrefix}-${index}`}>
           <Link
@@ -868,6 +877,7 @@ function AnswerCard({
     published: source.published,
     sourceName: source.sourceName,
     type: source.type,
+    matchedField: source.matchedField,
   }))
 
   // What the collapsed evidence panel says about itself: enough to decide
@@ -1848,7 +1858,7 @@ export function AskPage() {
     let route = options?.route
     if (!route && (config.intents?.length ?? 0) > 0 && contextTurns.length === 0) {
       try {
-        route = await routeIntent(config.slug, query, controller.signal)
+        route = await routeIntent(config.slug, query, 'ask', controller.signal)
       } catch {
         route = undefined
       }
@@ -2156,6 +2166,7 @@ export function AskPage() {
   }
 
   /** Downloads the current research trail as a Word-compatible .doc. */
+  const [exportNotice, setExportNotice] = useState<string | null>(null)
   function exportSession() {
     const title = currentSessionTitle()
     const html = sessionToWordHtml(config.branding.productName, title, messages)
@@ -2168,6 +2179,8 @@ export function AskPage() {
     link.click()
     document.body.removeChild(link)
     URL.revokeObjectURL(url)
+    setExportNotice(`Saved ${link.download} (Word document)`)
+    setTimeout(() => setExportNotice(null), 5000)
   }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -2310,6 +2323,9 @@ export function AskPage() {
                   </svg>
                   Export
                 </button>
+                {exportNotice
+                  ? <span role='status' className='text-xs text-ink-3'>{exportNotice}</span>
+                  : null}
               </div>
             )
             : null}
