@@ -57,6 +57,8 @@ export interface CatalogOptions {
   topicIds?: string[]
   /** Labels in the 'kind' labelset to filter by. */
   kindIds?: string[]
+  /** Labels in the 'format' labelset (article / supplement / media) to filter by. */
+  formatIds?: string[]
   sortField?: 'created' | 'modified' | 'title'
   sortOrder?: 'asc' | 'desc'
 }

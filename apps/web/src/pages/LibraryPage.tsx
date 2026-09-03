@@ -272,6 +272,14 @@ export function LibraryBrowser(
     const fromUrl = searchParams.get('kind')
     return fromUrl ? [fromUrl] : []
   })
+  // Format (article / supplement / media) - present only on a corpus whose
+  // ingest filed its resources that way; the facet hides itself otherwise.
+  const [selectedFormats, setSelectedFormats] = useState<string[]>(() => {
+    const fromUrl = searchParams.get('format')
+    return fromUrl ? [fromUrl] : []
+  })
+  const toggleFormat = (id: string) =>
+    setSelectedFormats((prev) => prev.includes(id) ? prev.filter((f) => f !== id) : [...prev, id])
   const [filtersOpen, setFiltersOpen] = useState(false)
   /** The filter rail, and therefore the sidebar grid track, need topics to filter by. */
   const showFilterRail = !bare && config.topics.length > 0
@@ -286,18 +294,19 @@ export function LibraryBrowser(
 
   const topicsKey = selectedTopics.join(',')
   const kindsKey = selectedKinds.join(',')
+  const formatsKey = selectedFormats.join(',')
 
   useEffect(() => {
     setPage(0)
     setAccumulated([])
     setTotal(0)
-  }, [debouncedQuery, sort, topicsKey, kindsKey])
+  }, [debouncedQuery, sort, topicsKey, kindsKey, formatsKey])
 
   const sortOption = SORT_OPTIONS[sort]
 
   const { data: facets } = useQuery({
     queryKey: ['facets', config.slug],
-    queryFn: () => getFacets(config.slug, ['topic']),
+    queryFn: () => getFacets(config.slug, ['topic', 'format']),
   })
   const topicCounts = facets?.topic ?? {}
   // Resources carrying none of the portal's topics - the gap the classifier
@@ -309,6 +318,13 @@ export function LibraryBrowser(
   })
   const tagged = config.topics.reduce((n, topic) => n + (topicCounts[topic.id] ?? 0), 0)
   const untagged = counters ? Math.max(0, counters.resources - tagged) : null
+  const formatCounts = facets?.format ?? {}
+  const FORMATS = [
+    { id: 'article', label: 'Articles' },
+    { id: 'supplement', label: 'Supplementary material' },
+    { id: 'media', label: 'Video and audio' },
+  ]
+  const formatFacets = FORMATS.filter((f) => (formatCounts[f.id] ?? 0) > 0)
 
   const {
     data,
@@ -318,7 +334,7 @@ export function LibraryBrowser(
     error,
     refetch,
   } = useQuery({
-    queryKey: ['catalog', config.slug, debouncedQuery, sort, topicsKey, kindsKey, page],
+    queryKey: ['catalog', config.slug, debouncedQuery, sort, topicsKey, kindsKey, formatsKey, page],
     queryFn: () =>
       getCatalog(config.slug, {
         page,
@@ -326,6 +342,7 @@ export function LibraryBrowser(
         query: debouncedQuery || undefined,
         topicIds: selectedTopics,
         kindIds: selectedKinds,
+        formatIds: selectedFormats,
         sort: sortOption.sort,
         order: sortOption.order,
       }),
@@ -462,8 +479,9 @@ export function LibraryBrowser(
                   className='rp-btn rp-btn-outline'
                   aria-expanded={filtersOpen}
                 >
-                  Filters{(selectedTopics.length + selectedKinds.length) > 0
-                    ? ` (${selectedTopics.length + selectedKinds.length})`
+                  Filters{(selectedTopics.length + selectedKinds.length + selectedFormats.length) >
+                      0
+                    ? ` (${selectedTopics.length + selectedKinds.length + selectedFormats.length})`
                     : ''}
                 </button>
               </span>
@@ -561,6 +579,49 @@ export function LibraryBrowser(
                     )
                     : null}
                 </div>
+                {formatFacets.length > 0
+                  ? (
+                    <div className='mt-4 border-t border-line pt-3'>
+                      <div className='flex items-center justify-between gap-2'>
+                        <p className='rp-eyebrow text-ink-3'>Format</p>
+                        {selectedFormats.length > 0
+                          ? (
+                            <button
+                              type='button'
+                              onClick={() => setSelectedFormats([])}
+                              className='text-xs font-medium text-[var(--rp-ink-3)] transition-colors duration-150 hover:text-[var(--rp-ink)]'
+                            >
+                              Clear
+                            </button>
+                          )
+                          : null}
+                      </div>
+                      <div className='mt-2.5 space-y-0.5'>
+                        {formatFacets.map((format) => {
+                          const checked = selectedFormats.includes(format.id)
+                          return (
+                            <label
+                              key={format.id}
+                              className='flex cursor-pointer items-start gap-2.5 rounded-[var(--rp-radius-btn)] px-1 py-1 text-sm text-ink-2'
+                            >
+                              <input
+                                type='checkbox'
+                                checked={checked}
+                                onChange={() => toggleFormat(format.id)}
+                                className='mt-[2px] h-4 w-4 shrink-0 rounded-[var(--rp-radius-input)] border-line'
+                                style={{ accentColor: 'var(--rp-accent)' }}
+                              />
+                              <span className='min-w-0 flex-1'>{format.label}</span>
+                              <span className='self-center text-xs tabular-nums text-ink-3'>
+                                {formatCounts[format.id] ?? 0}
+                              </span>
+                            </label>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )
+                  : null}
               </div>
             </aside>
           )

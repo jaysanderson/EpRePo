@@ -851,6 +851,7 @@ export function buildApp(opts: BuildAppOptions): Hono {
     const orderRaw = c.req.query('order')
     const page = await provider.catalog(config, {
       kindIds: (c.req.query('kind') ?? '').split(',').filter(Boolean),
+      formatIds: (c.req.query('format') ?? '').split(',').filter(Boolean),
       page: Math.max(0, Math.floor(Number(c.req.query('page') ?? 0) || 0)),
       pageSize: Math.min(
         Math.max(1, Math.floor(Number(c.req.query('pageSize') ?? 24) || 24)),

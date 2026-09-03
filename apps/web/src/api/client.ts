@@ -186,6 +186,7 @@ export function getCatalog(
     query?: string
     topicIds?: string[]
     kindIds?: string[]
+    formatIds?: string[]
     sort?: 'created' | 'modified' | 'title'
     order?: 'asc' | 'desc'
   } = {},
@@ -196,6 +197,7 @@ export function getCatalog(
   if (opts.query) params.set('q', opts.query)
   if (opts.topicIds && opts.topicIds.length > 0) params.set('topics', opts.topicIds.join(','))
   if (opts.kindIds && opts.kindIds.length > 0) params.set('kind', opts.kindIds.join(','))
+  if (opts.formatIds && opts.formatIds.length > 0) params.set('format', opts.formatIds.join(','))
   if (opts.sort) params.set('sort', opts.sort)
   if (opts.order) params.set('order', opts.order)
   return request<CatalogPage>(`/api/t/${encodeURIComponent(slug)}/catalog?${params.toString()}`)

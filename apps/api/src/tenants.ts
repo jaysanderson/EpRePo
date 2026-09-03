@@ -174,6 +174,12 @@ const eprepo: TenantConfig = TenantConfigSchema.parse({
   // A global research initiative: the corpus is not organised by Australian
   // state, so Explore omits the regional discovery band.
   regionalDiscovery: false,
+  // Supplements and videos stay browsable in the library, but search and ask
+  // are grounded in the articles themselves.
+  searchExclude: [
+    { labelset: 'format', label: 'supplement' },
+    { labelset: 'format', label: 'media' },
+  ],
   // These ids are the `topic` labelset `deno task provision -- eprepo` pushes
   // to the bound knowledge box. Explore intersects them with the box's facet
   // counts, so keep this list and the labelset in step; corpus analysis in

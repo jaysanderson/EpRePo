@@ -453,9 +453,23 @@ export function labelFieldExpression(): {
   return { prop: 'label', labelset: DOCUMENTATION_LABELSET, label: DOCUMENTATION_LABEL }
 }
 
-/** filter_expression EXCLUDING documentation - for portal-search / portal-ask. */
-export function researchExcludeFilterExpression(): Record<string, unknown> {
-  return { field: { not: labelFieldExpression() } }
+/**
+ * filter_expression EXCLUDING documentation - for portal-search / portal-ask -
+ * plus any labels the tenant keeps out of research retrieval (supplements,
+ * media). With no extra exclusions the shape is unchanged.
+ */
+export function researchExcludeFilterExpression(
+  exclude: { labelset: string; label: string }[] = [],
+): Record<string, unknown> {
+  if (exclude.length === 0) return { field: { not: labelFieldExpression() } }
+  return {
+    field: {
+      and: [
+        { not: labelFieldExpression() },
+        ...exclude.map((e) => ({ not: { prop: 'label', labelset: e.labelset, label: e.label } })),
+      ],
+    },
+  }
 }
 
 /** filter_expression including ONLY documentation - for portal-doc-search / portal-doc-ask. */
@@ -1092,6 +1106,9 @@ export class AragProvider implements RetrievalProvider {
     params.set('hidden', 'false')
     for (const topic of opts.topicIds ?? []) {
       params.append('filters', `/classification.labels/topic/${topic}`)
+    }
+    for (const format of opts.formatIds ?? []) {
+      params.append('filters', `/classification.labels/format/${format}`)
     }
     for (const kind of opts.kindIds ?? []) {
       params.append('filters', `/classification.labels/kind/${kind}`)
@@ -2095,7 +2112,7 @@ export class AragProvider implements RetrievalProvider {
    */
   async ensureSearchConfigs(tenant: TenantConfig): Promise<string[]> {
     const client = this.client(tenant)
-    const researchExclude = researchExcludeFilterExpression()
+    const researchExclude = researchExcludeFilterExpression(tenant.searchExclude ?? [])
     const docOnly = docOnlyFilterExpression()
     const desired: Record<string, unknown> = {
       [SEARCH_CONFIG_RESEARCH_FIND]: {

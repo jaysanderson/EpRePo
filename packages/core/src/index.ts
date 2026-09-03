@@ -237,6 +237,14 @@ export const TenantConfigSchema = z.object({
    * not organised by Australian state sets it to false.
    */
   regionalDiscovery: z.boolean().optional(),
+  /**
+   * Labels excluded from the research search and ask configurations (on top
+   * of the always-excluded in-app documentation). A journal corpus keeps its
+   * supplements and videos browsable in the library but grounds answers in
+   * the articles: [{ labelset: 'format', label: 'supplement' }, ...].
+   */
+  searchExclude: z.object({ labelset: z.string().min(1), label: z.string().min(1) }).array()
+    .optional(),
 })
 
 // ---------------------------------------------------------------------------

@@ -36,7 +36,7 @@ the single-call `POST /kb/{id}/upload`, then a `PATCH /resource/{id}` writes the
 means a supplement cannot be a second file field on its article; it is its own resource that
 points back at the article.
 
-| kind | resource slug | `kind` label | body |
+| kind | resource slug | `format` label | body |
 |---|---|---|---|
 | article PDF | `PMC<id>` | `article` | the PDF via `/upload` |
 | article text only | `PMC<id>` | `article` | JATS XML converted to Markdown, via `POST /resources` with a `texts.body` field (the platform does not read JATS; Markdown extracts cleanly and the title is written into the body because a title is not searchable text) |
@@ -67,9 +67,10 @@ Written by the PATCH straight after upload (and in the create body for text reso
   supplements and media `parentPmcid` and `parentTitle`. The library and resource pages read
   `summary`, `keyFacts` and `published` from here before any enrichment has run, so nothing
   appears bare.
-- **`usermetadata.classifications`** - one `topic` label and one `kind` label. The `topic`
-  labelset already exists on the box (pushed by `deno task provision -- eprepo`); the loader
-  pushes a `kind` labelset (`article`, `supplement`, `media`) before the first batch.
+- **`usermetadata.classifications`** - one `topic` label and one `format` label. The `topic`
+  labelset is whatever the box currently defines (the loader maps its rule ids onto the live
+  labels); the loader pushes a `format` labelset (`article`, `supplement`, `media`) before the
+  first batch. `kind` (study type) is left to corpus analysis and the classifier agent.
 
 **Where the abstract, keywords and licence come from.** Europe PMC's REST search with
 `resultType=core` accepts forty PMC ids per query and returns `abstractText`, `keywordList`,
@@ -85,10 +86,10 @@ match nothing get `epidemiology-outcomes`. This is a first pass so Explore is no
 one; the platform's `labeler` task (run sequentially, one at a time) and the Manage corpus
 analysis refine it afterwards.
 
-**Search isolation.** Following the repo rule that isolation lives in named search
-configurations, the `portal-search` and `portal-ask` configurations should include `kind:article`
-and, initially, exclude `supplement` and `media` so answers are grounded in the papers. Supplements
-and videos stay browsable in the library and can be switched into the configurations later.
+**Search isolation.** The tenant's `searchExclude` (`format:supplement`, `format:media`) is baked
+into the `portal-search` and `portal-ask` configurations by `search-configs/ensure`, so answers are
+grounded in the articles. Supplements and videos stay browsable in the library through its Format
+facet.
 
 ## 4. Batching: 80 up, wait, 80 more
 
