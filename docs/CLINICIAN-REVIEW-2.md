@@ -107,4 +107,5 @@ What is not fixed is the thing that matters most to a clinician: **answers that 
 | P2-11 | Exact lookup excludes supplements and media. |
 | P2-13 | The route chip's tooltip shows the rule that matched. |
 | P2-16 | Export now confirms the saved file name. |
-| Open | P2-12 waits on the classifier agent; P2-14 (charset on the SSE content type) and P2-15 (390 px compare layout) are not yet addressed. |
+| P2-14 | The ask stream now declares `text/event-stream; charset=utf-8`. |
+| Open | P2-12 waits on the classifier agent; P2-15 (390 px compare layout) is not yet addressed. |
