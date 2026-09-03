@@ -154,7 +154,85 @@ const frdc: TenantConfig = TenantConfigSchema.parse({
   relationTypes: ['studies', 'infects', 'located-in', 'funded-by', 'assesses'],
 })
 
+const eprepo: TenantConfig = TenantConfigSchema.parse({
+  slug: 'eprepo',
+  branding: {
+    productName: 'EpRePo Research Portal',
+    organisation: 'EpRePo - Epilepsy Research Repository',
+    tagline: 'Open-access epilepsy research from Melbourne clinical neuroscience',
+    colours: {
+      // Deep violet carries the identity (lavender is the international
+      // epilepsy awareness colour); the lighter violet is the call to action.
+      primary: '#2e2359',
+      accent: '#8b6fd8',
+      heroFrom: '#1f1740',
+      heroTo: '#4a3a8f',
+    },
+  },
+  searchPlaceholder: 'Search seizure forecasting, genetics, antiseizure medications, surgery…',
+  // These ids are the `topic` labelset `deno task provision -- eprepo` pushes
+  // to the bound knowledge box. Explore intersects them with the box's facet
+  // counts, so keep this list and the labelset in step; corpus analysis in
+  // Manage may rewrite them once the corpus is loaded.
+  topics: [
+    { id: 'seizure-forecasting-cycles', label: 'Seizure forecasting and cycles' },
+    { id: 'genetics-genomics', label: 'Genetics and genomics' },
+    { id: 'antiseizure-medications', label: 'Antiseizure medications' },
+    { id: 'pregnancy-teratogenicity', label: 'Pregnancy and teratogenicity' },
+    { id: 'epilepsy-surgery-imaging', label: 'Epilepsy surgery and imaging' },
+    { id: 'eeg-neurophysiology', label: 'EEG and neurophysiology' },
+    { id: 'autoimmune-encephalitis', label: 'Autoimmune encephalitis' },
+    { id: 'devices-neurostimulation', label: 'Devices and neurostimulation' },
+    { id: 'psychiatry-functional-seizures', label: 'Psychiatry and functional seizures' },
+    { id: 'epidemiology-outcomes', label: 'Epidemiology and outcomes' },
+  ],
+  suggestedQuestions: [
+    {
+      id: 'eprepo-q1',
+      text: 'What are the common clinical misconceptions about multiday seizure cycles?',
+    },
+    {
+      id: 'eprepo-q2',
+      text:
+        'Which antiseizure medications carry the highest risk of major congenital malformations?',
+    },
+    {
+      id: 'eprepo-q3',
+      text: 'How effective is adjunctive cannabidiol for drug-resistant focal epilepsy?',
+    },
+    {
+      id: 'eprepo-q4',
+      text: 'When is stereo-EEG indicated in presurgical evaluation of focal epilepsy?',
+    },
+    {
+      id: 'eprepo-q5',
+      text: 'What predicts quality of life and depression after a first seizure?',
+    },
+    {
+      id: 'eprepo-q6',
+      text: 'Which genes are implicated in developmental and epileptic encephalopathies?',
+    },
+  ],
+  entityTypes: [
+    { id: 'condition', label: 'Condition or syndrome', colour: '#e5533d' },
+    { id: 'gene', label: 'Gene or variant', colour: '#f2a93b' },
+    { id: 'medication', label: 'Medication or treatment', colour: '#3fa66b' },
+    { id: 'researcher', label: 'Researcher', colour: '#5e97f6' },
+    { id: 'institution', label: 'Institution', colour: '#8b6fd8' },
+    { id: 'method', label: 'Method or device', colour: '#26a69a' },
+  ],
+  relationTypes: [
+    'studies',
+    'treats',
+    'associated-with',
+    'causes',
+    'conducted-at',
+    'collaborates-with',
+  ],
+})
+
 const tenantsBySlug: Record<string, TenantConfig> = {
+  eprepo,
   frdc,
   grdc,
 }

@@ -20,6 +20,10 @@ First two tenants:
 - **GRDC** - Grains Research and Development Corporation (grains R&D).
 - **FRDC** - Fisheries Research and Development Corporation (fisheries and aquaculture R&D).
 
+Third seeded tenant (this fork, 2026-09-03):
+- **EpRePo** - open-access epilepsy research from Melbourne clinical neuroscience. See
+  `docs/EPREPO.md`.
+
 ## 2. Primary user & their job-to-be-done
 The **typical research person at an organisation like FRDC or GRDC**: arrives with a question or
 a topic, needs fast, cited, trustworthy answers, and then explores the underlying reports,

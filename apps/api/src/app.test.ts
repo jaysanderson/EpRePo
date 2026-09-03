@@ -550,7 +550,7 @@ describe('admin', () => {
 
     expect(response.status).toBe(200)
     const rows = (await response.json()) as unknown[]
-    expect(rows.length).toBe(2)
+    expect(rows.length).toBe(3)
     for (const row of rows) AdminTenantOverviewSchema.parse(row)
   })
 
