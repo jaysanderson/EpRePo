@@ -1,7 +1,7 @@
 import { serveStatic } from 'hono/deno'
 import { readFileSync } from 'node:fs'
 import process from 'node:process'
-import { AragProvider } from '@research-portal/retrieval'
+import { AragProvider, labBindings } from '@research-portal/retrieval'
 import { buildApp } from './app.ts'
 import { BindingStore } from './bindings.ts'
 import { SourceStore, WatchStore } from './stores.ts'
@@ -17,7 +17,11 @@ const zone = process.env.ARAG_ZONE ?? 'aws-ap-southeast-2-1'
 
 const bindings = new BindingStore()
 const tenants = new TenantStore()
-const provider = new AragProvider({ resolveBinding: (slug) => bindings.get(slug) })
+// Extraction Lab sandboxes bind under `<slug>-lab` straight from the environment.
+const labs = labBindings()
+const provider = new AragProvider({
+  resolveBinding: (slug) => bindings.get(slug) ?? labs[slug],
+})
 // Constructed once and shared with startScheduler below - a scheduled sync
 // and a concurrent HTTP write (e.g. POST /watches) must serialise through
 // the same in-process store, not two separate instances racing to

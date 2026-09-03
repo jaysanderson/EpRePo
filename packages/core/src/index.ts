@@ -264,6 +264,58 @@ export const RouteDecisionSchema = z.object({
 })
 export type RouteDecision = z.infer<typeof RouteDecisionSchema>
 
+// ---------------------------------------------------------------------------
+// Custom extraction methods (docs/EXTRACTION-LAB.md). A method is a named
+// extraction strategy on the box, applied per upload; rules route documents
+// to a method by their profile class.
+// ---------------------------------------------------------------------------
+
+export const ExtractionMethodSchema = z.object({
+  /** The platform's strategy id; 'default' for the built-in extraction. */
+  id: z.string().min(1),
+  name: z.string().min(1),
+  kind: z.enum(['default', 'tables', 'visual']),
+  model: z.string().optional(),
+  /** Transcription rules for a visual method. */
+  rules: z.string().array().optional(),
+})
+export type ExtractionMethod = z.infer<typeof ExtractionMethodSchema>
+
+export const ExtractionClassSchema = z.enum([
+  'prose',
+  'tables',
+  'garbled-text',
+  'image-only',
+  'long-scan',
+])
+export type ExtractionClass = z.infer<typeof ExtractionClassSchema>
+
+export const ExtractionProfileSchema = z.object({
+  pages: z.number().int().nonnegative(),
+  bytes: z.number().int().nonnegative(),
+  chars: z.number().int().nonnegative(),
+  charsPerPage: z.number().nonnegative(),
+  fonts: z.number().int().nonnegative(),
+  imageOnlyPages: z.number().int().nonnegative(),
+  /** Rows that look tabular (several aligned numeric cells) per page. */
+  tableRowsPerPage: z.number().nonnegative(),
+  /** Share of words of four or more letters that look like real words. */
+  dictionaryHitRate: z.number().min(0).max(1),
+  class: ExtractionClassSchema,
+  /** Where the profile came from: poppler on the host, or the platform's extracted text. */
+  source: z.enum(['poppler', 'platform']),
+})
+export type ExtractionProfile = z.infer<typeof ExtractionProfileSchema>
+
+export const ExtractionRulesSchema = z.object({
+  /** Method id for anything no rule claims. */
+  default: z.string().min(1),
+  rules: z.object({ when: ExtractionClassSchema, method: z.string().min(1) }).array(),
+  /** Documents longer than this go to the default method even when a rule says visual. */
+  visualPageCap: z.number().int().positive().optional(),
+})
+export type ExtractionRules = z.infer<typeof ExtractionRulesSchema>
+
 export const TenantHostnameSchema = z.string().max(253).regex(
   /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/,
 )
@@ -306,6 +358,8 @@ export const TenantConfigSchema = z.object({
   defaultIntent: z.string().optional(),
   /** Domain lexicon (drug and gene names) the router recognises as entities. */
   entityTerms: z.string().array().optional(),
+  /** Extraction routing rules (docs/EXTRACTION-LAB.md). Absent = platform default for everything. */
+  extraction: ExtractionRulesSchema.optional(),
 })
 
 // ---------------------------------------------------------------------------

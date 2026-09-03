@@ -462,6 +462,8 @@ export interface TenantPatch {
   branding?: TenantConfig['branding']
   /** Portal-managed behaviour settings (system prompt, image grounding). */
   prompts?: { ask?: string; images?: boolean }
+  /** Extraction routing rules (docs/EXTRACTION-LAB.md). */
+  extraction?: TenantConfig['extraction']
 }
 
 export class TenantStore {

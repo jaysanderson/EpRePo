@@ -68,4 +68,6 @@ for this fork.
 
 - **Intent-routed search configurations** - `docs/INTENT-ROUTING.md`. One ask box, six intents, one stored
   configuration per intent on the same box; the route chip, override and compare mode are on the Ask page.
-- **Extraction Lab** - `docs/EXTRACTION-LAB.md` (design; build in progress).
+- **Extraction Lab** - `docs/EXTRACTION-LAB.md`. Profile a document, compare the default, table-aware and
+  visual extraction methods in a sandbox box with a judge's score and a before/after ask, and set routing
+  rules per document class. Manage > Extraction, linked from Tools.

@@ -1,5 +1,15 @@
 # Extraction Lab - custom extraction methods, chosen by evidence
 
+> Status 2026-09-03: built as Manage > Extraction (linked from Tools). The sandbox box
+> `research-portal-eprepo-lab` is bound through `ARAG_KB_EPREPO_LAB`; `table-aware` (`ai_tables`)
+> and `visual-transcribe` (`vllm_config`) are registered on it and read back with the shapes in
+> section 3.1. The profiler runs poppler on the host (the server needs
+> `--allow-run=pdfinfo,pdftotext,pdffonts`, now in the `dev` task). Verified live on the
+> PMC8960314 data sheet: class `image-only`; default and table-aware 1,130 characters, judge 2/5;
+> visual 3,107 characters with 47 table rows, judge 3/5, recommended. Not yet built: the corpus
+> buckets and streamed re-ingest, and the loader honouring the rules (a method must first be
+> registered on the production box; the lab registers on the sandbox only).
+
 > Design and solution architecture for the second horizontal demo on the EpRePo fork, written
 > 2026-09-03. A sibling to `docs/INTENT-ROUTING.md`: that demo shows what a knowledge box does
 > with a question; this one shows what a knowledge box can ever know, which is decided before

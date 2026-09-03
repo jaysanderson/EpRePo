@@ -24,7 +24,8 @@ the paper (`dsouza,cook,obrien,...`). `download_status` is `ok`, `xml_only` or `
 only `ok` and `xml_only` rows have anything to upload.
 
 Two facts shape the design. The PDFs are all born-digital publisher PDFs, so default extraction
-is right for every one of them (no vision or OCR strategy, unlike the scanned FRDC reports). And
+is right for every one of them (the Extraction Lab in `docs/EXTRACTION-LAB.md` is where that
+assumption is tested per document class) (no vision or OCR strategy, unlike the scanned FRDC reports). And
 the manifest already has the bibliographic core; what it lacks is an abstract, keywords and a
 licence, all of which Europe PMC returns in one batched call.
 

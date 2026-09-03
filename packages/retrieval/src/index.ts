@@ -9,7 +9,7 @@ export {
   regionalBase,
 } from './providers/arag/client.ts'
 export type { KbBinding } from './providers/arag/client.ts'
-export { createProviderFromEnv, envBindings } from './env.ts'
+export { createProviderFromEnv, envBindings, labBindings } from './env.ts'
 export {
   baselineMerchandising,
   extractPageSummary,
@@ -27,3 +27,4 @@ export {
   intentStrategies,
   shapeSourcesForIntent,
 } from './providers/arag/index.ts'
+export { DEFAULT_VISUAL_RULE, methodFromStrategy, strategyBody } from './providers/arag/index.ts'

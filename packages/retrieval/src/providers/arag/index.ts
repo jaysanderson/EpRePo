@@ -23,6 +23,7 @@ import {
   docResourceSlug,
   DOCUMENTATION_LABEL,
   DOCUMENTATION_LABELSET,
+  type ExtractionMethod,
   type Intent,
   isDocOrigin,
   type LabelRef,
@@ -524,6 +525,54 @@ export function shapeSourcesForIntent(
   return shaped
 }
 
+/** The platform's stored extraction strategy shape (as read back from /extract_strategies). */
+interface RawStrategy {
+  name?: string
+  vllm_config?: { rules?: string[]; llm?: { generative_model?: string } } | null
+  ai_tables?: { llm?: { generative_model?: string } } | null
+}
+
+/** Platform body for an extraction method; the vendor shape stays here. */
+export function strategyBody(spec: Omit<ExtractionMethod, 'id'>): Record<string, unknown> {
+  const llm = spec.model ? { generative_model: spec.model } : {}
+  if (spec.kind === 'tables') return { name: spec.name, ai_tables: { llm } }
+  if (spec.kind === 'visual') {
+    return {
+      name: spec.name,
+      vllm_config: {
+        rules: spec.rules && spec.rules.length > 0 ? spec.rules : [DEFAULT_VISUAL_RULE],
+        llm,
+      },
+    }
+  }
+  return { name: spec.name }
+}
+
+export const DEFAULT_VISUAL_RULE =
+  'Transcribe every element on the page faithfully: headings, paragraphs, tables as markdown ' +
+  'tables, figure captions, axis labels and footnotes. Keep reading order. Do not summarise or omit.'
+
+export function methodFromStrategy(id: string, s: RawStrategy): ExtractionMethod {
+  if (s.ai_tables) {
+    return {
+      id,
+      name: s.name ?? id,
+      kind: 'tables',
+      ...(s.ai_tables.llm?.generative_model ? { model: s.ai_tables.llm.generative_model } : {}),
+    }
+  }
+  if (s.vllm_config) {
+    return {
+      id,
+      name: s.name ?? id,
+      kind: 'visual',
+      ...(s.vllm_config.llm?.generative_model ? { model: s.vllm_config.llm.generative_model } : {}),
+      ...(s.vllm_config.rules?.length ? { rules: s.vllm_config.rules } : {}),
+    }
+  }
+  return { id, name: s.name ?? id, kind: 'default' }
+}
+
 /** Stored configuration name for an intent; the default intent keeps the default pair. */
 export function intentConfigurationName(
   tenant: TenantConfig,
@@ -892,12 +941,21 @@ export class AragProvider implements RetrievalProvider {
 
   async uploadFile(
     tenant: TenantConfig,
-    input: { filename: string; contentType: string; bytes: Uint8Array },
+    input: {
+      filename: string
+      contentType: string
+      bytes: Uint8Array
+      /** Extraction method (strategy id) to apply; omitted or 'default' = the platform default. */
+      method?: string
+    },
   ): Promise<{ id: string }> {
     const client = this.client(tenant)
+    const headers: Record<string, string> = input.method && input.method !== 'default'
+      ? { 'x-extract-strategy': input.method }
+      : {}
     const res =
       (await withBackpressureRetry(() =>
-        client.postRaw('/upload', input.bytes, input.contentType, input.filename)
+        client.postRaw('/upload', input.bytes, input.contentType, input.filename, headers)
       )) as { uuid?: string; resource?: string }
     this.invalidateCatalogue(tenant.slug)
     return { id: res.uuid ?? res.resource ?? '' }
@@ -1363,6 +1421,76 @@ export class AragProvider implements RetrievalProvider {
       out[labelsetId] = byLabel
     }
     return out
+  }
+
+  /** The extraction methods registered on the box, plus the platform default. */
+  async listExtractionMethods(tenant: TenantConfig): Promise<ExtractionMethod[]> {
+    const raw = await this.client(tenant).getJson<Record<string, RawStrategy>>(
+      '/extract_strategies',
+    )
+    const methods: ExtractionMethod[] = [
+      { id: 'default', name: 'Default', kind: 'default' },
+    ]
+    for (const [id, s] of Object.entries(raw ?? {})) methods.push(methodFromStrategy(id, s))
+    return methods
+  }
+
+  /** Register an extraction method; returns it with the platform's id. */
+  async registerExtractionMethod(
+    tenant: TenantConfig,
+    spec: Omit<ExtractionMethod, 'id'>,
+  ): Promise<ExtractionMethod> {
+    const id = await this.client(tenant).postJson<string>('/extract_strategies', strategyBody(spec))
+    return { ...spec, id: typeof id === 'string' ? id : String(id) }
+  }
+
+  /**
+   * What the platform extracted from a resource: text, paragraph count and
+   * the number of markdown-table rows in it (the table-aware method writes
+   * tables into the text as rows of `|` cells).
+   */
+  async resourceExtraction(
+    tenant: TenantConfig,
+    id: string,
+  ): Promise<
+    { status: string; text: string; chars: number; paragraphs: number; tableRows: number }
+  > {
+    const full = await this.client(tenant).getJson<{
+      metadata?: { status?: string }
+      data?: Record<
+        string,
+        Record<
+          string,
+          {
+            extracted?: {
+              text?: { text?: string }
+              metadata?: { metadata?: { paragraphs?: unknown[] } }
+            }
+          }
+        >
+      >
+    }>(`/resource/${id}?show=basic&show=extracted&extracted=text&extracted=metadata`)
+    const texts: string[] = []
+    let paragraphs = 0
+    for (const [group, fields] of Object.entries(full.data ?? {})) {
+      if (group === 'generics') continue
+      for (const field of Object.values(fields ?? {})) {
+        const t = field.extracted?.text?.text
+        if (t) texts.push(t)
+        paragraphs += field.extracted?.metadata?.metadata?.paragraphs?.length ?? 0
+      }
+    }
+    const text = texts.join('\n\n')
+    const tableRows =
+      text.split('\n').filter((l) => /^\s*\|.*\|\s*$/.test(l) && !/^\s*\|[\s|:-]+\|\s*$/.test(l))
+        .length
+    return {
+      status: full.metadata?.status ?? 'PENDING',
+      text,
+      chars: text.length,
+      paragraphs,
+      tableRows,
+    }
   }
 
   async labelsets(tenant: TenantConfig): Promise<Labelset[]> {
@@ -1981,6 +2109,18 @@ export class AragProvider implements RetrievalProvider {
   }
 
   /** Remove a resource permanently (curation - e.g. replacing a corrupt ingest). */
+  /** Retitle and tag a resource (used by the Extraction Lab to mark sandbox uploads). */
+  async patchResourceMeta(
+    tenant: TenantConfig,
+    id: string,
+    meta: { title?: string; tags?: string[] },
+  ): Promise<void> {
+    await this.client(tenant).patchJson(`/resource/${id}`, {
+      ...(meta.title ? { title: meta.title } : {}),
+      ...(meta.tags ? { origin: { tags: meta.tags } } : {}),
+    })
+  }
+
   async deleteResource(tenant: TenantConfig, id: string): Promise<void> {
     await this.client(tenant).deleteJson(`/resource/${id}`)
     this.invalidateCatalogue(tenant.slug)

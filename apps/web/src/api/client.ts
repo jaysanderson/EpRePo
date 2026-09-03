@@ -6,6 +6,9 @@ import type {
   DensityId,
   EnrichmentAgentStatus,
   EnrichmentRunEvent,
+  ExtractionMethod,
+  ExtractionProfile,
+  ExtractionRules,
   FacetCounts,
   GenerateKind,
   GenerateResult,
@@ -1682,4 +1685,107 @@ export function getRouting(
   summary: { total: number; byIntent: Record<string, number>; byStage: Record<string, number> }
 }> {
   return adminRequest(`/api/admin/t/${encodeURIComponent(slug)}/routing`, passcode)
+}
+
+// ---------------------------------------------------------------------------
+// Extraction Lab (docs/EXTRACTION-LAB.md)
+// ---------------------------------------------------------------------------
+
+export interface ExtractionMethodsResponse {
+  lab: string
+  available: boolean
+  methods: ExtractionMethod[]
+  rules: ExtractionRules | null
+  poppler: boolean
+  message?: string
+}
+
+export function getExtractionMethods(
+  slug: string,
+  passcode: string,
+): Promise<ExtractionMethodsResponse> {
+  return adminRequest(`/api/admin/t/${encodeURIComponent(slug)}/extraction/methods`, passcode)
+}
+
+export function profileExtraction(
+  slug: string,
+  passcode: string,
+  resourceId: string,
+): Promise<{ profile: ExtractionProfile; filename: string }> {
+  return adminRequest(`/api/admin/t/${encodeURIComponent(slug)}/extraction/profile`, passcode, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ resourceId }),
+  })
+}
+
+export function saveExtractionRules(
+  slug: string,
+  passcode: string,
+  rules: ExtractionRules,
+): Promise<{ ok: boolean; rules: ExtractionRules }> {
+  return adminRequest(`/api/admin/t/${encodeURIComponent(slug)}/extraction/rules`, passcode, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(rules),
+  })
+}
+
+export interface ExtractionMetrics {
+  chars: number
+  charsPerPage: number
+  yieldVsDefault: number | null
+  paragraphs: number
+  tableRows: number
+  dictionaryHitRate: number
+  latencySec: number
+  visionPages: number
+  judgeScore: number | null
+  judgeReason: string
+}
+
+export type ExtractionCompareEvent =
+  | { type: 'stage'; label: string }
+  | { type: 'profile'; profile: ExtractionProfile; filename: string }
+  | { type: 'method'; method: ExtractionMethod; metrics: ExtractionMetrics; textPreview: string }
+  | { type: 'ask'; method: ExtractionMethod; question: string; answer: string; citations: number }
+  | { type: 'error'; message: string; method?: string }
+  | { type: 'done'; purged: number; recommended: string | null; yields: Record<string, number> }
+
+export async function compareExtraction(
+  slug: string,
+  passcode: string,
+  body: { resourceId: string; methods: string[]; question?: string; keep?: boolean },
+  onEvent: (event: ExtractionCompareEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const res = await fetch(`/api/admin/t/${encodeURIComponent(slug)}/extraction/compare`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-admin-passcode': passcode },
+    body: JSON.stringify(body),
+    signal,
+  })
+  if (!res.ok || !res.body) throw new ApiError(res.status, 'The comparison could not start')
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  const emit = (frame: string) => {
+    const line = frame.trim()
+    if (!line) return
+    const data = line.startsWith('data: ') ? line.slice('data: '.length) : line
+    try {
+      onEvent(JSON.parse(data) as ExtractionCompareEvent)
+    } catch {
+      // truncated trailing frame
+    }
+  }
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const frames = buffer.split('\n\n')
+    buffer = frames.pop() ?? ''
+    for (const frame of frames) emit(frame)
+  }
+  emit(buffer)
 }

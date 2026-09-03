@@ -10,6 +10,7 @@ import {
   type EnrichmentAgentStatus,
   enrichmentJsonSchema,
   EnrichmentSchema,
+  ExtractionRulesSchema,
   GenerateKindSchema,
   PaletteChoiceSchema,
   ShapeIdSchema,
@@ -54,6 +55,13 @@ import {
   fillPrequeries,
   routeByRules,
 } from './intent-router.ts'
+import {
+  compareExtraction,
+  ensureLabMethods,
+  labTenant,
+  popplerAvailable,
+  profileResource,
+} from './extraction.ts'
 import {
   type EnrichmentCollisionPolicy,
   type EnrichmentRecords,
@@ -261,6 +269,13 @@ function validateEnrichmentRecords(value: unknown): ImportValidationResult {
 }
 
 const routeBodySchema = z.object({ query: z.string().min(1).max(2000) })
+const extractionProfileSchema = z.object({ resourceId: z.string().min(1) })
+const extractionCompareSchema = z.object({
+  resourceId: z.string().min(1),
+  methods: z.string().min(1).array().min(1).max(4),
+  question: z.string().max(500).optional(),
+  keep: z.boolean().optional(),
+})
 const askBodySchema = z.object({
   query: z.string().min(1),
   /** Intent id from the tenant's intents (docs/INTENT-ROUTING.md). */
@@ -908,6 +923,86 @@ export function buildApp(opts: BuildAppOptions): Hono {
       // logging never blocks routing
     }
     return c.json({ ...decision, latencyMs })
+  })
+
+  // ---------------------------------------------------------------------
+  // Extraction Lab (docs/EXTRACTION-LAB.md): sandbox methods, profiling, a
+  // streamed comparison, and the routing rules a portal stores.
+  // ---------------------------------------------------------------------
+  app.get('/api/admin/t/:slug/extraction/methods', async (c) => {
+    const config = tenant(c.req.param('slug'))
+    if (!config) return c.json({ error: 'unknown_tenant' }, 404)
+    const unavailable = requireManagement(c)
+    if (unavailable) return unavailable
+    const lab = labTenant(config)
+    try {
+      const methods = await ensureLabMethods(management!, lab)
+      return c.json({
+        lab: lab.slug,
+        available: true,
+        methods,
+        rules: config.extraction ?? null,
+        poppler: await popplerAvailable(),
+      })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'unavailable'
+      return c.json({
+        lab: lab.slug,
+        available: false,
+        methods: [],
+        rules: config.extraction ?? null,
+        poppler: await popplerAvailable(),
+        message,
+      })
+    }
+  })
+  app.post('/api/admin/t/:slug/extraction/profile', async (c) => {
+    const config = tenant(c.req.param('slug'))
+    if (!config) return c.json({ error: 'unknown_tenant' }, 404)
+    const unavailable = requireManagement(c)
+    if (unavailable) return unavailable
+    const parsed = extractionProfileSchema.safeParse(await c.req.json().catch(() => null))
+    if (!parsed.success) return c.json({ error: 'invalid_request' }, 400)
+    try {
+      return c.json(await profileResource(management!, config, parsed.data.resourceId))
+    } catch (err) {
+      return c.json({
+        error: 'profile_failed',
+        message: err instanceof Error ? err.message : 'failed',
+      }, 502)
+    }
+  })
+  app.post('/api/admin/t/:slug/extraction/compare', async (c) => {
+    const config = tenant(c.req.param('slug'))
+    if (!config) return c.json({ error: 'unknown_tenant' }, 404)
+    const unavailable = requireManagement(c)
+    if (unavailable) return unavailable
+    const parsed = extractionCompareSchema.safeParse(await c.req.json().catch(() => null))
+    if (!parsed.success) return c.json({ error: 'invalid_request' }, 400)
+    return streamSSE(c, async (stream) => {
+      try {
+        for await (const event of compareExtraction(management!, config, parsed.data)) {
+          await stream.writeSSE({ data: JSON.stringify(event) })
+        }
+      } catch (err) {
+        await stream.writeSSE({
+          data: JSON.stringify({
+            type: 'error',
+            message: err instanceof Error ? err.message : 'failed',
+          }),
+        })
+      }
+    })
+  })
+  app.put('/api/admin/t/:slug/extraction/rules', async (c) => {
+    const config = tenant(c.req.param('slug'))
+    if (!config) return c.json({ error: 'unknown_tenant' }, 404)
+    const unavailable = requireManagement(c)
+    if (unavailable) return unavailable
+    const parsed = ExtractionRulesSchema.safeParse(await c.req.json().catch(() => null))
+    if (!parsed.success) return c.json({ error: 'invalid_request' }, 400)
+    tenants.patch(config.slug, { extraction: parsed.data })
+    return c.json({ ok: true, rules: parsed.data })
   })
 
   /** Recent routing decisions and a summary - the Manage panel's audit view. */
