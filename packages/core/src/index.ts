@@ -192,6 +192,8 @@ export const FONT_PAIRINGS: Record<FontPairingId, FontPairing> = {
 export const TopicSchema = z.object({
   id: z.string().min(1),
   label: z.string().min(1),
+  /** One line on what qualifies - the prompt the topic classifier agent is given. */
+  description: z.string().optional(),
 })
 
 export const QuestionSchema = z.object({
@@ -345,6 +347,18 @@ export const ResourceSummarySchema = z.object({
   quotesOfInterest: z.string().array().optional(),
   /** True when a generated enrichment (not just a filename fallback) drives title/summary. */
   enriched: z.boolean().optional(),
+  /** Bibliographic record, when the ingest supplied one (journal articles). */
+  authors: z.string().array().optional(),
+  journal: z.string().optional(),
+  year: z.string().optional(),
+  doi: z.string().optional(),
+  /** Author keywords / subject headings - shown as keywords, never as facts. */
+  keywords: z.string().array().optional(),
+  /**
+   * True when the stored title is authoritative (a journal article's real
+   * title). Merchandising never replaces a curated title with a generated one.
+   */
+  titleCurated: z.boolean().optional(),
 })
 
 // ---------------------------------------------------------------------------
@@ -624,6 +638,11 @@ export const CatalogItemSchema = z.object({
   sourceName: z.string().optional(),
   /** True when a generated enrichment drives the title/summary. */
   enriched: z.boolean().optional(),
+  authors: z.string().array().optional(),
+  journal: z.string().optional(),
+  year: z.string().optional(),
+  doi: z.string().optional(),
+  titleCurated: z.boolean().optional(),
 })
 
 export const CatalogPageSchema = z.object({
@@ -637,6 +656,8 @@ export const LabelsetSchema = z.object({
   title: z.string().min(1),
   multiple: z.boolean(),
   labels: z.string().array(),
+  /** Per-label description (the platform label's `text`), keyed by label. */
+  descriptions: z.record(z.string()).optional(),
   /** RESOURCES (document-level) or PARAGRAPHS (passage-level). */
   kind: z.enum(['RESOURCES', 'PARAGRAPHS']).optional(),
 })

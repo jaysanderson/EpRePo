@@ -24,7 +24,12 @@ import { SearchAnswer, type SearchAnswerResult } from '../components/SearchAnswe
 import { EmptyState, ErrorCard, prettyLabel, Skeleton, TypeBadge } from '../components/ui.tsx'
 import { answerModeParam, readAnswerMode } from '../lib/search-mode.ts'
 import type { TenantOutletContext } from './TenantLayout.tsx'
-import { passageIsInformative } from '../lib/passage.ts'
+import {
+  passageIsInformative,
+  passageRepeatsSummary,
+  scrubSnippetBoilerplate,
+} from '../lib/passage.ts'
+import { Byline, bylineFor } from '../components/Byline.tsx'
 
 const MODES: { value: RetrievalMode; label: string }[] = [
   { value: 'hybrid', label: 'Hybrid' },
@@ -104,6 +109,11 @@ function ResultCard(
 ) {
   const keyFacts = resource.keyFacts.slice(0, 3)
   const year = resource.published ? formatYear(resource.published) : null
+  const byline = bylineFor(resource)
+  const snippet = resource.matchedPassage ? scrubSnippetBoilerplate(resource.matchedPassage) : ''
+  const showSnippet = snippet.length > 0 &&
+    passageIsInformative(snippet, query) &&
+    !(resource.summary && passageRepeatsSummary(snippet, resource.summary))
 
   return (
     <article id={`result-${resource.id}`} className='rp-card scroll-mt-6 p-4 sm:p-5'>
@@ -151,7 +161,8 @@ function ResultCard(
               {resource.title}
             </Link>
           </h3>
-          {resource.sourceName
+          {byline ? <Byline parts={byline} doi={resource.doi} /> : null}
+          {resource.sourceName && !byline
             ? (
               <p className='mt-0.5 truncate text-[11px] tabular-nums text-ink-3/80'>
                 {resource.sourceName}
@@ -162,12 +173,12 @@ function ResultCard(
             ? <p className='mt-1.5 text-sm leading-relaxed text-ink-2'>{resource.summary}</p>
             : null}
 
-          {resource.matchedPassage && passageIsInformative(resource.matchedPassage, query)
+          {showSnippet
             ? (
               <blockquote className='mt-3 text-sm leading-relaxed text-ink-2'>
-                &ldquo;{resource.matchedPassage.length > 340
-                  ? `${resource.matchedPassage.slice(0, 340).replace(/\s\S*$/, '')}…`
-                  : resource.matchedPassage}&rdquo;
+                &ldquo;{snippet.length > 340
+                  ? `${snippet.slice(0, 340).replace(/\s\S*$/, '')}…`
+                  : snippet}&rdquo;
               </blockquote>
             )
             : null}

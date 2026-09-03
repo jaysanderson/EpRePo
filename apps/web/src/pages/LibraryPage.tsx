@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link, useOutletContext, useSearchParams } from 'react-router-dom'
 import type { CatalogItem } from '@research-portal/core'
-import { getCatalog, getFacets } from '../api/client.ts'
+import { getCatalog, getCounters, getFacets } from '../api/client.ts'
+import { Byline, bylineFor } from '../components/Byline.tsx'
 import { ResourceThumb } from '../components/ResourceThumb.tsx'
 import { SearchField } from '../components/SearchField.tsx'
 import { GridDensity, ViewToggle } from '../components/ViewControls.tsx'
@@ -74,6 +75,7 @@ function LibraryCard(
     .filter((label): label is string => Boolean(label))
   const statusInfo = item.status === 'processed' ? null : STATUS_BADGES[item.status]
   const publishedYear = meta.published ? formatYear(meta.published) : null
+  const byline = bylineFor(item)
 
   const list = view === 'list'
   const body = (
@@ -116,6 +118,7 @@ function LibraryCard(
         <h3 className='rp-clamp-2 text-sm font-semibold leading-snug text-ink'>
           {item.title}
         </h3>
+        {byline ? <Byline parts={byline} className='!mt-0' /> : null}
         {
           /* Three lines is the budget almost everywhere: two clipped most grid
           * summaries mid-sentence, and the third line is what lets a card read
@@ -168,8 +171,8 @@ function LibraryCard(
               {item.created || publishedYear
                 ? (
                   <p className='flex flex-wrap items-baseline gap-x-1.5 text-xs tabular-nums text-ink-3'>
-                    {item.created ? <span>{formatDate(item.created)}</span> : null}
-                    {publishedYear ? <span>Published {publishedYear}</span> : null}
+                    {publishedYear && !byline ? <span>Published {publishedYear}</span> : null}
+                    {item.created ? <span>Added {formatDate(item.created)}</span> : null}
                   </p>
                 )
                 : null}
@@ -297,6 +300,15 @@ export function LibraryBrowser(
     queryFn: () => getFacets(config.slug, ['topic']),
   })
   const topicCounts = facets?.topic ?? {}
+  // Resources carrying none of the portal's topics - the gap the classifier
+  // has yet to close, made visible rather than silently filtered away.
+  const { data: counters } = useQuery({
+    queryKey: ['counters', config.slug],
+    queryFn: () => getCounters(config.slug),
+    staleTime: 60_000,
+  })
+  const tagged = config.topics.reduce((n, topic) => n + (topicCounts[topic.id] ?? 0), 0)
+  const untagged = counters ? Math.max(0, counters.resources - tagged) : null
 
   const {
     data,
@@ -533,6 +545,21 @@ export function LibraryBrowser(
                       </label>
                     )
                   })}
+                  {untagged
+                    ? (
+                      <p
+                        className='flex items-start gap-2.5 px-1 py-1 text-sm text-ink-3'
+                        title='Resources not yet filed under a topic'
+                      >
+                        <span
+                          className='mt-[2px] inline-block h-4 w-4 shrink-0'
+                          aria-hidden='true'
+                        />
+                        <span className='min-w-0 flex-1 italic'>Untagged</span>
+                        <span className='self-center text-xs tabular-nums'>{untagged}</span>
+                      </p>
+                    )
+                    : null}
                 </div>
               </div>
             </aside>

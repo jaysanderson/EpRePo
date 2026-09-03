@@ -822,10 +822,23 @@ function ResourceHeader(
 
   const year = resource.published ? formatYear(resource.published) : null
   const projectNumber = frdcProjectNumber(resource.sourceName ?? resource.title)
-  const facts: Array<{ label: string; value: string }> = []
+  const facts: Array<{ label: string; value: string; href?: string }> = []
+  if (resource.authors?.length) {
+    const shown = resource.authors.slice(0, 6).join(', ')
+    facts.push({
+      label: 'Authors',
+      value: resource.authors.length > 6 ? `${shown} et al.` : shown,
+    })
+  }
+  if (resource.journal) facts.push({ label: 'Journal', value: resource.journal })
   if (year) facts.push({ label: 'Published', value: year })
+  if (resource.doi) {
+    facts.push({ label: 'DOI', value: resource.doi, href: `https://doi.org/${resource.doi}` })
+  }
   if (projectNumber) facts.push({ label: 'Project', value: projectNumber })
-  if (resource.sourceName) facts.push({ label: 'Source file', value: resource.sourceName })
+  if (resource.sourceName && !resource.titleCurated) {
+    facts.push({ label: 'Source file', value: resource.sourceName })
+  }
 
   return (
     <header>
@@ -871,10 +884,23 @@ function ResourceHeader(
             <div className='flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-3'>
               {facts.map((fact) => (
                 <span key={fact.label} className='min-w-0'>
-                  {fact.label}{' '}
-                  <span className='break-words font-medium tabular-nums text-ink-2'>
-                    {fact.value}
-                  </span>
+                  {fact.label} {fact.href
+                    ? (
+                      <a
+                        href={fact.href}
+                        target='_blank'
+                        rel='noopener noreferrer'
+                        className='rp-focus break-all font-medium underline decoration-dotted underline-offset-2'
+                        style={{ color: 'var(--rp-accent-fg)' }}
+                      >
+                        {fact.value}
+                      </a>
+                    )
+                    : (
+                      <span className='break-words font-medium tabular-nums text-ink-2'>
+                        {fact.value}
+                      </span>
+                    )}
                 </span>
               ))}
             </div>
@@ -944,6 +970,19 @@ function ResourceContext({ resource }: { resource: ResourceSummary }) {
                 </blockquote>
               ))}
             </div>
+          </div>
+        )
+        : null}
+
+      {resource.keywords?.length
+        ? (
+          <div className='mt-5 border-t border-line pt-4'>
+            <PanelHeading>Keywords</PanelHeading>
+            <ul className='mt-2 flex flex-wrap gap-1.5'>
+              {resource.keywords.map((keyword) => (
+                <li key={keyword} className='rp-chip text-xs'>{keyword}</li>
+              ))}
+            </ul>
           </div>
         )
         : null}

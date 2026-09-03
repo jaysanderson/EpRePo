@@ -359,6 +359,12 @@ interface PortalMetadata {
   topic?: string
   type?: string
   published?: string
+  authors?: unknown
+  journal?: unknown
+  year?: unknown
+  doi?: unknown
+  keywords?: unknown
+  titleCurated?: unknown
 }
 
 interface RawResource {
@@ -485,11 +491,46 @@ type FindResponse = {
 }
 
 /** Builds a CatalogItem from a raw platform resource - shared by catalogue's paged browse and its filtered-query path, so both render the same shape. */
+/**
+ * The bibliographic record an ingest may store on `extra.metadata` (journal
+ * articles carry authors, journal, year, DOI, keywords and a curated title).
+ * Absent fields are simply omitted so older resources are unchanged.
+ */
+function bibliographic(meta: PortalMetadata): {
+  authors?: string[]
+  journal?: string
+  year?: string
+  doi?: string
+  keywords?: string[]
+  titleCurated?: boolean
+} {
+  const strings = (v: unknown): string[] | undefined =>
+    Array.isArray(v)
+      ? v.filter((x): x is string => typeof x === 'string' && x.length > 0)
+      : undefined
+  const str = (v: unknown): string | undefined =>
+    typeof v === 'string' && v.trim() ? v.trim() : undefined
+  const authors = strings(meta.authors)
+  const keywords = strings(meta.keywords)
+  const journal = str(meta.journal)
+  const year = str(meta.year)
+  const doi = str(meta.doi)
+  return {
+    ...(authors?.length ? { authors } : {}),
+    ...(journal ? { journal } : {}),
+    ...(year ? { year } : {}),
+    ...(doi ? { doi } : {}),
+    ...(keywords?.length ? { keywords } : {}),
+    ...(meta.titleCurated === true ? { titleCurated: true } : {}),
+  }
+}
+
 function catalogItemFromRaw(id: string, r: RawResource): CatalogItem {
   const status = r.metadata?.status
   const safe = displayTitle(r.title, id)
   const rawTitle = safe === 'Untitled resource' ? '' : (r.title ?? '')
   const merch = baselineMerchandising(rawTitle, r.summary ?? r.extra?.metadata?.summary)
+  const { keywords: _keywords, ...bib } = bibliographic(r.extra?.metadata ?? {})
   return {
     id,
     title: merch.title,
@@ -499,6 +540,7 @@ function catalogItemFromRaw(id: string, r: RawResource): CatalogItem {
     kind: classificationLabels(r, 'kind')[0],
     published: r.extra?.metadata?.published,
     ...(merch.sourceName ? { sourceName: merch.sourceName } : {}),
+    ...bib,
     enriched: false,
   }
 }
@@ -658,6 +700,7 @@ export class AragProvider implements RetrievalProvider {
       published: meta.published,
       ...(kindLabel ? { kind: kindLabel } : {}),
       ...(merch.sourceName ? { sourceName: merch.sourceName } : {}),
+      ...bibliographic(meta),
       // NOTE: a resource ingested from a website source carries `origin.url`
       // on the platform, and resourceContent() surfaces it - but
       // ResourceSummarySchema has no `originUrl` field, so a summary cannot
@@ -1210,16 +1253,27 @@ export class AragProvider implements RetrievalProvider {
     const raw = await this.client(tenant).getJson<{
       labelsets?: Record<
         string,
-        { title?: string; multiple?: boolean; kind?: string[]; labels?: { title?: string }[] }
+        {
+          title?: string
+          multiple?: boolean
+          kind?: string[]
+          labels?: { title?: string; text?: string }[]
+        }
       >
     }>('/labelsets')
-    return Object.entries(raw.labelsets ?? {}).map(([id, ls]) => ({
-      id,
-      title: ls.title ?? id,
-      multiple: ls.multiple ?? true,
-      kind: (ls.kind ?? []).includes('PARAGRAPHS') ? 'PARAGRAPHS' as const : 'RESOURCES' as const,
-      labels: (ls.labels ?? []).map((l) => l.title ?? '').filter(Boolean),
-    }))
+    return Object.entries(raw.labelsets ?? {}).map(([id, ls]) => {
+      const labels = (ls.labels ?? []).filter((l) => l.title)
+      const descriptions: Record<string, string> = {}
+      for (const l of labels) if (l.title && l.text?.trim()) descriptions[l.title] = l.text.trim()
+      return {
+        id,
+        title: ls.title ?? id,
+        multiple: ls.multiple ?? true,
+        kind: (ls.kind ?? []).includes('PARAGRAPHS') ? 'PARAGRAPHS' as const : 'RESOURCES' as const,
+        labels: labels.map((l) => l.title ?? '').filter(Boolean),
+        ...(Object.keys(descriptions).length ? { descriptions } : {}),
+      }
+    })
   }
 
   /**
@@ -1409,7 +1463,8 @@ export class AragProvider implements RetrievalProvider {
       id: string
       title: string
       multiple: boolean
-      labels: string[]
+      /** Label ids, optionally with a description stored as the label's `text`. */
+      labels: (string | { title: string; text?: string })[]
       kind?: 'RESOURCES' | 'PARAGRAPHS'
     },
   ): Promise<void> {
@@ -1418,7 +1473,11 @@ export class AragProvider implements RetrievalProvider {
       color: '#556b5f',
       multiple: input.multiple,
       kind: [input.kind ?? 'RESOURCES'],
-      labels: input.labels.map((title) => ({ title })),
+      labels: input.labels.map((l) =>
+        typeof l === 'string'
+          ? { title: l }
+          : { title: l.title, ...(l.text ? { text: l.text } : {}) }
+      ),
     })
   }
 
@@ -1543,11 +1602,17 @@ export class AragProvider implements RetrievalProvider {
       operations: unknown[]
       applyExisting: boolean
       model: string
+      /**
+       * What the agent is applied to: whole fields (resources), the default,
+       * or individual text blocks (passages). The platform enum is
+       * TEXT_BLOCK = 0, FIELD = 1.
+       */
+      scope?: 'field' | 'text_block'
     },
   ): Promise<void> {
     const parameters: Record<string, unknown> = {
       name: input.title,
-      on: 1,
+      on: input.scope === 'text_block' ? 0 : 1,
       operations: input.operations,
     }
     if (input.model) parameters.llm = { model: input.model }

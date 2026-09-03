@@ -85,6 +85,8 @@ export interface Merchandised {
   keyTakeaways?: string[]
   quotesOfInterest?: string[]
   enriched: boolean
+  /** The stored title is authoritative - a generated title never replaces it. */
+  titleCurated?: boolean
 }
 
 /**
@@ -133,9 +135,13 @@ export function overlayEnrichment(
   const quotesOfInterest = enrichmentList(agent, enrichment.data, 'quotes')
   // A refused title falls back to the baseline, but its summary and takeaways
   // are still worth showing - the two fields fail independently.
-  const goodTitle = title && usableEnrichedTitle(title) ? title : ''
+  // A curated title (a journal article's real title) is never replaced: a
+  // generated one can carry a transcription or synthesis error into the one
+  // field a reader trusts most.
+  const goodTitle = !base.titleCurated && title && usableEnrichedTitle(title) ? title : ''
   return {
     title: goodTitle || base.title,
+    ...(base.titleCurated ? { titleCurated: true } : {}),
     summary: summary || base.summary,
     ...(base.sourceName ? { sourceName: base.sourceName } : {}),
     ...(keyTakeaways.length ? { keyTakeaways } : {}),

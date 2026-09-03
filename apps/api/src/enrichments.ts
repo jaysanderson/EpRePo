@@ -95,13 +95,20 @@ export type EnrichmentStoreApi = Pick<EnrichmentStore, keyof EnrichmentStore>
 // ---------------------------------------------------------------------------
 
 function overlay(
-  base: { title: string; summary?: string; sourceName?: string; enriched?: boolean },
+  base: {
+    title: string
+    summary?: string
+    sourceName?: string
+    enriched?: boolean
+    titleCurated?: boolean
+  },
   enrichment: Enrichment | undefined,
 ) {
   return overlayEnrichment({
     title: base.title,
     summary: base.summary ?? base.title,
     ...(base.sourceName ? { sourceName: base.sourceName } : {}),
+    ...(base.titleCurated ? { titleCurated: true } : {}),
     enriched: base.enriched ?? false,
   }, enrichment)
 }
