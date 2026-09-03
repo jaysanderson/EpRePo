@@ -13,6 +13,7 @@ import {
   type ExtractionMetrics,
   getCatalog,
   getExtractionMethods,
+  getResource,
   profileExtraction,
   saveExtractionRules,
 } from '../../api/client.ts'
@@ -159,11 +160,25 @@ function CompareCard(
   useEffect(() => {
     if (selected.length === 0 && methods.length > 0) setSelected(methods.map((m) => m.id))
   }, [methods, selected.length])
+  const looksLikeId = /^[0-9a-f]{32}$/i.test(query.trim())
   const { data: matches } = useQuery({
     queryKey: ['lab-pick', slug, query],
     queryFn: () => getCatalog(slug, { query, pageSize: 8 }),
-    enabled: query.trim().length >= 3,
+    enabled: query.trim().length >= 3 && !looksLikeId,
   })
+  // Supplements and media are folded into their article in the library
+  // listing, so a pasted resource id reaches them directly.
+  const { data: byId } = useQuery({
+    queryKey: ['lab-pick-id', slug, query],
+    queryFn: () => getResource(slug, query.trim()),
+    enabled: looksLikeId,
+    retry: false,
+  })
+  const candidates: CatalogItem[] = looksLikeId
+    ? (byId
+      ? [{ id: byId.id, title: byId.title, status: 'processed', topicIds: byId.topicIds }]
+      : [])
+    : (matches?.items ?? [])
   const visionPages =
     profile && selected.some((id) => methods.find((m) => m.id === id)?.kind === 'visual')
       ? profile.profile.pages
@@ -255,15 +270,15 @@ function CompareCard(
           type='search'
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder='Find a document by title…'
+          placeholder='Find a document by title, or paste a resource id…'
           className='rp-input h-9 flex-1'
           aria-label='Find a document'
         />
       </div>
-      {matches && matches.items.length > 0 && !picked
+      {candidates.length > 0 && !picked
         ? (
           <ul className='mt-2 divide-y divide-line rounded-[var(--rp-radius)] border border-line'>
-            {matches.items.map((item) => (
+            {candidates.map((item) => (
               <li key={item.id}>
                 <button
                   type='button'
