@@ -164,6 +164,7 @@ export function merchandiseCatalogItem(
     summary: item.summary,
     sourceName: item.sourceName,
     enriched: item.enriched,
+    titleCurated: item.titleCurated,
   }, store.get(slug, item.id))
   return {
     ...item,
