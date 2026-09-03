@@ -170,6 +170,9 @@ const eprepo: TenantConfig = TenantConfigSchema.parse({
     },
   },
   searchPlaceholder: 'Search seizure forecasting, genetics, antiseizure medications, surgery…',
+  // A global research initiative: the corpus is not organised by Australian
+  // state, so Explore omits the regional discovery band.
+  regionalDiscovery: false,
   // These ids are the `topic` labelset `deno task provision -- eprepo` pushes
   // to the bound knowledge box. Explore intersects them with the box's facet
   // counts, so keep this list and the labelset in step; corpus analysis in

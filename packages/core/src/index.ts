@@ -229,6 +229,12 @@ export const TenantConfigSchema = z.object({
   suggestedQuestions: QuestionSchema.array(),
   entityTypes: EntityTypeSchema.array(),
   relationTypes: z.string().array(),
+  /**
+   * Whether Explore shows the regional discovery band (the map of Australia
+   * and its state questions). Absent means shown; a portal whose corpus is
+   * not organised by Australian state sets it to false.
+   */
+  regionalDiscovery: z.boolean().optional(),
 })
 
 // ---------------------------------------------------------------------------
