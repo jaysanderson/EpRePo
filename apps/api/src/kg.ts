@@ -3,6 +3,7 @@ import type { KgImplementEvent, KgProposal, TenantConfig } from '@research-porta
 import { KgProposalSchema } from '@research-portal/core'
 import type { AragProvider } from '@research-portal/retrieval'
 import { readJsonSafe, writeJsonAtomic } from './persist.ts'
+import { sampleInventory } from './inventory-sample.ts'
 
 /**
  * Knowledge-graph strategy: interrogate the corpus, have the box's own model
@@ -120,13 +121,18 @@ export async function proposeKgStrategy(
   if (resources.length === 0) {
     throw new Error('The knowledge box has no indexed content yet - add some resources first.')
   }
-  const inventory = resources
-    .slice(0, 80)
-    .map((r, i) => `${i + 1}. ${r.title} - ${r.summary.slice(0, 150)}`)
-    .join('\n')
-  const prompt =
-    `You are designing a knowledge-graph strategy for this knowledge box. Corpus inventory ` +
-    `(${resources.length} resources):\n\n${inventory}\n\n` +
+  // The design query is capped at 20,000 characters: sample the inventory to a
+  // budget rather than list the corpus (see inventory-sample.ts).
+  const { sample, sampled, inventory } = sampleInventory(
+    resources,
+    (r, i) => `${i + 1}. ${r.title} - ${r.summary.slice(0, 150)}`,
+    12_000,
+  )
+  const prompt = `You are designing a knowledge-graph strategy for this knowledge box. ` +
+    (sampled
+      ? `Here is a representative sample of ${sample.length} of its ${resources.length} resources:`
+      : `Corpus inventory (${resources.length} resources):`) +
+    `\n\n${inventory}\n\n` +
     `Design: (1) 4 to 7 entity types an extraction agent should pull from this corpus (label ` +
     `in Title Case plus a one-line description of what qualifies, e.g. people, organisations, ` +
     `species, programs, regions, technologies - whatever fits THIS corpus); (2) 4 to 8 ` +

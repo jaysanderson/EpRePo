@@ -1,6 +1,7 @@
 import type { AnalyseEvent, TenantConfig } from '@research-portal/core'
 import type { AragProvider } from '@research-portal/retrieval'
 import type { TenantStoreApi } from './tenants.ts'
+import { sampleInventory } from './inventory-sample.ts'
 
 /**
  * Corpus analysis: interrogate a knowledge box and derive its portal
@@ -95,15 +96,7 @@ export async function* analyseTenant(
   const INVENTORY_BUDGET = 14_000
   const line = (r: { title: string; summary: string }, i: number) =>
     `${i + 1}. ${r.title} - ${r.summary.slice(0, 180)}`
-  let sample = resources
-  if (resources.reduce((n, r, i) => n + line(r, i).length + 1, 0) > INVENTORY_BUDGET) {
-    // even stride across the whole corpus keeps the sample representative
-    const stride = Math.ceil(resources.length * 90 / INVENTORY_BUDGET)
-    sample = resources.filter((_, i) => i % stride === 0)
-    while (sample.reduce((n, r, i) => n + line(r, i).length + 1, 0) > INVENTORY_BUDGET) sample.pop()
-  }
-  const sampled = sample.length < resources.length
-  const inventory = sample.map(line).join('\n')
+  const { sample, sampled, inventory } = sampleInventory(resources, line, INVENTORY_BUDGET)
   const prompt = `You are configuring a research portal for this knowledge box. Here is ` +
     (sampled
       ? `a representative sample of ${sample.length} of its ${resources.length} resources:`
