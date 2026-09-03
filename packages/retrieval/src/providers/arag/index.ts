@@ -23,7 +23,9 @@ import {
   docResourceSlug,
   DOCUMENTATION_LABEL,
   DOCUMENTATION_LABELSET,
+  type Intent,
   isDocOrigin,
+  type LabelRef,
   ResourceSummarySchema,
 } from '@research-portal/core'
 import type { DocPage } from '@research-portal/core'
@@ -34,6 +36,7 @@ import type {
   SearchOptions,
 } from '../../provider.ts'
 import { baselineMerchandising, extractPageSummary } from '../../merchandise.ts'
+import { variantPreamble } from '../../prompts.ts'
 import { AragApiError, type KbBinding, KbClient, ndjson } from './client.ts'
 import { spliceCitationMarkers, stripInlineMarkers } from './citations.ts'
 import { dedupeResourceFamilies } from './resource-groups.ts'
@@ -475,6 +478,93 @@ export function researchExcludeFilterExpression(
 /** filter_expression including ONLY documentation - for portal-doc-search / portal-doc-ask. */
 export function docOnlyFilterExpression(): Record<string, unknown> {
   return { field: labelFieldExpression() }
+}
+
+/**
+ * The stored filter for one intent: documentation is always excluded; then
+ * either the intent's own exclusions, or, when `only` is set, grounding is
+ * restricted to those labels instead.
+ */
+export function intentFilterExpression(
+  retrieval: { exclude?: LabelRef[]; only?: LabelRef[] },
+): Record<string, unknown> {
+  const only = retrieval.only ?? []
+  if (only.length > 0) {
+    const include = only.length === 1
+      ? { prop: 'label', labelset: only[0]!.labelset, label: only[0]!.label }
+      : { or: only.map((e) => ({ prop: 'label', labelset: e.labelset, label: e.label })) }
+    return { field: { and: [{ not: labelFieldExpression() }, include] } }
+  }
+  return researchExcludeFilterExpression(retrieval.exclude ?? [])
+}
+
+/** The portal half of an intent's retrieval: grounding strategies. */
+export function intentStrategies(intent: Intent): Record<string, unknown>[] {
+  const out: Record<string, unknown>[] = []
+  if (intent.answer.strategy === 'full') out.push({ name: 'full_resource' })
+  else if (intent.answer.strategy === 'neighbours') {
+    const n = intent.answer.neighbours ?? 2
+    out.push({ name: 'neighbouring_paragraphs', before: n, after: n })
+  }
+  if (intent.answer.graph) out.push({ name: 'graph_beta', hops: 2, agentic_graph_only: true })
+  return out
+}
+
+/** Apply an intent's citation floor and recency ordering to retrieved sources. */
+export function shapeSourcesForIntent(
+  sources: ScoredResource[],
+  intent: Intent | undefined,
+): ScoredResource[] {
+  if (!intent) return sources
+  let shaped = sources.filter((s) => s.relevance >= intent.answer.minScore)
+  if (shaped.length === 0) shaped = sources
+  if (intent.answer.sortByPublished) {
+    shaped = [...shaped].sort((a, b) => (b.published ?? '').localeCompare(a.published ?? ''))
+  }
+  return shaped
+}
+
+/** Stored configuration name for an intent; the default intent keeps the default pair. */
+export function intentConfigurationName(
+  tenant: TenantConfig,
+  intentId: string,
+  kind: 'find' | 'ask',
+): string {
+  const isDefault = intentId === (tenant.defaultIntent ?? '')
+  if (isDefault) return kind === 'ask' ? SEARCH_CONFIG_RESEARCH_ASK : SEARCH_CONFIG_RESEARCH_FIND
+  const intent = tenant.intents?.find((i) => i.id === intentId)
+  const askCapable = intent?.answer.surfaces.includes('ask') ?? true
+  // An intent that answers gets the plain name for its ask config and a
+  // `-find` twin for search; a search-only intent's plain name IS a find config.
+  if (kind === 'ask' || !askCapable) return `portal-intent-${intentId}`
+  return `portal-intent-${intentId}-find`
+}
+
+/** The stored configuration objects an intent needs on the box. */
+export function intentSearchConfigs(tenant: TenantConfig): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  for (const intent of tenant.intents ?? []) {
+    if (intent.id === tenant.defaultIntent) continue
+    const filter = intentFilterExpression(intent.retrieval)
+    const base = {
+      features: intent.retrieval.features,
+      reranker: intent.retrieval.reranker,
+      filter_expression: filter,
+    }
+    if (intent.answer.surfaces.includes('ask')) {
+      out[intentConfigurationName(tenant, intent.id, 'ask')] = {
+        kind: 'ask',
+        config: { ...base, top_k: intent.retrieval.topK, citations: true },
+      }
+    }
+    if (intent.answer.surfaces.includes('search')) {
+      out[intentConfigurationName(tenant, intent.id, 'find')] = {
+        kind: 'find',
+        config: { ...base, top_k: intent.retrieval.topK },
+      }
+    }
+  }
+  return out
 }
 
 /**
@@ -966,6 +1056,15 @@ export class AragProvider implements RetrievalProvider {
     // isolation lives in that stored config, not a per-request filter.
     if (opts.docScope) body.search_configuration = SEARCH_CONFIG_DOC_FIND
     else if (mode === 'hybrid') body.search_configuration = SEARCH_CONFIG_RESEARCH_FIND
+    const searchIntent = opts.intent ? tenant.intents?.find((i) => i.id === opts.intent) : undefined
+    if (searchIntent && !opts.docScope && searchIntent.answer.surfaces.includes('search')) {
+      // The stored configuration carries the intent's features and filter;
+      // it overrides request features, so they are dropped rather than sent.
+      body.search_configuration = intentConfigurationName(tenant, searchIntent.id, 'find')
+      delete body.features
+      body.reranker = searchIntent.retrieval.reranker
+      body.page_size = opts.pageSize ?? searchIntent.retrieval.topK
+    }
     const filters = [
       ...(opts.topicIds ?? []).map((t) => `/classification.labels/topic/${t}`),
       ...(opts.kindIds ?? []).map((k) => `/classification.labels/kind/${k}`),
@@ -1384,6 +1483,61 @@ export class AragProvider implements RetrievalProvider {
    * synthesis - which already grounds strictly on the researcher's own kept
    * evidence, corpus analysis) keep their existing behaviour unchanged.
    */
+  /**
+   * Stage 2 of intent routing: one short structured generation that names the
+   * intent, a confidence and a rationale. One keyword hit is retrieved (the
+   * platform will not generate on an empty context) so it costs one short
+   * generation.
+   * `citations` is never sent with `answer_json_schema` (docs/ARAG-DEV.md).
+   */
+  async classifyIntent(
+    tenant: TenantConfig,
+    query: string,
+    opts: { model?: string } = {},
+  ): Promise<{ intent?: unknown; confidence?: unknown; rationale?: unknown }> {
+    const intents = tenant.intents ?? []
+    if (intents.length === 0) return {}
+    const schema = {
+      name: 'route_intent',
+      description: 'Choose which retrieval intent a research question belongs to',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          intent: { type: 'string', enum: intents.map((i) => i.id) },
+          confidence: { type: 'number' },
+          rationale: { type: 'string' },
+        },
+        required: ['intent', 'confidence', 'rationale'],
+      },
+    }
+    const menu = intents
+      .map((i) => `- ${i.id}: ${i.description} Examples: ${i.examples.join('; ')}`)
+      .join('\n')
+    const prompt = `Classify this question into exactly one intent. Intents:\n${menu}\n\n` +
+      `Question: ${query}\n\nReturn the intent id, a confidence between 0 and 1, and a one-sentence rationale.`
+    const client = this.client(tenant)
+    const res = await client.postStream('/ask', {
+      query: prompt,
+      features: ['keyword'],
+      answer_json_schema: schema,
+      show: ['basic'],
+      // The platform refuses to generate with no retrieved context, so the
+      // classifier keeps one cheap keyword hit rather than grounding on
+      // nothing; the schema answer ignores it.
+      top_k: 1,
+      reranker: 'noop',
+      ...(opts.model ? { generative_model: opts.model } : {}),
+      max_tokens: 400,
+    })
+    let object: unknown = null
+    for await (const line of ndjson(res)) {
+      const item = (line as { item?: { type?: string } & Record<string, unknown> }).item
+      if (item?.type === 'answer_json') object = item.object ?? null
+    }
+    return (object && typeof object === 'object') ? object as Record<string, unknown> : {}
+  }
+
   async askStructured(
     tenant: TenantConfig,
     schema: { name: string; description: string; parameters: unknown },
@@ -2155,6 +2309,7 @@ export class AragProvider implements RetrievalProvider {
         kind: 'find',
         config: { features: ['keyword'], top_k: 8 },
       },
+      ...intentSearchConfigs(tenant),
     }
     const created: string[] = []
     for (const [name, body] of Object.entries(desired)) {
@@ -2439,12 +2594,19 @@ export class AragProvider implements RetrievalProvider {
     const excludedSourceIds = new Set<string>()
     let excludedGroundingSeen = false
 
+    const intent = opts.intent && !opts.docScope
+      ? tenant.intents?.find((i) => i.id === opts.intent && i.answer.surfaces.includes('ask'))
+      : undefined
     const body: Record<string, unknown> = {
       query,
       features: ['keyword', 'semantic'],
       citations: true,
       show: ['basic', 'origin'],
-      search_configuration: opts.docScope ? SEARCH_CONFIG_DOC_ASK : SEARCH_CONFIG_RESEARCH_ASK,
+      search_configuration: opts.docScope
+        ? SEARCH_CONFIG_DOC_ASK
+        : intent
+        ? intentConfigurationName(tenant, intent.id, 'ask')
+        : SEARCH_CONFIG_RESEARCH_ASK,
       // Cross-encoder reranking of the grounding candidates - verified live
       // (see the reranker note in docs/ARAG-DEV.md and search()'s comment
       // above). Pinned defensively: it is already the platform's default
@@ -2455,7 +2617,7 @@ export class AragProvider implements RetrievalProvider {
       // Nuclia's default RAG prompt answers "Not enough data to answer this."
       // as a guardrail even when relevant sources were retrieved - override it.
       prompt: {
-        system: opts.systemPrompt?.trim() ||
+        system: variantPreamble(intent?.answer.promptVariant) + (opts.systemPrompt?.trim() ||
           (opts.docScope
             ? `You are the help assistant for the ${tenant.branding.productName} research ` +
               'portal. Answer the user\'s "how do I..." question about using the portal, using ' +
@@ -2478,8 +2640,14 @@ export class AragProvider implements RetrievalProvider {
               'the context states, mark it (inference). When the context ' +
               'contains conflicting, negative or nuanced findings (adverse observations, ' +
               'non-detections, disagreements between studies), state them explicitly with their ' +
-              'specifics - a researcher needs the tension, never a smoothed summary.'),
+              'specifics - a researcher needs the tension, never a smoothed summary.')),
       },
+    }
+    if (intent) {
+      // The stored configuration's features win over the request's; never
+      // send both (docs/ARAG-DEV.md).
+      delete body.features
+      body.reranker = intent.retrieval.reranker
     }
     if (opts.context && opts.context.length > 0) {
       // The app models turns as USER/AGENT; this deployment's /ask context
@@ -2496,7 +2664,10 @@ export class AragProvider implements RetrievalProvider {
     // Agentic retrieval upgrades: widen grounding windows around each hit and
     // walk the knowledge graph from entities detected in the query (uses the
     // box's graph extraction agent). Degrades gracefully if unsupported.
-    const strategies: Record<string, unknown>[] = opts.depth === 'deep'
+    const depth = intent?.answer.depth === 'deep' ? 'deep' : opts.depth
+    const strategies: Record<string, unknown>[] = intent
+      ? intentStrategies(intent)
+      : depth === 'deep'
       ? [{ name: 'full_resource' }]
       : [
         { name: 'neighbouring_paragraphs', before: 2, after: 2 },
@@ -2617,7 +2788,7 @@ export class AragProvider implements RetrievalProvider {
                 excludedSourceIds.add(id)
               }
             }
-            sources = toSources(kept)
+            sources = shapeSourcesForIntent(toSources(kept), intent)
             yield { type: 'sources', resources: sources }
             if (!generating) {
               generating = true

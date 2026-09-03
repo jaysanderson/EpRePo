@@ -63,3 +63,9 @@ export NPM_CONFIG_REGISTRY=https://pkg.harness.io/pkg/ct8onj8YTdaXtKaFsYCRLg/org
 
 That proxy blocks zod 4.5.x by policy, so `deno.json` and `deno.lock` pin `zod/v4` to 4.4.0
 for this fork.
+
+## Demos built on this portal
+
+- **Intent-routed search configurations** - `docs/INTENT-ROUTING.md`. One ask box, six intents, one stored
+  configuration per intent on the same box; the route chip, override and compare mode are on the Ask page.
+- **Extraction Lab** - `docs/EXTRACTION-LAB.md` (design; build in progress).

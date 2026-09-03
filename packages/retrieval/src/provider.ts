@@ -16,6 +16,8 @@ export interface SearchOptions {
   topicIds?: string[]
   /** Labels in the 'kind' labelset to filter by. */
   kindIds?: string[]
+  /** Intent id from the tenant's `intents` (search-capable intents only). */
+  intent?: string
   pageSize?: number
   /**
    * Scope the search to the in-app documentation ONLY (the Help section).
@@ -40,6 +42,8 @@ export interface AskOptions {
   prequeries?: string[]
   /** Also ground on page/table images (needs visual content in the box). */
   images?: boolean
+  /** Intent id from the tenant's `intents`: selects the stored configuration and the portal half. */
+  intent?: string
   /**
    * Scope the answer to the in-app documentation ONLY (the Help assistant).
    * Selects the documentation-scoped stored search config and applies the

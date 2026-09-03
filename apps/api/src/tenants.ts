@@ -180,6 +180,184 @@ const eprepo: TenantConfig = TenantConfigSchema.parse({
     { labelset: 'format', label: 'supplement' },
     { labelset: 'format', label: 'media' },
   ],
+  // One ask box, six jobs-to-be-done, each on its own stored search
+  // configuration (docs/INTENT-ROUTING.md). Order matters: stage-1 rules are
+  // tried in this order and the first match wins.
+  defaultIntent: 'general',
+  entityTerms: [
+    'fenfluramine',
+    'stiripentol',
+    'cannabidiol',
+    'clobazam',
+    'valproate',
+    'sodium valproate',
+    'lamotrigine',
+    'levetiracetam',
+    'carbamazepine',
+    'oxcarbazepine',
+    'phenytoin',
+    'vigabatrin',
+    'topiramate',
+    'lacosamide',
+    'cenobamate',
+    'perampanel',
+    'brivaracetam',
+    'zonisamide',
+    'ethosuximide',
+    'phenobarbital',
+    'rufinamide',
+    'everolimus',
+    'ganaxolone',
+    'diazepam',
+    'midazolam',
+    'ketogenic diet',
+    'Dravet',
+    'Lennox-Gastaut',
+  ],
+  intents: [
+    {
+      id: 'lookup',
+      label: 'Exact lookup',
+      description: 'An identifier or a bare term: the reader wants the documents, not an essay.',
+      examples: ['SCN8A', 'PMC8371239', 'cenobamate', 'Dravet'],
+      retrieval: { features: ['keyword'], topK: 30, reranker: 'noop' },
+      answer: { surfaces: ['search'], strategy: 'none', promptVariant: 'default' },
+      rules: [
+        '^\\s*PMC\\d+\\s*$',
+        '^\\s*[A-Z][A-Z0-9]{2,7}\\s*$',
+        '^\\s*[A-Za-z][a-z-]+(?:\\s+[A-Za-z][a-z-]+){0,2}\\s*$',
+      ],
+    },
+    {
+      id: 'data',
+      label: 'Supplementary data',
+      description: 'Tables, data sheets, protocols and peer review history attached to the papers.',
+      examples: [
+        'Sample size calculation in the SERIAS protocol',
+        'Supplementary table of variants in the exome study',
+      ],
+      retrieval: {
+        features: ['keyword', 'semantic'],
+        topK: 20,
+        reranker: 'predict',
+        only: [{ labelset: 'format', label: 'supplement' }],
+      },
+      answer: {
+        surfaces: ['ask', 'search'],
+        strategy: 'neighbours',
+        neighbours: 4,
+        promptVariant: 'data',
+      },
+      rules: [
+        '\\b(supplement|supplementary|data sheet|datasheet|table s\\d|appendix|protocol|peer review|sample size|raw data)\\b',
+      ],
+    },
+    {
+      id: 'latest',
+      label: 'Latest evidence',
+      description: 'What is newest on a topic, newest first with the year stated.',
+      examples: ['Latest on responsive neurostimulation', 'Any 2026 papers on cannabidiol?'],
+      retrieval: {
+        features: ['keyword', 'semantic'],
+        topK: 20,
+        reranker: 'predict',
+        exclude: [
+          { labelset: 'format', label: 'supplement' },
+          { labelset: 'format', label: 'media' },
+        ],
+      },
+      answer: {
+        surfaces: ['ask'],
+        strategy: 'neighbours',
+        neighbours: 2,
+        promptVariant: 'recency',
+        prequeries: ['{query} published 2025 or 2026'],
+        sortByPublished: true,
+      },
+      rules: ['\\b(latest|newest|most recent|recent|this year|since 20\\d\\d|202[5-9])\\b'],
+    },
+    {
+      id: 'clinical',
+      label: 'Clinical decision',
+      description:
+        'Choosing, avoiding or dosing a treatment for a patient: contraindications and monitoring are checked every time.',
+      examples: [
+        'Which ASMs should be avoided in SCN1A Dravet?',
+        'Fenfluramine dose with stiripentol?',
+      ],
+      retrieval: {
+        features: ['keyword', 'semantic'],
+        topK: 12,
+        reranker: 'predict',
+        exclude: [
+          { labelset: 'format', label: 'supplement' },
+          { labelset: 'format', label: 'media' },
+          { labelset: 'kind', label: 'case-study' },
+        ],
+      },
+      answer: {
+        surfaces: ['ask'],
+        strategy: 'neighbours',
+        neighbours: 3,
+        graph: true,
+        promptVariant: 'safety',
+        prequeries: [
+          'contraindications, drugs to avoid and safety monitoring for {entities}',
+          'dose limits, starting dose and interactions for {entities}',
+        ],
+        minScore: 0.6,
+      },
+      rules: [
+        '\\b(dose|dosing|dosage|start(ing)?|titrat|avoid|contraindicat|safe|safety|should i|which asm|first[- ]line|add[- ]on|switch|interaction|pregnan|monitor)',
+      ],
+      requireEntity: true,
+    },
+    {
+      id: 'review',
+      label: 'Evidence review',
+      description: 'Synthesis across the corpus, grounded on full text.',
+      examples: [
+        'What is known about multiday seizure cycles?',
+        'Compare SCN1A, SCN2A and SCN8A gain versus loss of function',
+      ],
+      retrieval: {
+        features: ['keyword', 'semantic'],
+        topK: 24,
+        reranker: 'predict',
+        exclude: [
+          { labelset: 'format', label: 'supplement' },
+          { labelset: 'format', label: 'media' },
+        ],
+      },
+      answer: { surfaces: ['ask'], strategy: 'full', promptVariant: 'synthesis', depth: 'deep' },
+      rules: [
+        '\\b(compare|comparison|versus|\\bvs\\b|synthesis|what is known|evidence for|overview|across studies|mechanism)\\b',
+        '^(?:\\S+\\s+){25,}\\S+',
+      ],
+    },
+    {
+      id: 'general',
+      label: 'General',
+      description: 'Everything else, on the default configuration.',
+      examples: ['How does the ketogenic diet work?'],
+      retrieval: {
+        features: ['keyword', 'semantic'],
+        topK: 20,
+        reranker: 'predict',
+        exclude: [
+          { labelset: 'format', label: 'supplement' },
+          { labelset: 'format', label: 'media' },
+        ],
+      },
+      answer: {
+        surfaces: ['ask', 'search'],
+        strategy: 'neighbours',
+        neighbours: 2,
+        graph: true,
+        promptVariant: 'default',
+      },
+    },
+  ],
   // These ids are the `topic` labelset `deno task provision -- eprepo` pushes
   // to the bound knowledge box. Explore intersects them with the box's facet
   // counts, so keep this list and the labelset in step; corpus analysis in

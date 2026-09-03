@@ -13,6 +13,8 @@ import { getAuthSession } from '../api/auth.ts'
 
 export type TenantOutletContext = {
   config: TenantConfig
+  /** True for a signed-in administrator; developer-facing widgets show only then. */
+  isAdmin?: boolean
 }
 
 function FullPageSpinner() {
@@ -634,7 +636,7 @@ export function TenantLayout() {
 
       {/* Keyed on the path so each route change replays the entrance. */}
       <div key={location.pathname} className='rp-page-enter'>
-        <Outlet context={{ config } satisfies TenantOutletContext} />
+        <Outlet context={{ config, isAdmin: accountIsAdmin } satisfies TenantOutletContext} />
       </div>
 
       {

@@ -20,12 +20,16 @@ import {
   getSuggestedQuestions,
   listServerSessions,
   putServerSession,
+  type RouteDecision,
+  routeIntent,
   sendAnswerFeedback,
   streamAsk,
 } from '../api/client.ts'
 import { AnswerMarkdown } from '../components/AnswerMarkdown.tsx'
 import { citationHref, ContextJourney, EvidenceDisclosure } from '../components/AnswerStream.tsx'
+import { CompareConfigurations } from '../components/CompareConfigurations.tsx'
 import { CurrencyNote } from '../components/CurrencyNote.tsx'
+import { RouteChip } from '../components/RouteChip.tsx'
 import {
   type EvidenceSource,
   evidenceSummary,
@@ -38,6 +42,7 @@ import { LiveStatus } from '../components/ui.tsx'
 import { useCompactViewport } from '../components/useViewMode.ts'
 import { isThinlyGrounded } from '../lib/confidence.ts'
 import type { TenantOutletContext } from './TenantLayout.tsx'
+import type { Intent } from '@research-portal/core'
 import {
   type StageStatuses,
   StageTimeline,
@@ -80,6 +85,8 @@ type ChatMessage = {
   wasDeep?: boolean
   /** True when the corpus could not answer and guidance was shown instead of a real answer. */
   refused?: boolean
+  /** The intent-routing decision this answer ran under (docs/INTENT-ROUTING.md). */
+  route?: RouteDecision
   /** Per-source AI relevance verdicts, once judged - persisted so the Evidence table doesn't re-judge on reload. */
   verdicts?: Record<string, EvidenceVerdictInfo>
 }
@@ -755,6 +762,9 @@ function AnswerCard({
   onReanswerDeeply,
   onAskSubquery,
   onVerdicts,
+  intents,
+  onReroute,
+  isAdmin = false,
 }: {
   message: ChatMessage
   slug: string
@@ -766,8 +776,15 @@ function AnswerCard({
   onReanswerDeeply: () => void
   onAskSubquery: (subquery: string) => void
   onVerdicts: (verdicts: Record<string, EvidenceVerdictInfo>) => void
+  /** The portal's intents, for the route chip and compare mode. */
+  intents: Intent[]
+  /** Re-ask this answer's question under another intent. */
+  onReroute: (intentId: string) => void
+  /** Developer-facing widgets (pipeline, tokens) show only to administrators. */
+  isAdmin?: boolean
 }) {
   const [showPipeline, setShowPipeline] = useState(false)
+  const [compare, setCompare] = useState<[string, string] | null>(null)
   // The sources/evidence block is collapsed by default and this state is
   // per-message (it lives in the card, not the page), so opening one answer's
   // evidence never opens another's. The reader chooses to open it, rather than
@@ -937,6 +954,18 @@ function AnswerCard({
           </div>
         )
         : null}
+      {intents.length > 0 && (message.route || message.pending)
+        ? (
+          <div className='mb-2 flex flex-wrap items-center gap-2'>
+            <RouteChip
+              decision={message.route}
+              intents={intents}
+              pending={message.pending}
+              onOverride={onReroute}
+            />
+          </div>
+        )
+        : null}
 
       {phase !== 'answer' && message.pending
         ? <StageTimeline statuses={stageStatuses ?? {}} exiting={phase === 'handoff'} />
@@ -1002,6 +1031,25 @@ function AnswerCard({
           >
             <FeedbackControl message={message} onFeedback={onFeedback} />
             <div className='ml-auto flex items-center gap-0.5'>
+              {intents.filter((i) => i.answer.surfaces.includes('ask')).length > 1 &&
+                  question.trim().length > 0
+                ? (
+                  <button
+                    type='button'
+                    onClick={() => {
+                      const askable = intents.filter((i) => i.answer.surfaces.includes('ask'))
+                      const current = message.route?.intent ?? askable[0]!.id
+                      const other = askable.find((i) => i.id !== current)?.id ?? current
+                      setCompare((prev) => prev ? null : [current, other])
+                    }}
+                    aria-pressed={compare !== null}
+                    title='Run this question through two retrieval configurations side by side'
+                    className='rp-btn rp-btn-ghost h-8 px-2 text-xs'
+                  >
+                    Compare configurations
+                  </button>
+                )
+                : null}
               <AnswerQualityDisclosure
                 quality={message.quality}
                 {...(offerDeepReanswer ? { onReanswerDeeply } : {})}
@@ -1033,6 +1081,17 @@ function AnswerCard({
           panel stays navigable - and the evidence table opens with it rather
           than asking for a second click on the same evidence. */
       }
+      {compare
+        ? (
+          <CompareConfigurations
+            slug={slug}
+            question={question}
+            intents={intents}
+            initial={compare}
+            onClose={() => setCompare(null)}
+          />
+        )
+        : null}
       {
         /* The answer streams before its sources and citations have settled, so
           the reader would otherwise stare at a finished answer with nothing
@@ -1132,7 +1191,7 @@ function AnswerCard({
                   )
                   : null}
 
-                {message.sources.length > 0 || message.usage
+                {isAdmin && (message.sources.length > 0 || message.usage)
                   ? (
                     <div className='flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-line pt-3'>
                       {message.sources.length > 0
@@ -1305,7 +1364,7 @@ ${turnsHtml}
 // ---------------------------------------------------------------------------
 
 export function AskPage() {
-  const { config } = useOutletContext<TenantOutletContext>()
+  const { config, isAdmin = false } = useOutletContext<TenantOutletContext>()
   const [searchParams, setSearchParams] = useSearchParams()
 
   const [sessions, setSessions] = useState<ChatSession[]>(() => loadSessions(config.slug))
@@ -1737,7 +1796,13 @@ export function AskPage() {
     query: string,
     baseMessages: ChatMessage[],
     sessionId: string,
-    options?: { depth?: 'default' | 'deep'; prequeries?: string[]; deepBadge?: boolean },
+    options?: {
+      depth?: 'default' | 'deep'
+      prequeries?: string[]
+      deepBadge?: boolean
+      /** A decision already made (an override from the route chip). */
+      route?: RouteDecision
+    },
   ) {
     // A new answer retires the last answer's follow-ups the moment it starts.
     followUpAbortRef.current?.abort()
@@ -1777,10 +1842,29 @@ export function AskPage() {
       setMessages(working)
     }
 
+    // Route first: which stored configuration answers this question. Rules
+    // are near-instant; the classifier is one short generation. A routing
+    // failure never blocks the answer - it simply runs on the default.
+    let route = options?.route
+    if (!route && (config.intents?.length ?? 0) > 0 && contextTurns.length === 0) {
+      try {
+        route = await routeIntent(config.slug, query, controller.signal)
+      } catch {
+        route = undefined
+      }
+    }
+    if (route) update((message) => ({ ...message, route }))
+
     try {
       await streamAsk(
         config.slug,
-        { query, context: contextTurns, depth: options?.depth, prequeries: options?.prequeries },
+        {
+          query,
+          context: contextTurns,
+          depth: options?.depth,
+          prequeries: options?.prequeries,
+          ...(route ? { intent: route.intent } : {}),
+        },
         (event: AskEvent) => {
           switch (event.type) {
             case 'stage':
@@ -1986,6 +2070,34 @@ export function AskPage() {
     if (!activeSessionId) setActiveSessionId(sessionId)
     setMessages(baseMessages)
     void runAsk(question, baseMessages, sessionId, { depth: 'deep', deepBadge: true })
+  }
+
+  /** Re-ask the same question under another intent, chosen from the route chip. */
+  function reroute(question: string, forMessageId: string, intentId: string) {
+    if (isStreaming || !question.trim()) return
+    const intent = (config.intents ?? []).find((i) => i.id === intentId)
+    if (!intent) return
+    const isDefault = intentId === config.defaultIntent
+    const route: RouteDecision = {
+      intent: intentId,
+      confidence: 1,
+      stage: 'override',
+      rationale: `${intent.label}: chosen by you`,
+      configuration: isDefault ? 'portal-ask' : `portal-intent-${intentId}`,
+      entities: messages.find((m) => m.id === forMessageId)?.route?.entities ?? [],
+    }
+    const userMessage: ChatMessage = {
+      id: makeId(),
+      author: 'USER',
+      text: question,
+      citations: [],
+      sources: [],
+    }
+    const baseMessages = [...messages, userMessage]
+    const sessionId = activeSessionId ?? makeId()
+    if (!activeSessionId) setActiveSessionId(sessionId)
+    setMessages(baseMessages)
+    void runAsk(question, baseMessages, sessionId, { route })
   }
 
   /**
@@ -2290,6 +2402,16 @@ export function AskPage() {
                               message.id,
                             )}
                           onAskSubquery={(subquery) => void send(subquery)}
+                          intents={config.intents ?? []}
+                          isAdmin={isAdmin}
+                          onReroute={(intentId) =>
+                            reroute(
+                              messages[index - 1]?.author === 'USER'
+                                ? messages[index - 1]?.text ?? ''
+                                : '',
+                              message.id,
+                              intentId,
+                            )}
                           onVerdicts={(verdicts) => saveVerdicts(message.id, verdicts)}
                         />
                       )

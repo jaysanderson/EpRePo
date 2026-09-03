@@ -208,6 +208,62 @@ export const EntityTypeSchema = z.object({
 })
 
 /** A lower-case public DNS hostname, without a scheme, path or port. */
+// ---------------------------------------------------------------------------
+// Intent-routed search configurations. One ask box, many jobs-to-be-done, each
+// served by its own stored search configuration on the same knowledge box and
+// the portal-side settings that go with it. See docs/INTENT-ROUTING.md.
+// ---------------------------------------------------------------------------
+
+export const LabelRefSchema = z.object({ labelset: z.string().min(1), label: z.string().min(1) })
+export type LabelRef = z.infer<typeof LabelRefSchema>
+
+export const IntentSchema = z.object({
+  id: z.string().min(1).regex(/^[a-z][a-z0-9-]*$/),
+  label: z.string().min(1),
+  description: z.string(),
+  examples: z.string().array().default([]),
+  /** Stored half - what ensureSearchConfigs writes to the box as portal-intent-<id>. */
+  retrieval: z.object({
+    features: z.enum(['keyword', 'semantic']).array().min(1),
+    topK: z.number().int().positive(),
+    reranker: z.enum(['predict', 'noop']),
+    /** Labels excluded beyond documentation. */
+    exclude: LabelRefSchema.array().default([]),
+    /** When set, grounding is restricted to these labels (replaces exclusion). */
+    only: LabelRefSchema.array().default([]),
+  }),
+  /** Portal half - applied at request time by the provider. */
+  answer: z.object({
+    surfaces: z.enum(['search', 'ask']).array().min(1),
+    strategy: z.enum(['neighbours', 'full', 'none']),
+    neighbours: z.number().int().nonnegative().optional(),
+    graph: z.boolean().default(false),
+    promptVariant: z.enum(['default', 'safety', 'synthesis', 'recency', 'data']),
+    /** `{entities}` is replaced with the drug/gene mentions found in the question; `{query}` with the question. */
+    prequeries: z.string().array().default([]),
+    depth: z.enum(['default', 'deep']).default('default'),
+    minScore: z.number().min(0).max(1).default(0.35),
+    sortByPublished: z.boolean().default(false),
+  }),
+  /** Stage-1 rules: regexes (case-insensitive) tested against the question; first intent with a match wins. */
+  rules: z.string().array().default([]),
+  /** The rule only fires when the question also names a known entity (drug, gene). */
+  requireEntity: z.boolean().default(false),
+})
+export type Intent = z.infer<typeof IntentSchema>
+
+export const RouteDecisionSchema = z.object({
+  intent: z.string().min(1),
+  confidence: z.number().min(0).max(1),
+  stage: z.enum(['rule', 'classifier', 'default', 'override']),
+  rationale: z.string(),
+  /** The stored search configuration the intent selects. */
+  configuration: z.string(),
+  /** Entities the router found in the question, when any. */
+  entities: z.string().array().default([]),
+})
+export type RouteDecision = z.infer<typeof RouteDecisionSchema>
+
 export const TenantHostnameSchema = z.string().max(253).regex(
   /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/,
 )
@@ -245,6 +301,11 @@ export const TenantConfigSchema = z.object({
    */
   searchExclude: z.object({ labelset: z.string().min(1), label: z.string().min(1) }).array()
     .optional(),
+  /** Intent-routed search configurations (docs/INTENT-ROUTING.md). Absent = one default pair. */
+  intents: IntentSchema.array().optional(),
+  defaultIntent: z.string().optional(),
+  /** Domain lexicon (drug and gene names) the router recognises as entities. */
+  entityTerms: z.string().array().optional(),
 })
 
 // ---------------------------------------------------------------------------

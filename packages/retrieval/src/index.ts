@@ -19,3 +19,11 @@ export {
   overlayEnrichment,
   sourceNameFor,
 } from './merchandise.ts'
+export { PROMPT_VARIANTS, type PromptVariant, variantPreamble } from './prompts.ts'
+export {
+  intentConfigurationName,
+  intentFilterExpression,
+  intentSearchConfigs,
+  intentStrategies,
+  shapeSourcesForIntent,
+} from './providers/arag/index.ts'

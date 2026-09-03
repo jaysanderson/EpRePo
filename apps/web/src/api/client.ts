@@ -115,12 +115,13 @@ export function getKnowledgeBoxStatus(slug: string): Promise<KnowledgeBoxStatus>
 export function searchTenantFull(
   slug: string,
   query: string,
-  opts: { mode?: RetrievalMode; topicIds?: string[]; kindIds?: string[] } = {},
+  opts: { mode?: RetrievalMode; topicIds?: string[]; kindIds?: string[]; intent?: string } = {},
 ): Promise<SearchResults> {
   const params = new URLSearchParams({ q: query })
   if (opts.mode) params.set('mode', opts.mode)
   if (opts.topicIds && opts.topicIds.length > 0) params.set('topics', opts.topicIds.join(','))
   if (opts.kindIds && opts.kindIds.length > 0) params.set('kinds', opts.kindIds.join(','))
+  if (opts.intent) params.set('intent', opts.intent)
   return request<SearchResults>(`/api/t/${encodeURIComponent(slug)}/search?${params.toString()}`)
 }
 
@@ -264,6 +265,8 @@ export function generateArtifact(
 
 export interface AskRequest {
   query: string
+  /** Intent id chosen by the router (docs/INTENT-ROUTING.md). */
+  intent?: string
   context?: { author: 'USER' | 'AGENT'; text: string }[]
   resourceId?: string
   topicIds?: string[]
@@ -1627,4 +1630,56 @@ export async function runEnrichment(
     for (const frame of frames) emit(frame)
   }
   emit(buffer)
+}
+
+// ---------------------------------------------------------------------------
+// Intent routing (docs/INTENT-ROUTING.md)
+// ---------------------------------------------------------------------------
+
+export interface RouteDecision {
+  intent: string
+  confidence: number
+  stage: 'rule' | 'classifier' | 'default' | 'override'
+  rationale: string
+  configuration: string
+  entities: string[]
+  latencyMs?: number
+}
+
+/** Which stored search configuration should answer this question. */
+export async function routeIntent(
+  slug: string,
+  query: string,
+  signal?: AbortSignal,
+): Promise<RouteDecision> {
+  const res = await fetch(`/api/t/${encodeURIComponent(slug)}/route`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ query }),
+    signal,
+  })
+  if (!res.ok) throw new ApiError(res.status, 'Routing is unavailable')
+  return (await res.json()) as RouteDecision
+}
+
+export interface RoutingRecord {
+  ts: string
+  questionHash: string
+  questionLength: number
+  intent: string
+  stage: RouteDecision['stage']
+  confidence: number
+  rationale: string
+  configuration: string
+  latencyMs: number
+}
+
+export function getRouting(
+  slug: string,
+  passcode: string,
+): Promise<{
+  recent: RoutingRecord[]
+  summary: { total: number; byIntent: Record<string, number>; byStage: Record<string, number> }
+}> {
+  return adminRequest(`/api/admin/t/${encodeURIComponent(slug)}/routing`, passcode)
 }

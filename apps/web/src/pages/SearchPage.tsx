@@ -9,6 +9,7 @@ import {
   getFacets,
   listWatches,
   markWatchSeen,
+  routeIntent,
   type SavedWatch,
   searchTenantFull,
   summarizeResources,
@@ -23,6 +24,7 @@ import { SaveEvidenceButton } from '../components/SaveEvidence.tsx'
 import { SearchAnswer, type SearchAnswerResult } from '../components/SearchAnswer.tsx'
 import { EmptyState, ErrorCard, prettyLabel, Skeleton, TypeBadge } from '../components/ui.tsx'
 import { answerModeParam, readAnswerMode } from '../lib/search-mode.ts'
+import { RouteChip } from '../components/RouteChip.tsx'
 import type { TenantOutletContext } from './TenantLayout.tsx'
 import {
   passageIsInformative,
@@ -487,7 +489,27 @@ export function SearchPage() {
   // so both are shareable and reload to the same state. Answered is the default -
   // a search with a query gets its cited answer with no extra click - and
   // `answer=0` is the explicit, shareable opt-out.
-  const answerMode = readAnswerMode(searchParams)
+  const answerModeParamValue = readAnswerMode(searchParams)
+  // Intent routing for the search box: a bare identifier ("SCN8A") is an
+  // exact lookup - results only, on the keyword configuration - and a
+  // supplementary-data question flips the format exclusion. The decision is
+  // shown as a chip so the reader can see it.
+  const intents = config.intents ?? []
+  const { data: route, isFetched: routeFetched } = useQuery({
+    queryKey: ['route', config.slug, q],
+    queryFn: () => routeIntent(config.slug, q),
+    enabled: q.trim().length > 0 && intents.length > 0 && mode === 'hybrid',
+    staleTime: 5 * 60_000,
+    retry: false,
+  })
+  const routeSettled = intents.length === 0 || mode !== 'hybrid' || routeFetched
+  const routedIntent = route ? intents.find((i) => i.id === route.intent) : undefined
+  const searchIntent = routedIntent && mode === 'hybrid' &&
+      routedIntent.answer.surfaces.includes('search') && routedIntent.id !== config.defaultIntent
+    ? routedIntent.id
+    : undefined
+  const lookupOnly = routedIntent !== undefined && !routedIntent.answer.surfaces.includes('ask')
+  const answerMode = answerModeParamValue && !lookupOnly
 
   // Open by default on the desktop layout; the Filters button hides it again.
   const [filtersOpen, setFiltersOpen] = useState(true)
@@ -564,10 +586,23 @@ export function SearchPage() {
     error,
     refetch,
   } = useQuery({
-    queryKey: ['search', config.slug, q, mode, selectedTopics.join(','), selectedKinds.join(',')],
+    queryKey: [
+      'search',
+      config.slug,
+      q,
+      mode,
+      selectedTopics.join(','),
+      selectedKinds.join(','),
+      searchIntent ?? '',
+    ],
     queryFn: () =>
-      searchTenantFull(config.slug, q, { mode, topicIds: selectedTopics, kindIds: selectedKinds }),
-    enabled: q.trim().length > 0,
+      searchTenantFull(config.slug, q, {
+        mode,
+        topicIds: selectedTopics,
+        kindIds: selectedKinds,
+        ...(searchIntent ? { intent: searchIntent } : {}),
+      }),
+    enabled: q.trim().length > 0 && routeSettled,
   })
 
   // Match strength is not a server filter - the search API only accepts topicIds - so
@@ -877,6 +912,23 @@ export function SearchPage() {
           : null}
       </div>
 
+      {hasQuery && intents.length > 0 && mode === 'hybrid' && (route || !routeFetched)
+        ? (
+          <div className='mt-4 flex flex-wrap items-center gap-3'>
+            <RouteChip decision={route} intents={intents} pending={!routeFetched} />
+            {lookupOnly
+              ? (
+                <Link
+                  to={`/t/${config.slug}/ask?ask=${encodeURIComponent(q)}`}
+                  className='rp-btn rp-btn-outline h-8 px-2.5 text-xs'
+                >
+                  Ask about these results
+                </Link>
+              )
+              : null}
+          </div>
+        )
+        : null}
       {hasQuery && answerMode
         ? (
           <div className='mt-6'>

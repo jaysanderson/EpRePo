@@ -48,6 +48,13 @@ import {
   looksLikeChallengePage,
 } from './crawl.ts'
 import {
+  decideFromClassifier,
+  defaultDecision,
+  extractEntities,
+  fillPrequeries,
+  routeByRules,
+} from './intent-router.ts'
+import {
   type EnrichmentCollisionPolicy,
   type EnrichmentRecords,
   InsightsStore,
@@ -56,6 +63,8 @@ import {
   type InvestigationStoreApi,
   McpKeyStore,
   type McpKeyStoreApi,
+  questionHash,
+  RoutingLog,
   SessionsStore,
   type SessionsStoreApi,
   SourceStore,
@@ -251,8 +260,11 @@ function validateEnrichmentRecords(value: unknown): ImportValidationResult {
   return issues.length > 0 ? { success: false, issues } : { success: true, data: records }
 }
 
+const routeBodySchema = z.object({ query: z.string().min(1).max(2000) })
 const askBodySchema = z.object({
   query: z.string().min(1),
+  /** Intent id from the tenant's intents (docs/INTENT-ROUTING.md). */
+  intent: z.string().min(1).max(40).optional(),
   context: z
     .object({ author: z.enum(['USER', 'AGENT']), text: z.string() })
     .array()
@@ -528,6 +540,8 @@ export interface BrandingAssetStore {
 }
 
 export interface BuildAppOptions {
+  /** Intent-routing decisions log; defaults to the on-disk JSONL store. */
+  routing?: RoutingLog
   provider: RetrievalProvider
   /** Tenant registry; a fresh store (seeds only) when omitted. */
   tenants?: TenantStoreApi
@@ -580,6 +594,7 @@ export function buildApp(opts: BuildAppOptions): Hono {
   const bindings = opts.bindings ?? new BindingStore({})
   const tenants = opts.tenants ?? new TenantStore({})
   const insights = opts.insights ?? new InsightsStore()
+  const routing = opts.routing ?? new RoutingLog()
   const sessions = opts.sessions ?? new SessionsStore()
   const watches = opts.watches ?? new WatchStore()
   const sources = opts.sources ?? new SourceStore()
@@ -827,8 +842,84 @@ export function buildApp(opts: BuildAppOptions): Hono {
     const mode = modeRaw === 'semantic' || modeRaw === 'keyword' ? modeRaw : 'hybrid'
     const topicIds = (c.req.query('topics') ?? '').split(',').filter(Boolean)
     const kindIds = (c.req.query('kinds') ?? '').split(',').filter(Boolean)
-    const results = await provider.search(config, parsed.data.q, { mode, topicIds, kindIds })
+    const intentParam = c.req.query('intent') || undefined
+    if (intentParam && !(config.intents ?? []).some((i) => i.id === intentParam)) {
+      return c.json({ error: 'unknown_intent' }, 400)
+    }
+    const results = await provider.search(config, parsed.data.q, {
+      mode,
+      topicIds,
+      kindIds,
+      ...(intentParam ? { intent: intentParam } : {}),
+    })
     return c.json(merchandiseSearchResults(enrichments, config.slug, results))
+  })
+
+  // Intent routing: which stored search configuration should answer this
+  // question. Rules first (free, explainable), then one short classification
+  // on the platform when no rule fires. Every decision is logged.
+  app.post('/api/t/:slug/route', expensiveRateLimit, async (c) => {
+    const config = tenant(c.req.param('slug'))
+    if (!config) return c.json({ error: 'unknown_tenant' }, 404)
+    const parsed = routeBodySchema.safeParse(await c.req.json().catch(() => null))
+    if (!parsed.success) return c.json({ error: 'invalid_query' }, 400)
+    const intents = config.intents ?? []
+    const defaultIntent = config.defaultIntent ?? intents[0]?.id ?? 'general'
+    const ctx = { intents, defaultIntent, lexicon: config.entityTerms ?? [] }
+    const started = Date.now()
+    let decision = intents.length > 0 ? routeByRules(parsed.data.query, ctx) : null
+    if (!decision && intents.length > 0) {
+      const entities = extractEntities(parsed.data.query, ctx.lexicon)
+      if (opts.management) {
+        try {
+          const raw = await Promise.race([
+            opts.management.augmentationModel(config).then((model) =>
+              opts.management!.classifyIntent(config, parsed.data.query, { model })
+            ),
+            new Promise<Record<string, never>>((resolve) => setTimeout(() => resolve({}), 12000)),
+          ])
+          decision = decideFromClassifier(raw, ctx, entities)
+        } catch {
+          decision = defaultDecision(
+            ctx,
+            'Classifier unavailable, using the default configuration',
+            entities,
+          )
+        }
+      } else {
+        decision = defaultDecision(ctx, 'No routing rule matched', entities)
+      }
+    }
+    if (!decision) decision = defaultDecision(ctx, 'This portal has no intents configured')
+    const latencyMs = Date.now() - started
+    try {
+      routing.record(config.slug, {
+        ts: new Date().toISOString(),
+        questionHash: questionHash(parsed.data.query),
+        questionLength: parsed.data.query.length,
+        intent: decision.intent,
+        stage: decision.stage,
+        confidence: decision.confidence,
+        rationale: decision.rationale,
+        configuration: decision.configuration,
+        latencyMs,
+      })
+    } catch {
+      // logging never blocks routing
+    }
+    return c.json({ ...decision, latencyMs })
+  })
+
+  /** Recent routing decisions and a summary - the Manage panel's audit view. */
+  app.get('/api/admin/t/:slug/routing', (c) => {
+    const config = tenant(c.req.param('slug'))
+    if (!config) return c.json({ error: 'unknown_tenant' }, 404)
+    const unavailable = requireManagement(c)
+    if (unavailable) return unavailable
+    return c.json({
+      recent: routing.recent(config.slug, 50),
+      summary: routing.summary(config.slug),
+    })
   })
 
   // Documentation-scoped search (the Help section). Retrieves ONLY the in-app
@@ -2690,9 +2781,24 @@ export function buildApp(opts: BuildAppOptions): Hono {
     if (!config) return c.json({ error: 'unknown_tenant' }, 404)
     const parsed = askBodySchema.safeParse(await c.req.json().catch(() => null))
     if (!parsed.success) return c.json({ error: 'invalid_query' }, 400)
+    const intentDef = parsed.data.intent
+      ? (config.intents ?? []).find((i) => i.id === parsed.data.intent)
+      : undefined
+    if (parsed.data.intent && !intentDef) return c.json({ error: 'unknown_intent' }, 400)
     return streamSSE(c, async (stream) => {
       const { query, ...askOpts } = parsed.data
       const settings = tenants.promptsFor(config.slug)
+      // An intent's mandatory sub-questions (a safety check for a treatment
+      // decision, a recency probe) join whatever the caller sent, with the
+      // entities the router found in the question substituted in.
+      if (intentDef && intentDef.answer.prequeries.length > 0) {
+        const entities = extractEntities(query, config.entityTerms ?? [])
+        const mandatory = fillPrequeries(intentDef.answer.prequeries, query, entities)
+        askOpts.prequeries = [...mandatory, ...(askOpts.prequeries ?? [])].slice(0, 8)
+        await stream.writeSSE({
+          data: JSON.stringify({ type: 'searched', queries: askOpts.prequeries }),
+        })
+      }
       // Evidence-seeking questions get decomposed by default: broad questions
       // otherwise miss decisive passages that narrower phrasings retrieve.
       // Skipped for follow-up turns and when the caller already decomposed.
