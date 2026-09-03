@@ -105,7 +105,7 @@ export function CompareConfigurations(
                   <select
                     value={col.intent}
                     onChange={(e) => run(index, e.target.value)}
-                    className='rp-input h-8 text-sm'
+                    className='rp-input py-1 text-sm'
                   >
                     {intents.filter((i) => i.answer.surfaces.includes('ask')).map((i) => (
                       <option key={i.id} value={i.id}>{i.label}</option>

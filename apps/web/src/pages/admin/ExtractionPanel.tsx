@@ -571,7 +571,7 @@ function RulesCard(
                 <select
                   value={methodFor(cls.id)}
                   onChange={(e) => setFor(cls.id, e.target.value)}
-                  className='rp-input h-8 text-sm'
+                  className='rp-input py-1 text-sm'
                 >
                   {methods.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
                 </select>
@@ -589,7 +589,7 @@ function RulesCard(
             value={draft.visualPageCap ?? 60}
             onChange={(e) =>
               setDraft((d) => ({ ...d, visualPageCap: Math.max(1, Number(e.target.value) || 60) }))}
-            className='rp-input h-8 w-20 text-sm'
+            className='rp-input w-20 py-1 text-sm'
           />
         </label>
         <button
