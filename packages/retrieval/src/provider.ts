@@ -79,7 +79,11 @@ export interface RetrievalProvider {
   listResources(tenant: TenantConfig): Promise<ResourceSummary[]>
   resource(tenant: TenantConfig, id: string): Promise<ResourceSummary | null>
   search(tenant: TenantConfig, query: string, opts?: SearchOptions): Promise<SearchResults>
-  suggest(tenant: TenantConfig): Promise<Question[]>
+  /**
+   * Suggested questions for the ask box. With a query, the ones that share a
+   * term with it come first; without one, the tenant's configured list.
+   */
+  suggest(tenant: TenantConfig, query?: string): Promise<Question[]>
   ask(tenant: TenantConfig, query: string, opts?: AskOptions): AsyncIterable<AskEvent>
   catalog(tenant: TenantConfig, opts?: CatalogOptions): Promise<CatalogPage>
   /** Top resources filed under one topic (Explore's topic rows) - via the classification index, not per-resource topicIds. */

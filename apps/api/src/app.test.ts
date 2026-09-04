@@ -425,6 +425,172 @@ describe('GET /api/t/:slug/search', () => {
   })
 })
 
+describe('GET /api/t/:slug/search - catalogue lookups', () => {
+  const article: ResourceSummary = {
+    ...resourceOne,
+    id: 'art-1',
+    title: 'ENVISION natural history of Dravet syndrome',
+    doi: '10.1111/epi.70015',
+    pmcid: 'PMC8371239',
+    pmid: '39876543',
+    authors: ['Vajda FJE', 'Perucca P'],
+    year: '2025',
+  }
+  const supplement: ResourceSummary = {
+    ...resourceTwo,
+    id: 'supp-1',
+    title: 'Supplementary material 1: ENVISION tables',
+    originUrl: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC8371239/',
+  }
+  class LookupProvider extends StubProvider {
+    override async listResources(): Promise<ResourceSummary[]> {
+      return [supplement, article, resourceTwo]
+    }
+  }
+  const app = () => buildApp({ provider: new LookupProvider(), tenants: freshTenants() })
+
+  it('resolves a DOI to exactly the resource that carries it, before any retrieval', async () => {
+    const response = await app().request('/api/t/frdc/search?q=doi:10.1111/EPI.70015')
+    const body = SearchResultsSchema.parse(await response.json())
+    expect(body.lookup).toEqual({ kind: 'doi', value: '10.1111/EPI.70015', matched: true })
+    expect(body.resources.map((r) => r.id)).toEqual(['art-1'])
+    expect(body.resources[0]?.matchedField).toBe('metadata')
+    expect(body.resources[0]?.matchedPassage).toBe('DOI 10.1111/epi.70015')
+  })
+
+  it('resolves a PMC id from the pmcid field or the origin URL, article first', async () => {
+    const response = await app().request('/api/t/frdc/search?q=PMC8371239')
+    const body = SearchResultsSchema.parse(await response.json())
+    expect(body.resources.map((r) => r.id)).toEqual(['art-1', 'supp-1'])
+  })
+
+  it('is honest about an identifier nobody carries: no look-alike results', async () => {
+    const response = await app().request('/api/t/frdc/search?q=10.1111/epi.17708')
+    const body = SearchResultsSchema.parse(await response.json())
+    expect(body.resources).toEqual([])
+    expect(body.lookup).toEqual({ kind: 'doi', value: '10.1111/epi.17708', matched: false })
+  })
+
+  it('finds papers by author surname ahead of the retrieval results', async () => {
+    const response = await app().request('/api/t/frdc/search?q=vajda')
+    const body = SearchResultsSchema.parse(await response.json())
+    expect(body.lookup).toEqual({ kind: 'author', value: 'vajda', matched: true })
+    expect(body.resources[0]?.id).toBe('art-1')
+    expect(body.resources[0]?.matchedPassage).toContain('Vajda FJE')
+    // The stub's own results still follow, without duplicating the author hit.
+    expect(body.resources.filter((r) => r.id === 'art-1')).toHaveLength(1)
+  })
+})
+
+describe('GET /api/t/:slug/suggest', () => {
+  it('ranks the configured questions by the typed query', async () => {
+    const tenants = freshTenants()
+    tenants.patch('frdc', {
+      suggestedQuestions: [
+        { id: 'a', text: 'How is white spot disease managed in prawns?' },
+        { id: 'b', text: 'What is known about abalone stock health?' },
+      ],
+    })
+    class SuggestProvider extends StubProvider {
+      override async suggest(tenant: TenantConfig, query?: string): Promise<Question[]> {
+        const { rankSuggestedQuestions } = await import(
+          '../../../packages/retrieval/src/providers/arag/suggest-ranking.ts'
+        )
+        return rankSuggestedQuestions(tenant.suggestedQuestions, query)
+      }
+    }
+    const app = buildApp({ provider: new SuggestProvider(), tenants })
+    const ranked = await (await app.request('/api/t/frdc/suggest?q=abalone')).json() as Question[]
+    expect(ranked[0]?.id).toBe('b')
+    const plain = await (await app.request('/api/t/frdc/suggest')).json() as Question[]
+    expect(plain[0]?.id).toBe('a')
+  })
+})
+
+describe('GET /api/t/:slug/entity', () => {
+  const management = (edges: { source: string; target: string; label: string }[]) =>
+    ({
+      relationsGraph: (_tenant: TenantConfig, opts?: { entity?: string }) =>
+        Promise.resolve({
+          nodes: opts?.entity
+            ? [{ id: opts.entity, group: 'Gene', weight: edges.length }, {
+              id: 'Dravet syndrome',
+              group: 'Medical Condition',
+              weight: 1,
+            }]
+            : [],
+          edges,
+        }),
+    }) as unknown as AragProvider
+
+  it('scopes relations to the entity and returns them with the resources', async () => {
+    const edges = [{ source: 'SCN1A', target: 'Dravet syndrome', label: 'is a cause of' }]
+    const app = buildApp({
+      provider: new StubProvider(),
+      tenants: freshTenants(),
+      management: management(edges),
+    })
+    const response = await app.request('/api/t/frdc/entity?name=SCN1A')
+    expect(response.status).toBe(200)
+    const body = await response.json() as { relations: { edges: unknown[] }; resources: unknown[] }
+    expect(body.relations.edges).toEqual(edges)
+    expect(body.resources.length).toBeGreaterThan(0)
+  })
+
+  it('returns 404 unknown_entity when nothing is known about the name', async () => {
+    class EmptySearch extends StubProvider {
+      override async search(_tenant: TenantConfig, query: string): Promise<SearchResults> {
+        return { query, resources: [], relatedQuestions: [] }
+      }
+    }
+    const app = buildApp({
+      provider: new EmptySearch(),
+      tenants: freshTenants(),
+      management: management([]),
+    })
+    const response = await app.request('/api/t/frdc/entity?name=ZZZZNOTAGENE')
+    expect(response.status).toBe(404)
+    expect(await response.json()).toEqual({
+      error: 'unknown_entity',
+      name: 'ZZZZNOTAGENE',
+      unknown: true,
+    })
+  })
+})
+
+describe('GET /api/t/:slug/resources/:id/questions', () => {
+  it('serves precomputed openers from the store and never generates on the page path', async () => {
+    const enrichments = new EnrichmentStore(Deno.makeTempDirSync())
+    enrichments.put('frdc', 'res-1', {
+      schemaId: 'suggested-questions',
+      generatedAt: new Date().toISOString(),
+      data: { questions: ['What drove the decline?'] },
+    })
+    let generated = 0
+    const management = {
+      resourceContent: () => {
+        generated++
+        return Promise.resolve(null)
+      },
+    } as unknown as AragProvider
+    const app = buildApp({
+      provider: new StubProvider(),
+      tenants: freshTenants(),
+      enrichments,
+      management,
+    })
+    const cached = await app.request('/api/t/frdc/resources/res-1/questions')
+    expect(await cached.json()).toEqual({ questions: ['What drove the decline?'] })
+    // A resource the pass has not reached answers at once and fills the
+    // store in the background rather than holding the page for the model.
+    const pending = await app.request('/api/t/frdc/resources/res-2/questions')
+    expect(await pending.json()).toEqual({ questions: [], pending: true })
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(generated).toBe(1)
+    expect(enrichments.get('frdc', 'res-2', 'suggested-questions')?.data).toEqual({ questions: [] })
+  })
+})
+
 describe('POST /api/t/:slug/ask', () => {
   it('streams SSE data lines that parse with AskEventSchema, including a done event', async () => {
     const app = makeApp()

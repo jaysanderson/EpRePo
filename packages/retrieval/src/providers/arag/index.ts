@@ -42,8 +42,64 @@ import { AragApiError, type KbBinding, KbClient, ndjson } from './client.ts'
 import { spliceCitationMarkers, stripInlineMarkers } from './citations.ts'
 import { dedupeResourceFamilies } from './resource-groups.ts'
 import { dedupeEntityCase } from './graph-relations.ts'
+import { dedupeNames, isNoiseEntity, keepEntity, preferredSpelling } from './entity-filter.ts'
+import { rankSuggestedQuestions } from './suggest-ranking.ts'
 
 const CATALOG_TTL_MS = 60_000
+/** Identical search queries return the identical list for this long. */
+const SEARCH_CACHE_TTL_MS = 3 * 60_000
+const SEARCH_CACHE_MAX = 200
+/** The relations slice and the entity groups are re-read from the box this often. */
+const GRAPH_CACHE_TTL_MS = 5 * 60_000
+/** The platform caps /graph at 500 paths per call (422 above it, verified live). */
+const GRAPH_PAGE = 500
+/** Nodes on the whole-corpus map; the entity view is not capped this way. */
+const GRAPH_SLICE = 120
+/**
+ * Every group keeps at least this many of its strongest nodes in the slice,
+ * so a genetics corpus whose conditions outweigh its genes still shows the
+ * genes rather than six of them.
+ */
+const GRAPH_GROUP_FLOOR = 12
+
+/**
+ * The top `size` nodes by the caller's order, except that each group is
+ * guaranteed its first `floor` nodes when it has them. Deterministic for a
+ * deterministic input order.
+ */
+export function sliceWithGroupFloor<T extends { id: string; group: string }>(
+  ranked: readonly T[],
+  size: number,
+  floor: number,
+): T[] {
+  const perGroup = new Map<string, number>()
+  const reserved = new Set<string>()
+  for (const node of ranked) {
+    const n = perGroup.get(node.group) ?? 0
+    if (n < floor) {
+      perGroup.set(node.group, n + 1)
+      reserved.add(node.id)
+    }
+    if (reserved.size >= size) break
+  }
+  const out: T[] = []
+  for (const node of ranked) {
+    if (out.length >= size) break
+    if (reserved.has(node.id)) out.push(node)
+  }
+  for (const node of ranked) {
+    if (out.length >= size) break
+    if (!reserved.has(node.id)) out.push(node)
+  }
+  // Back to rank order - the reservation only decides membership.
+  const rank = new Map(ranked.map((n, i) => [n.id, i]))
+  return out.sort((a, b) => (rank.get(a.id) ?? 0) - (rank.get(b.id) ?? 0))
+}
+
+type RelationsGraphResult = {
+  nodes: { id: string; group: string; weight: number }[]
+  edges: { source: string; target: string; label: string }[]
+}
 /** Catalogue paging: 200 per call, up to 40 calls - 8,000 resources. */
 const CATALOG_PAGE_SIZE = 200
 const CATALOG_MAX_PAGES = 40
@@ -367,6 +423,8 @@ interface PortalMetadata {
   journal?: unknown
   year?: unknown
   doi?: unknown
+  pmid?: unknown
+  pmcid?: unknown
   keywords?: unknown
   titleCurated?: unknown
 }
@@ -661,6 +719,8 @@ function bibliographic(meta: PortalMetadata): {
   journal?: string
   year?: string
   doi?: string
+  pmid?: string
+  pmcid?: string
   keywords?: string[]
   titleCurated?: boolean
 } {
@@ -675,14 +735,39 @@ function bibliographic(meta: PortalMetadata): {
   const journal = str(meta.journal)
   const year = str(meta.year)
   const doi = str(meta.doi)
+  const pmid = str(meta.pmid)
+  const pmcid = str(meta.pmcid)?.toUpperCase()
   return {
     ...(authors?.length ? { authors } : {}),
     ...(journal ? { journal } : {}),
     ...(year ? { year } : {}),
     ...(doi ? { doi } : {}),
+    ...(pmid ? { pmid } : {}),
+    ...(pmcid ? { pmcid } : {}),
     ...(keywords?.length ? { keywords } : {}),
     ...(meta.titleCurated === true ? { titleCurated: true } : {}),
   }
+}
+
+/**
+ * The names worth showing from one entity group: noise dropped (numbers,
+ * people, journals, vignettes; non-genes in the Gene group), case variants
+ * merged onto the spelling that reads best, and the result sorted so the
+ * list is the same on every read.
+ */
+function cleanEntityNames(names: readonly string[], group: string): string[] {
+  const variants = new Map<string, string[]>()
+  for (const raw of names) {
+    const name = raw.replace(/\s+/g, ' ').trim()
+    if (!keepEntity(name, group)) continue
+    const key = name.toLowerCase()
+    const list = variants.get(key)
+    if (list) list.push(name)
+    else variants.set(key, [name])
+  }
+  return [...variants.values()]
+    .map((list) => preferredSpelling(list))
+    .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
 }
 
 function catalogItemFromRaw(id: string, r: RawResource): CatalogItem {
@@ -802,6 +887,13 @@ export interface AragProviderOptions {
 export class AragProvider implements RetrievalProvider {
   private readonly clients = new Map<string, KbClient>()
   private readonly catalogCache = new Map<string, { at: number; resources: ResourceSummary[] }>()
+  private readonly searchCache = new Map<string, { at: number; results: SearchResults }>()
+  private readonly graphCache = new Map<string, { at: number; graph: RelationsGraphResult }>()
+  /** Cleaned entity names per group, uncapped - the display list is a slice of it. */
+  private readonly entityGroupsCache = new Map<
+    string,
+    { at: number; groups: { group: string; entities: string[] }[] }
+  >()
   private readonly augmentationModelId: string
 
   constructor(private readonly opts: AragProviderOptions) {
@@ -833,6 +925,12 @@ export class AragProvider implements RetrievalProvider {
       if (key.startsWith(`${slug}:`)) this.clients.delete(key)
     }
     this.catalogCache.delete(slug)
+    this.entityGroupsCache.delete(slug)
+    for (const cache of [this.searchCache, this.graphCache]) {
+      for (const key of cache.keys()) {
+        if (key.startsWith(`${slug}|`)) cache.delete(key)
+      }
+    }
   }
 
   private toSummary(id: string, raw: RawResource): ResourceSummary {
@@ -861,11 +959,10 @@ export class AragProvider implements RetrievalProvider {
       ...(kindLabel ? { kind: kindLabel } : {}),
       ...(merch.sourceName ? { sourceName: merch.sourceName } : {}),
       ...bibliographic(meta),
-      // NOTE: a resource ingested from a website source carries `origin.url`
-      // on the platform, and resourceContent() surfaces it - but
-      // ResourceSummarySchema has no `originUrl` field, so a summary cannot
-      // carry the page it came from (zod strips it). Adding the optional
-      // field to that schema in packages/core is all this needs.
+      // Where it came from (a PMC article URL, a crawled page): the search
+      // route resolves PMC identifiers against it when the ingest stored no
+      // pmcid field of its own.
+      ...(raw.origin?.url ? { originUrl: raw.origin.url } : {}),
       enriched: false,
     })
   }
@@ -900,7 +997,7 @@ export class AragProvider implements RetrievalProvider {
   async resource(tenant: TenantConfig, id: string): Promise<ResourceSummary | null> {
     try {
       const raw = await this.client(tenant).getJson<RawResource>(
-        `/resource/${id}?show=basic&show=extra`,
+        `/resource/${id}?show=basic&show=extra&show=origin`,
       )
       return this.toSummary(id, raw)
     } catch (err) {
@@ -1082,10 +1179,13 @@ export class AragProvider implements RetrievalProvider {
 
   private invalidateCatalogue(slug: string): void {
     this.catalogCache.delete(slug)
+    for (const key of this.searchCache.keys()) {
+      if (key.startsWith(`${slug}|`)) this.searchCache.delete(key)
+    }
   }
 
-  async suggest(tenant: TenantConfig): Promise<Question[]> {
-    return tenant.suggestedQuestions
+  async suggest(tenant: TenantConfig, query?: string): Promise<Question[]> {
+    return rankSuggestedQuestions(tenant.suggestedQuestions, query)
   }
 
   async search(
@@ -1095,6 +1195,28 @@ export class AragProvider implements RetrievalProvider {
   ): Promise<SearchResults> {
     const trimmed = query.trim()
     if (!trimmed) return { query, resources: [], relatedQuestions: [] }
+    // The platform's hybrid merge is not stable call to call: the same query
+    // returned 14, 18, 18 and 17 results with a different top hit across four
+    // loads in three minutes. A short per-query cache makes an identical
+    // query return the identical list for a few minutes, which is what a
+    // reader comparing two tabs expects.
+    const cacheKey = `${tenant.slug}|${trimmed.toLowerCase()}|${JSON.stringify(opts)}`
+    const cached = this.searchCache.get(cacheKey)
+    if (cached && Date.now() - cached.at < SEARCH_CACHE_TTL_MS) return cached.results
+    const results = await this.searchUncached(tenant, trimmed, opts)
+    if (this.searchCache.size >= SEARCH_CACHE_MAX) {
+      const oldest = this.searchCache.keys().next().value
+      if (oldest !== undefined) this.searchCache.delete(oldest)
+    }
+    this.searchCache.set(cacheKey, { at: Date.now(), results })
+    return results
+  }
+
+  private async searchUncached(
+    tenant: TenantConfig,
+    trimmed: string,
+    opts: SearchOptions,
+  ): Promise<SearchResults> {
     const client = this.client(tenant)
     const mode = opts.mode ?? 'hybrid'
     const features = mode === 'hybrid' ? ['keyword', 'semantic'] : [mode]
@@ -1974,10 +2096,13 @@ export class AragProvider implements RetrievalProvider {
   async relationsGraph(
     tenant: TenantConfig,
     opts: { entity?: string; topK?: number; includeBuiltin?: boolean } = {},
-  ): Promise<{
-    nodes: { id: string; group: string; weight: number }[]
-    edges: { source: string; target: string; label: string }[]
-  }> {
+  ): Promise<RelationsGraphResult> {
+    const entity = opts.entity?.trim()
+    const cacheKey = `${tenant.slug}|${entity?.toLowerCase() ?? ''}|${
+      opts.includeBuiltin ? 'builtin' : 'agent'
+    }|${opts.topK ?? ''}`
+    const cached = this.graphCache.get(cacheKey)
+    if (cached && Date.now() - cached.at < GRAPH_CACHE_TTL_MS) return cached.graph
     try {
       // By default, only agent-extracted relations - the built-in NER pipeline
       // floods the path index (PERSON/DATE/LOC) and would drown the curated
@@ -1987,31 +2112,44 @@ export class AragProvider implements RetrievalProvider {
       // raw NER output comes through too - the label-assignment and
       // resource-id exclusions below still apply either way.
       const generated = { prop: 'generated', by: 'data-augmentation' }
-      const pathFilter = opts.entity
+      const pathFilter = entity
         ? {
           prop: 'path',
-          source: { value: opts.entity, match: 'exact' },
+          source: { value: entity, match: 'exact' },
           undirected: true,
         }
         : null
-      // For "include built-in", scope to the entity's paths when given, else ask
-      // for ALL relation paths. NOTE: the /graph endpoint 422s on a missing or
-      // empty ({}) query, so "everything" must be an explicit { prop: 'path' }
-      // (verified live) - this is the shape that returns built-in NER paths too.
-      const query = opts.includeBuiltin
-        ? pathFilter ?? { prop: 'path' }
-        : pathFilter
-        ? { and: [pathFilter, generated] }
-        : generated
-      const body: Record<string, unknown> = { top_k: opts.topK ?? 400 }
-      if (query !== undefined) body.query = query
-      const raw = await this.client(tenant).postJson<{
-        paths?: {
-          source?: { value?: string; group?: string }
-          relation?: { label?: string }
-          destination?: { value?: string; group?: string }
-        }[]
-      }>('/graph', body)
+      // NOTE: the /graph endpoint 422s on a missing or empty ({}) query, so
+      // "everything" must be an explicit { prop: 'path' } (verified live).
+      const queries: unknown[] = []
+      if (pathFilter) {
+        queries.push(opts.includeBuiltin ? pathFilter : { and: [pathFilter, generated] })
+      } else if (opts.includeBuiltin) queries.push({ prop: 'path' })
+      else {
+        // The generated index is larger than one page and the platform pages
+        // it in no stable order, so a single page gave a different map on
+        // every load (SCN1A and Dravet, then JME, then a drug-allergy paper).
+        // Read one page per entity group plus the ungrouped page, and rank the
+        // union by weight: the slice is then the same on every call until the
+        // index itself changes.
+        queries.push(generated)
+        for (const group of await this.entityGroupNames(tenant)) {
+          queries.push({ and: [{ prop: 'path', source: { group }, undirected: true }, generated] })
+        }
+      }
+      const topK = Math.min(GRAPH_PAGE, opts.topK ?? GRAPH_PAGE)
+      const client = this.client(tenant)
+      const pages = await Promise.all(
+        queries.map((query) =>
+          client.postJson<{
+            paths?: {
+              source?: { value?: string; group?: string }
+              relation?: { label?: string }
+              destination?: { value?: string; group?: string }
+            }[]
+          }>('/graph', { top_k: topK, query })
+        ),
+      )
       const weight = new Map<string, { group: string; weight: number }>()
       const edges: { source: string; target: string; label: string }[] = []
       const seenEdge = new Set<string>()
@@ -2026,7 +2164,7 @@ export class AragProvider implements RetrievalProvider {
         groupSpellings.set(key, raw)
         return raw
       }
-      for (const path of raw.paths ?? []) {
+      for (const path of pages.flatMap((page) => page.paths ?? [])) {
         const s = path.source?.value
         const d = path.destination?.value
         if (!s || !d || s === d) continue
@@ -2052,23 +2190,65 @@ export class AragProvider implements RetrievalProvider {
         }
       }
       // The agent extracts the same entity under several case spellings, each
-      // with its own relations - merge them before the top-120 cut so the
-      // merged weight is what earns a place.
+      // with its own relations - merge them before the cut so the merged
+      // weight is what earns a place.
       const deduped = dedupeEntityCase(
         [...weight.entries()].map(([id, v]) => ({ id, group: v.group, weight: v.weight })),
         edges,
       )
-      const nodes = deduped.nodes
-        .sort((a, b) => b.weight - a.weight)
-        .slice(0, 120)
-      const keep = new Set(nodes.map((n) => n.id))
-      return {
-        nodes,
-        edges: deduped.edges.filter((e) => keep.has(e.source) && keep.has(e.target)),
+      // Table numbers, author strings, journals and case vignettes are not
+      // entities; the Gene group must hold gene symbols. The entity a reader
+      // asked for is always kept, whatever it looks like.
+      // The raw NER opt-in is the reader asking for everything, so only the
+      // agent-extracted graph is cleaned.
+      const asked = entity?.toLowerCase()
+      const clean = deduped.nodes.filter((n) =>
+        opts.includeBuiltin || n.id.toLowerCase() === asked || keepEntity(n.id, n.group)
+      )
+      const cleanIds = new Set(clean.map((n) => n.id))
+      const cleanEdges = deduped.edges.filter((e) =>
+        cleanIds.has(e.source) && cleanIds.has(e.target)
+      )
+      const degree = new Map<string, number>()
+      for (const e of cleanEdges) {
+        degree.set(e.source, (degree.get(e.source) ?? 0) + 1)
+        degree.set(e.target, (degree.get(e.target) ?? 0) + 1)
       }
+      // Weight, then degree, then name: a total order, so the slice is stable.
+      const ranked = clean
+        .filter((n) => (degree.get(n.id) ?? 0) > 0)
+        .sort((a, b) =>
+          b.weight - a.weight || (degree.get(b.id) ?? 0) - (degree.get(a.id) ?? 0) ||
+          a.id.localeCompare(b.id)
+        )
+      const nodes = entity ? ranked : sliceWithGroupFloor(ranked, GRAPH_SLICE, GRAPH_GROUP_FLOOR)
+      const keep = new Set(nodes.map((n) => n.id))
+      const graph = {
+        nodes,
+        edges: cleanEdges.filter((e) => keep.has(e.source) && keep.has(e.target)),
+      }
+      this.graphCache.set(cacheKey, { at: Date.now(), graph })
+      return graph
     } catch {
       return { nodes: [], edges: [] }
     }
+  }
+
+  /** The custom entity groups on the box, by name - the graph reads one page per group. */
+  private async entityGroupNames(tenant: TenantConfig): Promise<string[]> {
+    return (await this.allEntityGroups(tenant)).map((g) => g.group)
+  }
+
+  /**
+   * Every entity name the portal knows for prefix matching: the tenant's
+   * configured lexicon plus the cleaned entity groups. Cached with the groups.
+   */
+  private async entityLexicon(tenant: TenantConfig): Promise<string[]> {
+    const groups = await this.allEntityGroups(tenant)
+    return dedupeNames([
+      ...(tenant.entityTerms ?? []),
+      ...groups.flatMap((g) => g.entities),
+    ])
   }
 
   /** Grounded multi-resource summary via the box's summarize endpoint. */
@@ -2338,9 +2518,27 @@ export class AragProvider implements RetrievalProvider {
     // the query, dropping single-fragment noise unrelated to it.
     const NOISE =
       /^(recent|early|late|last|next|this|coming|current|previous)\b|^(north|south|east|west)$|^(january|february|march|april|may|june|july|august|september|october|november|december)\b|^\d{1,4}$/i
-    const entities = (platform.entities?.entities ?? [])
-      .map((e) => (e.value ?? '').trim())
-      .filter((v) => v.length > 2 && !NOISE.test(v) && !v.includes('\n') && matchesQuery(v))
+    // Platform suggestions plus a prefix match over the portal's own lexicon
+    // (the configured terms and the cleaned entity groups): "kaina" reaches
+    // "kainate" and "kainic acid" even when the platform offers only a rat.
+    // Case variants ("Dravet", "dravet", "DRAVET") collapse onto one entry.
+    const lexicon = await this.entityLexicon(tenant).catch(() => [] as string[])
+    const candidates = [
+      ...(platform.entities?.entities ?? []).map((e) => (e.value ?? '').trim()),
+      ...lexicon,
+    ].filter((v) =>
+      v.length > 2 && !NOISE.test(v) && !v.includes('\n') && !isNoiseEntity(v) && matchesQuery(v)
+    )
+    const variants = new Map<string, string[]>()
+    for (const v of candidates) {
+      const key = v.replace(/\s+/g, ' ').toLowerCase()
+      const list = variants.get(key)
+      if (list) list.push(v)
+      else variants.set(key, [v])
+    }
+    const startsWith = (v: string) => v.toLowerCase().startsWith(q) ? 0 : 1
+    const entities = dedupeNames([...variants.values()].map((list) => preferredSpelling(list)))
+      .sort((a, b) => startsWith(a) - startsWith(b) || a.length - b.length || a.localeCompare(b))
       .slice(0, 6)
 
     const seen = new Set<string>()
@@ -2562,6 +2760,15 @@ export class AragProvider implements RetrievalProvider {
   async entityGroups(
     tenant: TenantConfig,
   ): Promise<{ group: string; entities: string[] }[]> {
+    const groups = await this.allEntityGroups(tenant)
+    return groups.map((g) => ({ group: g.group, entities: g.entities.slice(0, 100) }))
+  }
+
+  private async allEntityGroups(
+    tenant: TenantConfig,
+  ): Promise<{ group: string; entities: string[] }[]> {
+    const cached = this.entityGroupsCache.get(tenant.slug)
+    if (cached && Date.now() - cached.at < GRAPH_CACHE_TTL_MS) return cached.groups
     try {
       const client = this.client(tenant)
       const raw = await client.getJson<{
@@ -2572,20 +2779,25 @@ export class AragProvider implements RetrievalProvider {
       // and are excluded from the portal's graph views.
       const names = Object.keys(raw.groups ?? {})
         .filter((name) => !/^[A-Z0-9_]+$/.test(name))
+        .sort((a, b) => a.localeCompare(b))
         .slice(0, 16)
       const out = await Promise.all(names.map(async (group) => {
-        const inline = Object.keys(raw.groups?.[group]?.entities ?? {})
-        if (inline.length > 0) return { group, entities: inline.slice(0, 100) }
-        try {
-          const detail = await client.getJson<{ entities?: Record<string, unknown> }>(
-            `/entitiesgroup/${encodeURIComponent(group)}`,
-          )
-          return { group, entities: Object.keys(detail.entities ?? {}).slice(0, 100) }
-        } catch {
-          return { group, entities: [] }
+        let inline = Object.keys(raw.groups?.[group]?.entities ?? {})
+        if (inline.length === 0) {
+          try {
+            const detail = await client.getJson<{ entities?: Record<string, unknown> }>(
+              `/entitiesgroup/${encodeURIComponent(group)}`,
+            )
+            inline = Object.keys(detail.entities ?? {})
+          } catch {
+            inline = []
+          }
         }
+        return { group, entities: cleanEntityNames(inline, group) }
       }))
-      return out.filter((g) => g.entities.length > 0)
+      const groups = out.filter((g) => g.entities.length > 0)
+      this.entityGroupsCache.set(tenant.slug, { at: Date.now(), groups })
+      return groups
     } catch {
       return []
     }
