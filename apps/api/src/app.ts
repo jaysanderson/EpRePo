@@ -69,6 +69,7 @@ import {
   popplerAvailable,
   profileResource,
 } from './extraction.ts'
+import type { DocsHealth } from './docs-health.ts'
 import {
   type EnrichmentCollisionPolicy,
   type EnrichmentRecords,
@@ -598,6 +599,8 @@ export interface BuildAppOptions {
   webDistPath?: string
   /** Runtime adapters that serve assets outside the local filesystem set this explicitly. */
   webAvailable?: boolean
+  /** Documentation readiness probe (docs-health.ts); reported on /api/health as `docs`. */
+  docsHealth?: Pick<DocsHealth, 'snapshot' | 'ok' | 'checkTenant'>
   buildSha?: string
   /** Where uploaded branding assets live; overridable in tests. Defaults to BRANDING_PATH or ./data/branding. */
   brandingPath?: string
@@ -759,8 +762,20 @@ export function buildApp(opts: BuildAppOptions): Hono {
   const webDistPath = opts.webDistPath ?? './apps/web/dist'
   app.get('/api/health', (c) => {
     const web = opts.webAvailable ?? existsSync(`${webDistPath}/index.html`)
+    // Documentation readiness (see docs-health.ts): a portal whose in-app
+    // documentation was never ingested answers every route fine while Help
+    // returns nothing. It is reported here, per portal, so a deploy without
+    // docs is visible - but it never fails liveness, so a missing help
+    // section cannot take a serving portal out of rotation.
+    const docs = opts.docsHealth?.snapshot()
+    const docsOk = opts.docsHealth?.ok() ?? true
     return c.json(
-      { ok: web, web, version: opts.buildSha ?? process.env.BUILD_SHA ?? 'dev' },
+      {
+        ok: web,
+        web,
+        version: opts.buildSha ?? process.env.BUILD_SHA ?? 'dev',
+        ...(docs ? { docs, docsOk } : {}),
+      },
       web ? 200 : 503,
     )
   })
@@ -2515,6 +2530,9 @@ export function buildApp(opts: BuildAppOptions): Hono {
     try {
       const configs = await management!.ensureSearchConfigs(config).catch(() => [] as string[])
       const result = await management!.ingestDocumentation(config)
+      // Refresh the readiness signal so /api/health reflects the ingestion
+      // (best effort: a freshly ingested page can take a minute to index).
+      void opts.docsHealth?.checkTenant(config).catch(() => {})
       return c.json({ ok: true, searchConfigs: configs, ...result })
     } catch (err) {
       const handled = ingestErrorResponse(err)

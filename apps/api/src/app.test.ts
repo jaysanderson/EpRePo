@@ -822,6 +822,32 @@ describe('GET /api/health', () => {
     expect(body.web).toBe(false)
   })
 
+  it('reports documentation readiness per portal without failing liveness (P7-08)', async () => {
+    const dir = Deno.makeTempDirSync()
+    Deno.writeTextFileSync(`${dir}/index.html`, '<!doctype html>')
+    const status = {
+      eprepo: { documents: 0, ok: false, checkedAt: '2026-09-04T00:00:00.000Z' },
+    }
+    const app = buildApp({
+      provider: new StubProvider(),
+      tenants: freshTenants(),
+      webDistPath: dir,
+      docsHealth: {
+        snapshot: () => status,
+        ok: () => false,
+        checkTenant: () => Promise.resolve(status.eprepo),
+      },
+    })
+
+    const response = await app.request('/api/health')
+
+    expect(response.status).toBe(200)
+    const body = await response.json()
+    expect(body.ok).toBe(true)
+    expect(body.docsOk).toBe(false)
+    expect(body.docs.eprepo.documents).toBe(0)
+  })
+
   it('requires no authentication', async () => {
     const dir = Deno.makeTempDirSync()
     Deno.writeTextFileSync(`${dir}/index.html`, '<!doctype html>')
