@@ -20,7 +20,11 @@ export type AssessmentQuestion = {
   source_title?: string | null
 }
 
-export type AssessmentObject = { questions: AssessmentQuestion[] }
+export type AssessmentObject = {
+  questions: AssessmentQuestion[]
+  /** Questions the server withheld because they were written from a reference list. */
+  omitted_questions?: number
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
@@ -105,6 +109,18 @@ export function AssessmentQuiz({
           </div>
         </div>
       )}
+
+      {(data.omitted_questions ?? 0) > 0
+        ? (
+          <p className='mb-4 text-xs leading-relaxed text-ink-3' role='note'>
+            {data.omitted_questions === 1
+              ? 'One question was left out'
+              : `${data.omitted_questions} questions were left out`} because{' '}
+            {data.omitted_questions === 1 ? 'it was' : 'they were'}{' '}
+            written from a reference list rather than from what a source reports.
+          </p>
+        )
+        : null}
 
       <div className='space-y-6'>
         {data.questions.map((q, qi) => (

@@ -553,6 +553,46 @@ export const DOC_PAGES: DocPage[] = [
     ],
   },
   {
+    id: 'generate-artefacts',
+    category: 'Working with the portal',
+    title: 'Generate',
+    summary:
+      'Turn a topic into a briefing, comparison, timeline, FAQ or pros and cons, with sources.',
+    sections: [
+      {
+        heading: 'What Generate makes',
+        body:
+          'Generate writes a structured artefact from the corpus rather than a conversational ' +
+          'answer. Choose the shape, describe the topic, and the portal retrieves the relevant ' +
+          'sources and writes from them:\n\n' +
+          '- **Briefing** - an overview, structured sections and key takeaways. Every section ' +
+          'carries numbered references, and a section nothing in the corpus supports is left out ' +
+          'and listed as omitted rather than written from general knowledge.\n' +
+          '- **Comparison** - items scored across dimensions, each cell naming the source it ' +
+          'came from when one could be traced.\n' +
+          '- **Timeline**, **FAQ** and **Pros and cons** - the same grounding, in those shapes.\n' +
+          '- **Assessment** - the same knowledge check the Assessment page builds.\n\n' +
+          'If the corpus holds too little on a topic, Generate says so instead of producing a ' +
+          'plausible artefact with invented citations.',
+      },
+      {
+        heading: 'References and sources',
+        body: 'A briefing cites with numbered markers, for example [1], that map to the ' +
+          '**References** list under it; each reference is a document in the Library, with its ' +
+          'journal and year taken from the record rather than written by the model. The ' +
+          '**Grounded in** row lists every source the artefact was retrieved from.',
+      },
+      {
+        heading: 'Saving and exporting',
+        body: '**Save to an investigation** files the artefact with its sources. **Export to ' +
+          'Word** downloads a Word-compatible document, references included, and confirms the ' +
+          'file name once it has saved. **Export to PDF** opens a print-ready copy in a new tab ' +
+          "and starts your browser's print dialog, from which you can save as PDF; if your " +
+          'browser blocks the new tab, allow pop-ups for the portal and try again.',
+      },
+    ],
+  },
+  {
     id: 'assessment',
     category: 'Working with the portal',
     title: 'Assessment',

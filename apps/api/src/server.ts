@@ -43,6 +43,23 @@ const docsHealth = new DocsHealth({
   provider,
 })
 
+/** The stamp `deno task build:web` leaves beside the bundle (build:stamp), when present. */
+function webBuildStamp(): { sha: string; builtAt: string } | undefined {
+  try {
+    const raw = JSON.parse(readFileSync('./apps/web/dist/build.json', 'utf8')) as {
+      sha?: unknown
+      builtAt?: unknown
+    }
+    if (typeof raw.sha === 'string' && typeof raw.builtAt === 'string') {
+      return { sha: raw.sha, builtAt: raw.builtAt }
+    }
+  } catch {
+    // No stamp: an older build, or no build at all.
+  }
+  return undefined
+}
+
+const webBuild = webBuildStamp()
 const app = buildApp({
   provider,
   tenants,
@@ -55,6 +72,8 @@ const app = buildApp({
   adminPasscode: process.env.ADMIN_PASSCODE,
   invalidate: (slug) => provider.invalidate(slug),
   docsHealth,
+  buildSha: process.env.BUILD_SHA ?? webBuild?.sha,
+  webBuild,
 })
 
 startScheduler(provider, tenants, sources, watches, enrichments)
@@ -78,7 +97,7 @@ function localBuildId(): string {
   }
 }
 
-const buildSha = process.env.BUILD_SHA ?? localBuildId()
+const buildSha = process.env.BUILD_SHA ?? webBuild?.sha ?? localBuildId()
 let indexHtml = ''
 let homeHtml = ''
 try {

@@ -45,7 +45,7 @@ import {
 } from '../components/EvidenceTable.tsx'
 import { PipelinePanel } from '../components/PipelinePanel.tsx'
 import { AnswerQualityDisclosure, type QualityScores } from '../components/QualityGauge.tsx'
-import { LiveStatus } from '../components/ui.tsx'
+import { ExportNotice, LiveStatus, savedFileNotice, useExportNotice } from '../components/ui.tsx'
 import { useCompactViewport } from '../components/useViewMode.ts'
 import { isThinlyGrounded } from '../lib/confidence.ts'
 import {
@@ -353,7 +353,7 @@ function renderCitationMarkers(
         <sup key={`${keyPrefix}-${index}`}>
           <Link
             to={citationHref(slug, citation.resourceId, matchedPassage, source?.matchedPage)}
-            className='font-semibold no-underline'
+            className='rp-focus inline-flex min-h-6 min-w-6 items-center justify-center px-0.5 font-semibold no-underline'
             style={{ color: 'var(--rp-accent-fg)' }}
             title={`Source ${citationIndex} - ${citation.title}; click to open, or find it in the Evidence table below`}
           >
@@ -2520,7 +2520,7 @@ export function AskPage() {
   }
 
   /** Downloads the current research trail as a Word-compatible .doc. */
-  const [exportNotice, setExportNotice] = useState<string | null>(null)
+  const { notice: exportNotice, announce: announceExport } = useExportNotice()
   function exportSession() {
     // Mid-stream the trail holds only the question: the button is disabled
     // while streaming, and this guard keeps a keyboard-triggered export honest.
@@ -2542,8 +2542,7 @@ export function AskPage() {
     link.click()
     document.body.removeChild(link)
     URL.revokeObjectURL(url)
-    setExportNotice(`Saved ${link.download} (Word document)`)
-    setTimeout(() => setExportNotice(null), 5000)
+    announceExport(savedFileNotice(link.download, 'Word document'))
   }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -2716,9 +2715,7 @@ export function AskPage() {
                   </svg>
                   Export
                 </button>
-                {exportNotice
-                  ? <span role='status' className='text-xs text-ink-3'>{exportNotice}</span>
-                  : null}
+                <ExportNotice notice={exportNotice} />
               </div>
             )
             : null}

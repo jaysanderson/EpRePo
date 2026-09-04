@@ -1,10 +1,13 @@
 /**
- * The instruction text the Assessment page sends to /generate as its query.
+ * What the Assessment page sends to /generate: a retrieval text and a brief.
  *
- * Count and depth are not server-side parameters (the endpoint takes one
- * free-text query), so they are folded into the query; the server's quiz
- * schema still enforces the shape either way. Intermediate and advanced
- * checks ask for the figures and comparisons the sources report rather than
+ * The query is also the retrieval text, so it has to read like the passages
+ * the questions should come from - the findings and figures on the topic -
+ * not like an instruction ("Quiz me ... generate exactly five questions"),
+ * which retrieves reference lists and methodology chatter instead. Count
+ * and depth therefore travel separately, as guidance the server appends to
+ * the writing instructions (D1-20). Intermediate and advanced checks ask
+ * for the figures and comparisons the sources report rather than
  * definitions with throwaway distractors (persona finding P8-11).
  */
 
@@ -44,12 +47,19 @@ export function isUsableTopic(topic: string): boolean {
   return trimmed.length >= 3 && trimmed.length <= 120
 }
 
-export function buildAssessmentQuery(
+/** The retrieval text: the topic, phrased as the results a question should turn on. */
+export function buildAssessmentQuery(topicLabel: string): string {
+  const topic = topicLabel.trim()
+  return `${topic}: the findings, figures, outcomes, comparisons and methods reported in the results of the sources on ${topic}.`
+}
+
+/** The writing brief for the quiz: how many questions, how deep, and how varied. */
+export function buildAssessmentBrief(
   topicLabel: string,
   count: QuestionCount,
   depth: Depth,
 ): string {
   const meta = DEPTH_BY_ID.get(depth) ?? DEPTH_OPTIONS[0]!
   const topic = topicLabel.trim()
-  return `Quiz me on ${topic}. Generate exactly ${count} multiple-choice questions at ${meta.label.toLowerCase()} depth. ${meta.instruction} Cover a spread of sub-topics within ${topic} rather than repeating the same idea.`
+  return `Generate exactly ${count} multiple-choice questions at ${meta.label.toLowerCase()} depth. ${meta.instruction} Cover a spread of sub-topics within ${topic} rather than repeating the same idea.`
 }

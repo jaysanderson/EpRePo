@@ -131,3 +131,67 @@ export function lookupOf(
 ): SearchLookup {
   return { kind, value, matched }
 }
+
+// ---------------------------------------------------------------------------
+// Researchers. The knowledge-graph agent types a person by the sentence it
+// found them in ("Wendyl D'Souza" came out as a Research Study), but the
+// catalogue's author lists are the portal's own record of who its
+// researchers are. A graph node whose name matches an author - same surname,
+// compatible first initial - is retyped to the tenant's researcher entity
+// type, on the map and on the entity page alike.
+// ---------------------------------------------------------------------------
+
+/** Surname plus first initial for a person's name as an entity ("Wendyl J D'Souza") or an author record ("D'Souza WJ"). */
+function personKey(name: string): { surname: string; initial?: string } | null {
+  const cleaned = foldApostrophes(name).replace(/[.,]/g, ' ').replace(/\s+/g, ' ').trim()
+  const parts = cleaned.split(' ').filter(Boolean)
+  if (parts.length === 0 || parts.length > 5) return null
+  const first = parts[0]!
+  const last = parts[parts.length - 1]!
+  // "D'Souza WJ": the all-caps tail is the initials.
+  if (parts.length > 1 && /^[A-Z]{1,3}$/.test(last)) {
+    return { surname: parts.slice(0, -1).join(' ').toLowerCase(), initial: last[0]!.toLowerCase() }
+  }
+  // "WJ D'Souza" / "W. D'Souza".
+  if (parts.length > 1 && /^[A-Z]{1,3}$/.test(first)) {
+    return { surname: parts.slice(1).join(' ').toLowerCase(), initial: first[0]!.toLowerCase() }
+  }
+  if (parts.length === 1) return { surname: last.toLowerCase() }
+  // "Wendyl D'Souza" / "Wendyl John D'Souza" - every token a capitalised word.
+  if (!parts.every((p) => /^[A-Z][A-Za-z'-]*$/.test(p))) return null
+  return { surname: last.toLowerCase(), initial: first[0]!.toLowerCase() }
+}
+
+/** Whether an entity name names someone on the catalogue's author lists. */
+export function isCatalogueAuthor(resources: readonly ResourceSummary[], name: string): boolean {
+  const wanted = personKey(name)
+  if (!wanted || wanted.surname.length < 3) return false
+  for (const resource of resources) {
+    for (const author of resource.authors ?? []) {
+      const have = personKey(author)
+      if (!have || have.surname !== wanted.surname) continue
+      if (!wanted.initial || !have.initial || wanted.initial === have.initial) return true
+    }
+  }
+  return false
+}
+
+/** The tenant's researcher entity type label, or a plain "Researcher". */
+export function researcherLabel(
+  entityTypes: readonly { id: string; label: string }[],
+): string {
+  return entityTypes.find((t) => /^(researcher|person|author|people)$/i.test(t.id))?.label ??
+    entityTypes.find((t) => /researcher|person|author/i.test(t.label))?.label ??
+    'Researcher'
+}
+
+/** Graph nodes with every catalogue author retyped to the researcher group. */
+export function retypeResearchers<T extends { id: string; group: string }>(
+  nodes: readonly T[],
+  resources: readonly ResourceSummary[],
+  label: string,
+): T[] {
+  return nodes.map((node) =>
+    node.group !== label && isCatalogueAuthor(resources, node.id) ? { ...node, group: label } : node
+  )
+}

@@ -38,6 +38,19 @@ export const SORT_OPTIONS: Record<
   title: { label: 'Title A-Z', sort: 'title', order: 'asc' },
 }
 
+/**
+ * A facet selection from the URL. Each facet answers to its singular name and
+ * its plural (`?topic=` and `?topics=`, the form the resource page's topic
+ * badges and the Search rail link with), comma-separated for several.
+ */
+export function facetsFromUrl(
+  params: { get: (name: string) => string | null },
+  ...names: string[]
+): string[] {
+  const raw = names.map((name) => params.get(name)).find((value) => value !== null) ?? ''
+  return [...new Set(raw.split(',').map((id) => id.trim()).filter(Boolean))]
+}
+
 /** How a `format` label reads on a card and on the artwork placeholder. */
 export function formatLabel(format: string | undefined, type: string | undefined): string | null {
   if (format === 'article') return 'Article'
@@ -309,24 +322,23 @@ export function LibraryBrowser(
   const density = densityProp ?? densityState
   const setDensity = onDensityChange ?? setDensityState
   const [searchParams] = useSearchParams()
-  const [selectedTopics, setSelectedTopics] = useState<string[]>(() => {
-    const fromUrl = searchParams.get('topic')
-    return fromUrl ? [fromUrl] : []
-  })
+  const [selectedTopics, setSelectedTopics] = useState<string[]>(() =>
+    facetsFromUrl(searchParams, 'topic', 'topics')
+  )
   // Kind deep links arrive from the knowledge map's concept lens.
-  const [selectedKinds, setSelectedKinds] = useState<string[]>(() => {
-    const fromUrl = searchParams.get('kind')
-    return fromUrl ? [fromUrl] : []
-  })
+  const [selectedKinds, setSelectedKinds] = useState<string[]>(() =>
+    facetsFromUrl(searchParams, 'kind', 'kinds')
+  )
   // Format (article / supplement / media) - present only on a corpus whose
   // ingest filed its resources that way; the facet hides itself otherwise.
-  const [selectedFormats, setSelectedFormats] = useState<string[]>(() => {
-    const fromUrl = searchParams.get('format')
-    return fromUrl ? [fromUrl] : []
-  })
+  const [selectedFormats, setSelectedFormats] = useState<string[]>(() =>
+    facetsFromUrl(searchParams, 'format', 'formats')
+  )
   // Until the reader touches the facet, a corpus filed by format opens on its
   // articles: the last-uploaded videos and supplements make a poor first screen.
-  const [formatTouched, setFormatTouched] = useState(() => searchParams.get('format') !== null)
+  const [formatTouched, setFormatTouched] = useState(() =>
+    facetsFromUrl(searchParams, 'format', 'formats').length > 0
+  )
   const toggleFormat = (id: string) => {
     setFormatTouched(true)
     setSelectedFormats((prev) => prev.includes(id) ? prev.filter((f) => f !== id) : [...prev, id])
@@ -562,7 +574,7 @@ export function LibraryBrowser(
                 className='rp-chip text-xs'
                 title='Remove this filter'
               >
-                {kind.split('-').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}
+                {kindLabel(kind)}
                 <span aria-hidden='true'>×</span>
               </button>
             ))}

@@ -17,6 +17,7 @@ import type {
   TenantConfig,
 } from '@research-portal/core'
 import {
+  classifyStudyDesign,
   DOC_PAGES,
   docPageToMarkdown,
   docResourceOrigin,
@@ -778,6 +779,34 @@ type FindResponse = {
   >
 }
 
+/**
+ * The study design a research article shows as its `kind`: the rule-first
+ * classifier over the stored record (title, abstract, keywords and MeSH
+ * headings), with the box's own `kind` label admitted only where the text
+ * corroborates it. Every surface - cards, the resource header, the facet and
+ * its filter - derives the kind here, so they cannot disagree.
+ */
+function studyDesignOf(
+  raw: RawResource,
+  record: { title: string; keywords?: string[]; format?: string; type?: string },
+): string | undefined {
+  const meta = raw.extra?.metadata ?? {}
+  // Only a bibliographic record (a journal article filed by format, or one
+  // carrying a DOI, PubMed id or journal) states a study design. A corpus of
+  // reports and submissions keeps the kind its labelset gives it.
+  const bibliographic = Boolean(record.format) ||
+    Boolean(meta.doi || meta.pmcid || meta.pmid || meta.journal)
+  if (!bibliographic) return classificationLabels(raw, 'kind')[0]
+  return classifyStudyDesign({
+    title: record.title,
+    abstract: meta.summary || raw.summary,
+    keywords: record.keywords,
+    format: record.format,
+    type: record.type,
+    label: classificationLabels(raw, 'kind')[0],
+  })?.id
+}
+
 /** Builds a CatalogItem from a raw platform resource - shared by catalogue's paged browse and its filtered-query path, so both render the same shape. */
 /**
  * The bibliographic record an ingest may store on `extra.metadata` (journal
@@ -851,17 +880,19 @@ function catalogItemFromRaw(id: string, r: RawResource): CatalogItem {
   const safe = displayTitle(r.title, id)
   const rawTitle = safe === 'Untitled resource' ? '' : (r.title ?? '')
   const merch = baselineMerchandising(rawTitle, r.summary ?? r.extra?.metadata?.summary)
-  const { keywords: _keywords, ...bib } = bibliographic(r.extra?.metadata ?? {})
+  const { keywords, ...bib } = bibliographic(r.extra?.metadata ?? {})
   const format = classificationLabels(r, 'format')[0]
+  const type = resourceTypeFromMeta(r.extra?.metadata ?? {})
+  const kind = studyDesignOf(r, { title: rawTitle, keywords, format, type })
   return {
     id,
     title: merch.title,
     status: status === 'PROCESSED' ? 'processed' : status === 'ERROR' ? 'error' : 'pending',
     created: r.created,
     topicIds: classificationLabels(r, 'topic'),
-    kind: classificationLabels(r, 'kind')[0],
+    ...(kind ? { kind } : {}),
     ...(format ? { format } : {}),
-    type: resourceTypeFromMeta(r.extra?.metadata ?? {}),
+    type,
     published: r.extra?.metadata?.published,
     ...(merch.sourceName ? { sourceName: merch.sourceName } : {}),
     ...bib,
@@ -1018,7 +1049,6 @@ export class AragProvider implements RetrievalProvider {
   private toSummary(id: string, raw: RawResource): ResourceSummary {
     const meta = raw.extra?.metadata ?? {}
     const topicFromLabels = classificationLabels(raw, 'topic')
-    const kindLabel = classificationLabels(raw, 'kind')[0]
     const type = resourceTypeFromMeta(meta)
     // Merchandise the raw title/summary so a filename ("1981-071-DLD.pdf") is
     // never the headline. Junk titles (hash/bot/system) collapse to "Untitled
@@ -1027,6 +1057,13 @@ export class AragProvider implements RetrievalProvider {
     const safe = displayTitle(raw.title, id)
     const rawTitle = safe === 'Untitled resource' ? '' : (raw.title ?? '')
     const merch = baselineMerchandising(rawTitle, meta.summary || raw.summary)
+    const bib = bibliographic(meta)
+    const kindLabel = studyDesignOf(raw, {
+      title: rawTitle,
+      keywords: bib.keywords,
+      format: classificationLabels(raw, 'format')[0],
+      type,
+    })
     return ResourceSummarySchema.parse({
       id,
       title: merch.title,
@@ -1037,7 +1074,7 @@ export class AragProvider implements RetrievalProvider {
       published: meta.published,
       ...(kindLabel ? { kind: kindLabel } : {}),
       ...(merch.sourceName ? { sourceName: merch.sourceName } : {}),
-      ...bibliographic(meta),
+      ...bib,
       // Where it came from (a PMC article URL, a crawled page): the search
       // route resolves PMC identifiers against it when the ingest stored no
       // pmcid field of its own.
@@ -1367,10 +1404,9 @@ export class AragProvider implements RetrievalProvider {
     const exactLookup = searchIntent !== undefined && !opts.docScope &&
       !searchIntent.answer.surfaces.includes('ask')
     const wantedDoi = opts.docScope ? undefined : extractDoi(trimmed)
-    const filters = [
-      ...(opts.topicIds ?? []).map((t) => `/classification.labels/topic/${t}`),
-      ...(opts.kindIds ?? []).map((k) => `/classification.labels/kind/${k}`),
-    ]
+    // Topics live in the index; the kind is derived from the record (see
+    // studyDesignOf), so it is applied to the results below, not sent.
+    const filters = (opts.topicIds ?? []).map((t) => `/classification.labels/topic/${t}`)
     if (filters.length > 0) body.filters = filters
     const [found, all] = await Promise.all([
       this.findWithFallback(client, body),
@@ -1464,6 +1500,7 @@ export class AragProvider implements RetrievalProvider {
     // already 0-1; BM25 scores (>1) are squashed logistically. Never
     // normalised to the top hit - a weak best match must LOOK weak.
     const calibrate = (s: number): number => s <= 1 ? Math.max(0, Math.min(1, s)) : s / (s + 2)
+    const kinds = opts.kindIds ?? []
     const resources: ScoredResource[] = deduped.map(
       ({ id, raw, best, passage, page, reference, matchedField }) => ({
         ...(byId.get(id) ?? this.toSummary(id, raw)),
@@ -1474,7 +1511,7 @@ export class AragProvider implements RetrievalProvider {
         ...(reference ? { referenceChunk: true } : {}),
         ...(passage ? { matchedField } : {}),
       }),
-    )
+    ).filter((r) => kinds.length === 0 || (r.kind !== undefined && kinds.includes(r.kind)))
     const relatedQuestions = deriveRelatedQuestions(trimmed, tenant.suggestedQuestions)
     return { query: trimmed, resources, relatedQuestions }
   }
@@ -1523,8 +1560,12 @@ export class AragProvider implements RetrievalProvider {
     if (query) return await this.catalogByQuery(tenant, query, opts)
     // The platform's `sort_field` is created/modified/title only, so a
     // publication-date sort runs over the cached listing (same paged read,
-    // same TTL) with the same OR-within / AND-across facet semantics.
-    if (opts.sortField === 'published') return await this.catalogByPublished(tenant, opts)
+    // same TTL) with the same OR-within / AND-across facet semantics. A kind
+    // filter takes the same path: the kind is derived from the record (see
+    // studyDesignOf), not read from the index.
+    if (opts.sortField === 'published' || (opts.kindIds?.length ?? 0) > 0) {
+      return await this.catalogFromListing(tenant, opts)
+    }
     const params = new URLSearchParams()
     params.set('page_number', String(opts.page ?? 0))
     params.set('page_size', String(opts.pageSize ?? 24))
@@ -1557,8 +1598,8 @@ export class AragProvider implements RetrievalProvider {
     return { items, total: raw.fulltext?.total ?? raw.total ?? items.length }
   }
 
-  /** Browse ordered by publication date, over the cached listing. */
-  private async catalogByPublished(
+  /** Browse over the cached listing: the publication-date sort and any kind filter. */
+  private async catalogFromListing(
     tenant: TenantConfig,
     opts: CatalogOptions,
   ): Promise<CatalogPage> {
@@ -1566,7 +1607,7 @@ export class AragProvider implements RetrievalProvider {
     const matching = dedupeResourceFamilies(
       all.filter((item) => matchesCatalogFilters(item, opts)),
     )
-    const sorted = sortCatalogItems(matching, 'published', opts.sortOrder ?? 'desc')
+    const sorted = sortCatalogItems(matching, opts.sortField ?? 'created', opts.sortOrder ?? 'desc')
     return {
       items: paginateCatalogItems(sorted, opts.page ?? 0, opts.pageSize ?? 24),
       total: sorted.length,
@@ -1661,10 +1702,9 @@ export class AragProvider implements RetrievalProvider {
       show: ['basic', 'extra', 'origin'],
       search_configuration: SEARCH_CONFIG_RESEARCH_FIND,
     }
-    const filters = [
-      ...(opts.topicIds ?? []).map((t) => `/classification.labels/topic/${t}`),
-      ...(opts.kindIds ?? []).map((k) => `/classification.labels/kind/${k}`),
-    ]
+    // Topics live in the index; the kind is derived from the record, so it
+    // is applied to the results below rather than sent as a filter.
+    const filters = (opts.topicIds ?? []).map((t) => `/classification.labels/topic/${t}`)
     if (filters.length > 0) body.filters = filters
     const found = await this.findWithFallback(client, body)
     const MIN_SCORE = 0.1
@@ -1683,6 +1723,7 @@ export class AragProvider implements RetrievalProvider {
       .sort((a, b) => b.best - a.best)
     const items = dedupeResourceFamilies(scored)
       .map(({ id, raw }) => catalogItemFromRaw(id, raw))
+      .filter((item) => matchesCatalogFilters(item, { kindIds: opts.kindIds }))
     const page = opts.page ?? 0
     const pageSize = opts.pageSize ?? 24
     const start = page * pageSize
@@ -1695,8 +1736,21 @@ export class AragProvider implements RetrievalProvider {
     filters?: string[],
   ): Promise<FacetCounts> {
     if (labelsets.length === 0) return {}
+    // The kind is derived here from the stored record (see studyDesignOf),
+    // not read from the index, so its counts come from the cached listing.
+    // A filter ON a kind is one the platform cannot apply, so every labelset
+    // requested under it is counted from the listing as well.
+    const kindFilter = (filters ?? []).some((f) => f.startsWith('/classification.labels/kind/'))
+    if (kindFilter) return this.facetsFromListing(tenant, labelsets, filters ?? [])
+    const out: FacetCounts = {}
+    let remaining = labelsets
+    if (labelsets.includes('kind')) {
+      out.kind = (await this.facetsFromListing(tenant, ['kind'], filters ?? [])).kind ?? {}
+      remaining = labelsets.filter((id) => id !== 'kind')
+      if (remaining.length === 0) return out
+    }
     const params = new URLSearchParams({ page_size: '0' })
-    for (const id of labelsets) params.append('faceted', `/classification.labels/${id}`)
+    for (const id of remaining) params.append('faceted', `/classification.labels/${id}`)
     for (const f of filters ?? []) params.append('filters', f)
     const raw = await this.client(tenant).getJson<{
       fulltext?: { facets?: Record<string, Record<string, number>> }
@@ -1708,7 +1762,6 @@ export class AragProvider implements RetrievalProvider {
     const defined = new Map(
       (await this.labelsets(tenant)).map((ls) => [ls.id, new Set(ls.labels)]),
     )
-    const out: FacetCounts = {}
     for (const [facetKey, counts] of Object.entries(source)) {
       const labelsetId = facetKey.split('/').pop() ?? facetKey
       const allowed = defined.get(labelsetId)
@@ -1719,6 +1772,42 @@ export class AragProvider implements RetrievalProvider {
         byLabel[label] = count
       }
       out[labelsetId] = byLabel
+    }
+    return out
+  }
+
+  /**
+   * Facet counts over the cached listing (the same paged read `listResources`
+   * makes), with the same AND-across-facets filter semantics as the index:
+   * the only way to count a labelset the portal derives itself.
+   */
+  private async facetsFromListing(
+    tenant: TenantConfig,
+    labelsets: string[],
+    filters: string[],
+  ): Promise<FacetCounts> {
+    const wanted = filters
+      .map((f) => /^\/classification\.labels\/([^/]+)\/(.+)$/.exec(f))
+      .filter((m): m is RegExpExecArray => m !== null)
+      .map((m) => ({ labelset: m[1]!, label: m[2]! }))
+    const labelsOf = (item: CatalogItem, labelset: string): string[] =>
+      labelset === 'kind'
+        ? item.kind ? [item.kind] : []
+        : labelset === 'format'
+        ? item.format ? [item.format] : []
+        : labelset === 'topic'
+        ? item.topicIds
+        : []
+    const items = (await this.catalogItems(tenant)).filter((item) =>
+      wanted.every((w) => labelsOf(item, w.labelset).includes(w.label))
+    )
+    const out: FacetCounts = {}
+    for (const labelset of labelsets) {
+      const counts: Record<string, number> = {}
+      for (const item of items) {
+        for (const label of labelsOf(item, labelset)) counts[label] = (counts[label] ?? 0) + 1
+      }
+      out[labelset] = counts
     }
     return out
   }
@@ -1982,6 +2071,8 @@ export class AragProvider implements RetrievalProvider {
       model?: string
       /** System-prompt instructions for the generation (how to write, what to include). */
       instructions?: string
+      /** Restrict retrieval to resources filed under any of these topics. */
+      topicIds?: string[]
     } = {},
   ): Promise<{
     object: unknown
@@ -2006,6 +2097,12 @@ export class AragProvider implements RetrievalProvider {
       // resource_filters the per-document chat uses. Verified live: it grounds
       // the answer on exactly that resource.
       ...(opts.resourceId ? { resource_filters: [opts.resourceId] } : {}),
+      // A topic scope (an assessment on one knowledge area) keeps retrieval
+      // to the resources filed under it, so an off-topic passage cannot seed
+      // a question.
+      ...(opts.topicIds?.length
+        ? { filters: opts.topicIds.map((t) => `/classification.labels/topic/${t}`) }
+        : {}),
       // Run a cheap, high-volume job (per-document openers) on the fast tier
       // instead of the box's default model. Omitted -> the box default.
       ...(opts.model ? { generative_model: opts.model } : {}),

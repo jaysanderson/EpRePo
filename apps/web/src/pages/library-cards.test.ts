@@ -1,6 +1,12 @@
 import { describe, it } from '@std/testing/bdd'
 import { expect } from '@std/expect'
-import { bulkImportDay, DEFAULT_SORT, formatLabel, SORT_OPTIONS } from './LibraryPage.tsx'
+import {
+  bulkImportDay,
+  DEFAULT_SORT,
+  facetsFromUrl,
+  formatLabel,
+  SORT_OPTIONS,
+} from './LibraryPage.tsx'
 import { cardinalityLabel, labelsetHasCounts } from './TaxonomyPage.tsx'
 
 describe('library sort', () => {
@@ -65,5 +71,24 @@ describe('taxonomy cards', () => {
     expect(cardinalityLabel({ multiple: true, kind: 'PARAGRAPHS' }, { a: 2269 }, 981)).toBe(
       'Applied to passages, not whole resources',
     )
+  })
+})
+
+describe('facet deep links (D1-19)', () => {
+  it('reads the singular and the plural form, comma-separated, without duplicates', () => {
+    const params = new URLSearchParams('topics=clinical-trials,neuroimaging,clinical-trials')
+    expect(facetsFromUrl(params, 'topic', 'topics')).toEqual(['clinical-trials', 'neuroimaging'])
+    expect(facetsFromUrl(new URLSearchParams('kind=cohort-study'), 'kind', 'kinds')).toEqual([
+      'cohort-study',
+    ])
+    expect(facetsFromUrl(new URLSearchParams('formats=article'), 'format', 'formats')).toEqual([
+      'article',
+    ])
+  })
+
+  it('the singular form wins when both are present, and nothing is nothing', () => {
+    const params = new URLSearchParams('topic=biomarkers&topics=neuroimaging')
+    expect(facetsFromUrl(params, 'topic', 'topics')).toEqual(['biomarkers'])
+    expect(facetsFromUrl(new URLSearchParams(''), 'topic', 'topics')).toEqual([])
   })
 })

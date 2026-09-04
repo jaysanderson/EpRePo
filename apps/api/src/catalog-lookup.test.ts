@@ -1,7 +1,14 @@
 import { describe, it } from '@std/testing/bdd'
 import { expect } from '@std/expect'
 import type { ResourceSummary } from '@research-portal/core'
-import { authorLine, resolveAuthor, resolveIdentifier } from './catalog-lookup.ts'
+import {
+  authorLine,
+  isCatalogueAuthor,
+  researcherLabel,
+  resolveAuthor,
+  resolveIdentifier,
+  retypeResearchers,
+} from './catalog-lookup.ts'
 
 const base = { summary: 'x', type: 'pdf' as const, topicIds: [], keyFacts: [] }
 const resources: ResourceSummary[] = [
@@ -77,5 +84,49 @@ describe('resolveAuthor', () => {
   })
   it('writes an author line with the journal and year', () => {
     expect(authorLine(resources[0]!)).toBe('Vajda FJE, O’Brien TJ, Lander CM - Epilepsia, 2025')
+  })
+})
+
+describe('researchers on the graph (D1-25)', () => {
+  const papers: ResourceSummary[] = [
+    {
+      ...base,
+      id: 'sudep',
+      title: 'Risk of SUDEP with lamotrigine',
+      authors: ["D'Souza WJ", 'Kwan P', 'Vajda FJE'],
+    },
+  ]
+
+  it('recognises an author under the spellings the graph agent produces', () => {
+    expect(isCatalogueAuthor(papers, "Wendyl D'Souza")).toBe(true)
+    expect(isCatalogueAuthor(papers, "Wendyl J D'Souza")).toBe(true)
+    expect(isCatalogueAuthor(papers, "D'Souza")).toBe(true)
+    expect(isCatalogueAuthor(papers, 'Patrick Kwan')).toBe(true)
+    expect(isCatalogueAuthor(papers, 'Frank Vajda')).toBe(true)
+  })
+
+  it('does not retype a different person, a study or a drug', () => {
+    expect(isCatalogueAuthor(papers, "Anthony D'Souza")).toBe(false)
+    expect(isCatalogueAuthor(papers, 'The BREATHS trial')).toBe(false)
+    expect(isCatalogueAuthor(papers, 'lamotrigine')).toBe(false)
+    expect(isCatalogueAuthor(papers, 'Kwan')).toBe(true)
+  })
+
+  it("retypes only the authors, to the tenant's researcher type", () => {
+    const label = researcherLabel([{ id: 'gene', label: 'Gene' }, {
+      id: 'researcher',
+      label: 'Researcher',
+    }])
+    expect(label).toBe('Researcher')
+    expect(researcherLabel([])).toBe('Researcher')
+    const nodes = retypeResearchers(
+      [
+        { id: "Wendyl D'Souza", group: 'Research Study', weight: 3 },
+        { id: 'lamotrigine', group: 'Medication', weight: 2 },
+      ],
+      papers,
+      label,
+    )
+    expect(nodes.map((n) => n.group)).toEqual(['Researcher', 'Medication'])
   })
 })

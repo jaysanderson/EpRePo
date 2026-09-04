@@ -283,11 +283,22 @@ export function generateArtifact(
   slug: string,
   kind: GenerateKind,
   query: string,
+  opts: {
+    /** Keep retrieval to resources filed under these topics (an assessment on one area). */
+    topicIds?: string[]
+    /** Writing guidance (count, depth) kept out of the retrieval text. */
+    guidance?: string
+  } = {},
 ): Promise<GenerateResult> {
   return fetch(`/api/t/${encodeURIComponent(slug)}/generate`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ kind, query }),
+    body: JSON.stringify({
+      kind,
+      query,
+      ...(opts.topicIds?.length ? { topics: opts.topicIds } : {}),
+      ...(opts.guidance?.trim() ? { guidance: opts.guidance.trim() } : {}),
+    }),
   }).then(async (res) => {
     if (!res.ok) {
       const body: unknown = await res.json().catch(() => null)
@@ -1452,6 +1463,20 @@ export function getFollowUpQuestions(
     }),
     ...(signal ? { signal } : {}),
   })
+}
+
+// --- Service health (public) --------------------------------------------------
+
+export interface ServiceHealth {
+  ok: boolean
+  web: boolean
+  version: string
+  /** The web bundle's stamp, when the build was stamped. */
+  build?: { sha: string; builtAt: string }
+}
+
+export function getHealth(): Promise<ServiceHealth> {
+  return clientRequest('/api/health')
 }
 
 // --- Admin: corpus health -----------------------------------------------------

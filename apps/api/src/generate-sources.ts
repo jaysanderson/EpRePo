@@ -17,25 +17,121 @@ export interface AttributedSource {
   title: string
 }
 
+/** One numbered reference in a briefing, built from the resource record, never from the model. */
+export interface BriefingReference {
+  index: number
+  resourceId: string
+  title: string
+  journal?: string
+  year?: string
+  authors?: string[]
+}
+
+/** The record fields a reference is built from. */
+export type ReferenceSource =
+  & Pick<ScoredResource, 'id' | 'title' | 'sourceName'>
+  & Partial<Pick<ScoredResource, 'journal' | 'year' | 'authors' | 'published'>>
+
+/**
+ * Free-text citation labels the model writes despite instruction -
+ * "(Journal of Neurology, 2024)", "(Broadley et al.)", "(Smith and Jones, 2021)",
+ * "(2024)" - are removed: the reference list carries the real record. A
+ * parenthesis that holds anything else (a figure, an acronym, a
+ * confidence interval) is left alone.
+ */
+export function stripCitationLabels(text: string): string {
+  const AUTHOR = "[A-Z][A-Za-z'\u2019-]+"
+  const YEAR = '(?:19|20)\\d\\d[a-z]?'
+  const label = new RegExp(
+    '\\s*\\((?:' +
+      // Journal or study name, comma, year
+      `[A-Z][A-Za-z&.'\u2019 -]{2,80},\\s*${YEAR}` +
+      // Author et al. / Author and Author, year / Author, year
+      `|${AUTHOR}(?:\\s+(?:and|&)\\s+${AUTHOR})?(?:\\s+et\\s+al\\.?)(?:,?\\s*${YEAR})?` +
+      `|${AUTHOR}(?:\\s+(?:and|&)\\s+${AUTHOR})?,?\\s*${YEAR}` +
+      // A bare year
+      `|${YEAR}` +
+      ')\\)',
+    'g',
+  )
+  return text.replace(label, '').replace(/\s+([,.;:?!])/g, '$1').replace(/\s{2,}/g, ' ').trim()
+}
+
+function referenceFor(index: number, source: ReferenceSource): BriefingReference {
+  const year = source.year ?? (source.published ? source.published.slice(0, 4) : undefined)
+  return {
+    index,
+    resourceId: source.id,
+    title: source.title,
+    ...(source.journal ? { journal: source.journal } : {}),
+    ...(year ? { year } : {}),
+    ...(source.authors?.length ? { authors: source.authors } : {}),
+  }
+}
+
+/** Content words plus figures, for tracing a takeaway to the section that states it. */
+function claimTokens(value: string): Set<string> {
+  return new Set(
+    (value.toLowerCase().match(/[a-z][a-z-]{3,}|\d+(?:\.\d+)?%?/g) ?? []).filter((w) =>
+      !STOP.has(w)
+    ),
+  )
+}
+
+/** Share of a takeaway's tokens a section must carry to be its source. */
+export const MIN_TAKEAWAY_OVERLAP = 0.35
+
+/**
+ * The reference numbers a takeaway inherits: those of the section that
+ * states it (best token overlap, at least `MIN_TAKEAWAY_OVERLAP`). A takeaway
+ * no section states gets none, and renders without a marker.
+ */
+export function traceTakeaway(
+  takeaway: string,
+  sections: readonly { heading: string; content: string; refs: number[] }[],
+): number[] {
+  const words = claimTokens(takeaway)
+  if (words.size === 0) return []
+  let best: { refs: number[]; overlap: number } | null = null
+  for (const section of sections) {
+    const have = claimTokens(`${section.heading} ${section.content}`)
+    let hits = 0
+    for (const w of words) if (have.has(w)) hits++
+    const overlap = hits / words.size
+    if (overlap >= MIN_TAKEAWAY_OVERLAP && (!best || overlap > best.overlap)) {
+      best = { refs: section.refs, overlap }
+    }
+  }
+  return best?.refs ?? []
+}
+
 /** Instruction appended to the system prompt for a briefing (roadmap R22, P6-07). */
 export const BRIEFING_INSTRUCTIONS =
   'You are writing a research briefing for a specialist reader. Every section must be built ' +
   'from the retrieved passages and must carry the concrete figures those passages report - ' +
   'effect sizes, sensitivities, AUCs, hazard ratios, cohort sizes, follow-up lengths, dataset ' +
-  'names, doses - with the study or first author named beside each figure. Never write a ' +
-  "generality where the passages give a number. In each section's `sources` list the exact " +
-  'titles of the context documents that section draws on; a section with no source will be ' +
-  'discarded, so only write sections the passages support. Australian English.'
+  'names, doses - naming the study, trial or cohort beside each figure in plain prose. Never ' +
+  'write a generality where the passages give a number. Do not write parenthetical citations ' +
+  'such as (Journal, 2024) or (Author et al.): the portal adds numbered references from its own ' +
+  'records. Report only what a passage itself found; a figure a passage quotes from earlier ' +
+  'literature must be described as such, never as a finding of that study. In each ' +
+  "section's `sources` list the exact titles of the context documents that section draws on; " +
+  'a section with no source will be discarded, so only write sections the passages support. ' +
+  'Australian English.'
 
 /** Instruction appended to the system prompt for an assessment quiz (roadmap R21, P8-11). */
 export const ASSESSMENT_INSTRUCTIONS =
   'You are writing a knowledge check for a specialist reader. Every question must be answerable ' +
   "from one retrieved passage; put that document's exact title in `source` and copy eight to " +
-  'twenty words of that passage, verbatim, into `source_quote`. Write stems about '
-'what the sources actually report - a figure, a proportion, an effect size, a comparison ' +
+  'twenty words of that passage, verbatim, into `source_quote`. Write stems about ' +
+  'what the sources actually report - a figure, a proportion, an effect size, a comparison ' +
   'between two interventions, groups or study designs - and make every distractor a plausible ' +
   'value or claim a specialist could mistake for the answer, never an obviously absurd option. ' +
-  'Australian English.'
+  'Write each stem as a question a reader would be asked in a clinic or a journal club: name ' +
+  'the study, cohort, drug or measure it concerns, and never refer to "the context", "the ' +
+  'passage", "the provided text" or "the document" - the reader cannot see them. Never write ' +
+  'a question from a reference list, a citation entry or a bibliography: only from what a ' +
+  'passage itself reports. Australian English.'
 
 const normalise = (value: string): string => value.toLowerCase().replace(/\s+/g, ' ').trim()
 
@@ -105,6 +201,8 @@ export interface AttributedBriefingSection {
   heading: string
   content: string
   sources: AttributedSource[]
+  /** Reference numbers into the briefing's `references`, in citation order. */
+  refs: number[]
 }
 
 /**
@@ -115,18 +213,39 @@ export interface AttributedBriefingSection {
  * unsourced paragraph presented as fact.
  */
 export function attributeBriefing(
-  object: { sections?: unknown } & Record<string, unknown>,
-  sources: Pick<ScoredResource, 'id' | 'title' | 'sourceName'>[],
+  object:
+    & { sections?: unknown; key_takeaways?: unknown; executive_summary?: unknown }
+    & Record<
+      string,
+      unknown
+    >,
+  sources: ReferenceSource[],
 ): {
   sections: AttributedBriefingSection[]
   omitted_sections: string[]
+  /** Numbered references, in order of first citation, built from the resource records. */
+  references: BriefingReference[]
+  /** Reference numbers per key takeaway (parallel to `key_takeaways`); empty when untraced. */
+  takeaway_refs: number[][]
 } & Record<string, unknown> {
   const sections: AttributedBriefingSection[] = []
   const omitted: string[] = []
+  const references: BriefingReference[] = []
+  const indexOf = (source: AttributedSource): number => {
+    const existing = references.find((r) => r.resourceId === source.resourceId)
+    if (existing) return existing.index
+    const record = sources.find((s) => s.id === source.resourceId)
+    const reference = referenceFor(
+      references.length + 1,
+      record ?? { id: source.resourceId, title: source.title },
+    )
+    references.push(reference)
+    return reference.index
+  }
   const raw = Array.isArray(object.sections) ? object.sections as BriefingSectionIn[] : []
   for (const section of raw) {
     const heading = typeof section?.heading === 'string' ? section.heading.trim() : ''
-    const content = typeof section?.content === 'string' ? section.content.trim() : ''
+    const content = typeof section?.content === 'string' ? stripCitationLabels(section.content) : ''
     if (!heading && !content) continue
     const labels = Array.isArray(section.sources)
       ? section.sources.filter((s): s is string => typeof s === 'string')
@@ -140,9 +259,25 @@ export function attributeBriefing(
       omitted.push(heading || content.slice(0, 60))
       continue
     }
-    sections.push({ heading, content, sources: resolved })
+    sections.push({ heading, content, sources: resolved, refs: resolved.map(indexOf) })
   }
-  return { ...object, sections, omitted_sections: omitted }
+  const takeaways = Array.isArray(object.key_takeaways)
+    ? object.key_takeaways.filter((t): t is string => typeof t === 'string').map(
+      stripCitationLabels,
+    )
+    : []
+  const summary = typeof object.executive_summary === 'string'
+    ? stripCitationLabels(object.executive_summary)
+    : object.executive_summary
+  return {
+    ...object,
+    ...(summary !== undefined ? { executive_summary: summary } : {}),
+    key_takeaways: takeaways,
+    takeaway_refs: takeaways.map((t) => traceTakeaway(t, sections)),
+    sections,
+    omitted_sections: omitted,
+    references,
+  }
 }
 
 export interface QuizQuestionIn {
@@ -203,6 +338,61 @@ export function rotateOptions(
 }
 
 /**
+ * A stem or explanation with the model's prompt-speak removed: "according to
+ * the context", "as discussed in the provided text" and the like refer to a
+ * passage the reader never sees. The phrase goes, the sentence keeps its
+ * punctuation and its capital.
+ */
+export function cleanQuizProse(text: string): string {
+  const CONTEXT =
+    '(?:the |this |that |our )?(?:provided |given |retrieved |above |following |study |source )?' +
+    '(?:context|passage|text|excerpt|document|source|sources|material|content|information provided|information)' +
+    '(?: passage| provided| given| above| below)?'
+  const cleaned = text
+    .replace(
+      new RegExp(
+        `,?\\s*(?:according to|as (?:discussed|described|mentioned|stated|reported|noted|outlined|presented|indicated|highlighted|explained|shown) in|based on|as per|drawing on|from|in|per|within)\\s+${CONTEXT}(?=[\\s,.?!;:]|$)`,
+        'gi',
+      ),
+      '',
+    )
+    .replace(
+      new RegExp(
+        `^\\s*${CONTEXT}\\s+(?:states|says|mentions|discusses|describes|notes|reports|indicates|suggests|highlights|explains) that\\s+`,
+        'i',
+      ),
+      '',
+    )
+    // A phrase that opened the sentence leaves its comma behind.
+    .replace(/^\s*[,;:]\s*/, '')
+    .replace(/\s+([,.?!;:])/g, '$1')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+  if (!cleaned) return text.trim()
+  return cleaned.charAt(0).toUpperCase() + cleaned.slice(1)
+}
+
+/**
+ * Whether a quote was lifted from a reference list rather than a passage: an
+ * "et al." with a year, a DOI, or a volume-and-pages tail. A question written
+ * from a bibliography entry tests nothing the corpus reports.
+ */
+export function isReferenceQuote(quote: string): boolean {
+  const q = quote.trim()
+  if (!q) return false
+  // "the study by Kurowski et al." - a stem written about a cited paper.
+  if (
+    /\b(?:stud(?:y|ies)|report|trial|review|paper|workshop|article|work)\s+(?:by|from|of)\s+[A-Z][\w'\u2019-]+(?:\s+(?:and|&)\s+[A-Z][\w'\u2019-]+)?\s+et\s+al\b/
+      .test(q)
+  ) {
+    return true
+  }
+  return /\bet al\.?,?\s*(?:\(?(?:19|20)\d\d\)?|[A-Z][\w .&]+\.\s*(?:19|20)\d\d)/.test(q) ||
+    /\bdoi:|\bhttps?:\/\/doi\.org|\bvol\.\s*\d|\b\d{1,4}\s*[(:]\s*\d+\s*[):]\s*\d+/.test(q) ||
+    /\b(?:19|20)\d\d;\s*\d+/.test(q)
+}
+
+/**
  * Attribute quiz questions: `source` (the model's title) becomes
  * `source_resource_id` plus `source_title` when it resolves; otherwise both
  * are null and the question stands without an attribution rather than with
@@ -212,9 +402,39 @@ export function attributeQuiz(
   object: { questions?: unknown } & Record<string, unknown>,
   sources: Pick<ScoredResource, 'id' | 'title' | 'sourceName'>[],
   passagesByResource: Record<string, string[]> = {},
+  /** Whether a grounding passage is a reference list (the retrieval layer's detector). */
+  isReferencePassage: (passage: string) => boolean = () => false,
 ): Record<string, unknown> {
   const raw = Array.isArray(object.questions) ? object.questions as QuizQuestionIn[] : []
-  const questions = raw.map((question, position) => {
+  // A question written from a reference-list entry - its stem names a cited
+  // paper, its quote is a bibliography line, or the passage its quote came
+  // from is a reference list - is dropped, and counted, rather than asked.
+  const passageOf = (quote: string): string | undefined => {
+    const words = contentWords(quote)
+    if (words.size < 4) return undefined
+    let best: { passage: string; overlap: number } | null = null
+    for (const passages of Object.values(passagesByResource)) {
+      for (const passage of passages) {
+        const have = contentWords(passage)
+        let hits = 0
+        for (const w of words) if (have.has(w)) hits++
+        const overlap = hits / words.size
+        if (overlap >= MIN_QUOTE_OVERLAP && (!best || overlap > best.overlap)) {
+          best = { passage, overlap }
+        }
+      }
+    }
+    return best?.passage
+  }
+  const fromReferenceList = (q: QuizQuestionIn): boolean => {
+    const quote = typeof q.source_quote === 'string' ? q.source_quote : ''
+    const stem = typeof q.question === 'string' ? q.question : ''
+    if ((quote && isReferenceQuote(quote)) || (stem && isReferenceQuote(stem))) return true
+    const passage = quote ? passageOf(quote) : undefined
+    return passage !== undefined && isReferencePassage(passage)
+  }
+  const fromReferences = raw.filter(fromReferenceList).length
+  const questions = raw.filter((q) => !fromReferenceList(q)).map((question, position) => {
     const label = typeof question.source === 'string' ? question.source : ''
     const quote = typeof question.source_quote === 'string' ? question.source_quote : ''
     let match = label ? resolveSource(label, sources) : null
@@ -226,6 +446,10 @@ export function attributeQuiz(
     const { source: _source, source_quote: _quote, ...rest } = rotateOptions(question, position)
     return {
       ...rest,
+      ...(typeof rest.question === 'string' ? { question: cleanQuizProse(rest.question) } : {}),
+      ...(typeof rest.explanation === 'string'
+        ? { explanation: cleanQuizProse(rest.explanation) }
+        : {}),
       source_resource_id: match?.resourceId ?? null,
       source_title: match?.title ?? null,
       // The model's own label and quote, kept for audit only - never shown as an attribution.
@@ -233,5 +457,5 @@ export function attributeQuiz(
       source_quote: quote || null,
     }
   })
-  return { ...object, questions }
+  return { ...object, questions, omitted_questions: fromReferences }
 }
