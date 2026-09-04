@@ -172,9 +172,14 @@ export function removalNote(removed: readonly RemovedSentence[]): string | undef
 // The effect size the passage carries when the answer stated none
 // ---------------------------------------------------------------------------
 
-/** A question that asks whether one thing changes the risk or outcome of another. */
+/**
+ * A question that asks whether one thing changes the risk or outcome of
+ * another. A bare comparison ("perampanel versus brivaracetam retention")
+ * is not one: its answer is two rates, and a ratio the paper carries for
+ * something else would be noise beside them.
+ */
 export function asksForEffect(query: string): boolean {
-  return /\b(?:risk|increase|increases|increased|reduce|reduces|reduced|associated|association|compared|comparison|versus|vs\.?|hazard|odds|effect|effects|improve|improves|protective|predict|predictor|predictors)\b/i
+  return /\b(?:risk|increase|increases|increased|reduce|reduces|reduced|associated|association|hazard|odds|effect|effects|improve|improves|protective|predict|predictor|predictors)\b/i
     .test(query)
 }
 

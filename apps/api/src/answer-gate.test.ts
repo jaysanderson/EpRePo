@@ -173,6 +173,12 @@ describe('effect sizes the answer left out (D2-09)', () => {
   it('recognises an effect question and an answer that already states a ratio', () => {
     expect(asksForEffect('Does lamotrigine increase the risk of SUDEP?')).toBe(true)
     expect(asksForEffect('What are the EEG features of JME?')).toBe(false)
+    expect(
+      asksForEffect(
+        'What 12-month retention rate should I assume for perampanel versus brivaracetam?',
+      ),
+    )
+      .toBe(false)
     expect(statesEffectSize('The aHR was 0.56 (95% CI 0.31-1.01).')).toBe(true)
     expect(
       statesEffectSize(
