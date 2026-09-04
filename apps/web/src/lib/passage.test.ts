@@ -1,6 +1,11 @@
 import { expect } from '@std/expect'
 import { describe, it } from '@std/testing/bdd'
-import { passageIsInformative, passageRepeatsSummary, scrubSnippetBoilerplate } from './passage.ts'
+import {
+  passageIsInformative,
+  passageIsQuotable,
+  passageRepeatsSummary,
+  scrubSnippetBoilerplate,
+} from './passage.ts'
 
 const QUERY = 'What research has been done in Western Australia?'
 
@@ -62,5 +67,20 @@ describe('scrubSnippetBoilerplate', () => {
     expect(
       scrubSnippetBoilerplate('Lacosamide was effective. Correspondence: J Smith, smith@uni.edu'),
     ).toBe('Lacosamide was effective.')
+  })
+})
+
+describe('passageIsQuotable', () => {
+  it('quotes a passage matched in the document body', () => {
+    expect(passageIsQuotable({ matchedField: 'body' })).toBe(true)
+    expect(passageIsQuotable({})).toBe(true)
+  })
+
+  it('never quotes the byline an author or identifier lookup matched (D2-20)', () => {
+    expect(passageIsQuotable({ matchedField: 'metadata' })).toBe(false)
+  })
+
+  it('never quotes a reference-list or front-matter hit', () => {
+    expect(passageIsQuotable({ matchedField: 'body', referenceChunk: true })).toBe(false)
   })
 })

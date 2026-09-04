@@ -34,6 +34,7 @@ import { RouteChip } from '../components/RouteChip.tsx'
 import type { TenantOutletContext } from './TenantLayout.tsx'
 import {
   passageIsInformative,
+  passageIsQuotable,
   passageRepeatsSummary,
   scrubSnippetBoilerplate,
 } from '../lib/passage.ts'
@@ -98,7 +99,9 @@ function resourceLink(slug: string, resource: ScoredResource): string {
     // Generated text is not in the document, so there is nothing to
     // highlight; the reader says so rather than landing on page one.
     params.set('matched', 'summary')
-  } else {
+  } else if (resource.matchedField !== 'metadata') {
+    // A byline matched by an author or identifier lookup is not in the
+    // document either; the reader opens at page one.
     if (resource.matchedPassage) params.set('passage', resource.matchedPassage.slice(0, 300))
     if (resource.matchedPage) params.set('page', String(resource.matchedPage))
   }
@@ -129,10 +132,11 @@ function ResultCard(
   const snippet = resource.matchedPassage ? scrubSnippetBoilerplate(resource.matchedPassage) : ''
   // A reference-list, front-matter or DOI-fragment match is flagged by the
   // API and labelled on the meter; quoting it would only show the reader a
-  // bibliography line. A snippet that merely repeats the title or the summary
+  // bibliography line, and an author or identifier lookup's "passage" is the
+  // byline (D2-20). A snippet that merely repeats the title or the summary
   // is noise of a different kind.
   const showSnippet = snippet.length > 0 &&
-    !resource.referenceChunk &&
+    passageIsQuotable(resource) &&
     passageIsInformative(snippet, query) &&
     !passageRepeatsSummary(snippet, resource.title) &&
     !(resource.summary && passageRepeatsSummary(snippet, resource.summary))
@@ -1285,7 +1289,7 @@ export function SearchPage() {
                         <button
                           type='button'
                           onClick={summariseResults}
-                          className='text-xs font-medium text-[var(--rp-ink-3)] transition-colors duration-150 hover:text-[var(--rp-ink)]'
+                          className='inline-flex min-h-6 items-center text-xs font-medium text-[var(--rp-ink-3)] transition-colors duration-150 hover:text-[var(--rp-ink)]'
                         >
                           Summarise these results
                         </button>
