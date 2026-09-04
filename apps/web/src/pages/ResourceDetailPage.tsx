@@ -552,8 +552,8 @@ function SummaryMatchNotice() {
     >
       <p className='font-semibold'>This match came from the generated summary</p>
       <p className='mt-0.5'>
-        The matching text is a summary written about this document, not a passage in it, so the PDF
-        cannot be highlighted. The summary is shown under its own heading below.
+        The matching text is a summary written about this document, not a passage in it, so nothing
+        in the document can be highlighted. The summary is shown under its own heading below.
       </p>
     </div>
   )

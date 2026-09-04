@@ -1000,7 +1000,11 @@ export function GeneratePage() {
         Schema-enforced research artifacts, grounded in the portal's content.
       </p>
 
-      <div className='rp-no-scrollbar mt-6 flex items-center gap-1 overflow-x-auto whitespace-nowrap rounded-[var(--rp-radius)] border border-line bg-surface p-1'>
+      {
+        /* The tabs wrap onto a second row on a phone rather than clipping at
+        * "Pros a" with no scroll affordance. */
+      }
+      <div className='mt-6 flex flex-wrap items-center gap-1 rounded-[var(--rp-radius)] border border-line bg-surface p-1'>
         {KINDS.map((k) => (
           <button
             key={k.id}

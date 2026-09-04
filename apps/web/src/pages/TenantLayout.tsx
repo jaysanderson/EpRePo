@@ -444,24 +444,36 @@ export function TenantLayout() {
                   </Link>
                 </span>
               )}
-              <Link
-                to={`/t/${config.slug}/help`}
-                aria-label={HELP_LABEL}
-                title={HELP_LABEL}
-                className='rp-focus flex h-[calc(2.75rem*var(--rp-density-ctl,1))] w-[calc(2.75rem*var(--rp-density-ctl,1))] shrink-0 items-center justify-center rounded-full border transition-colors duration-150'
-                style={{
-                  borderColor: 'color-mix(in srgb, var(--rp-primary) 25%, transparent)',
-                  color: 'var(--rp-primary)',
-                }}
-              >
-                <HelpIcon className='h-6 w-6' />
-              </Link>
-              <AccountMenu
-                isAdmin={accountIsAdmin}
-                label={accountLabel}
-                manageHref='/admin'
-                onProfile={() => setSignInOpen(true)}
-              />
+              {
+                /* Below `sm` the help and account controls live in the phone
+                * menu only (the sheet carries both): three 44px circles plus
+                * the logo no longer fit a 390px header once the root font is
+                * scaled up for accessibility. Wrapped, for the same reason as
+                * the menu toggle below - component classes set their own
+                * display and would beat a utility on the element itself. */
+              }
+              <span className='hidden sm:inline-flex'>
+                <Link
+                  to={`/t/${config.slug}/help`}
+                  aria-label={HELP_LABEL}
+                  title={HELP_LABEL}
+                  className='rp-focus flex h-[calc(2.75rem*var(--rp-density-ctl,1))] w-[calc(2.75rem*var(--rp-density-ctl,1))] shrink-0 items-center justify-center rounded-full border transition-colors duration-150'
+                  style={{
+                    borderColor: 'color-mix(in srgb, var(--rp-primary) 25%, transparent)',
+                    color: 'var(--rp-primary)',
+                  }}
+                >
+                  <HelpIcon className='h-6 w-6' />
+                </Link>
+              </span>
+              <span className='hidden sm:inline-flex'>
+                <AccountMenu
+                  isAdmin={accountIsAdmin}
+                  label={accountLabel}
+                  manageHref='/admin'
+                  onProfile={() => setSignInOpen(true)}
+                />
+              </span>
               {
                 /* Wrapped, because .rp-navtoggle sets its own display and would
                 * beat a `md:hidden` utility on the button itself - component
