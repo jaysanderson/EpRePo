@@ -1743,15 +1743,17 @@ describe('POST /api/t/:slug/ask refusals and sentinels', () => {
     expect(streamed).not.toContain('does not hold enough')
   })
 
-  it('re-asks once without the safety prequeries when a strong match still refuses', async () => {
+  it('re-asks once on the default configuration without prequeries when a strong match still refuses', async () => {
     const seen: (string[] | undefined)[] = []
+    const intents: (string | undefined)[] = []
     class ProbeSensitiveProvider extends StubProvider {
       override async *ask(
         tenant: TenantConfig,
         query: string,
-        opts?: { prequeries?: string[] },
+        opts?: { prequeries?: string[]; intent?: string },
       ): AsyncIterable<AskEvent> {
         seen.push(opts?.prequeries)
+        intents.push(opts?.intent)
         if (opts?.prequeries?.length) {
           yield { type: 'sources', resources: [{ ...resourceOne, relevance: 0.95, citedCount: 0 }] }
           yield {
@@ -1778,6 +1780,7 @@ describe('POST /api/t/:slug/ask refusals and sentinels', () => {
     expect(seen.length).toBe(2)
     expect(seen[0]?.length).toBeGreaterThan(0)
     expect(seen[1]).toBeUndefined()
+    expect(intents).toEqual(['clinical', undefined])
     const dones = events.filter((e) => e.type === 'done')
     expect(dones.length).toBe(1)
     expect(dones[0] && dones[0].type === 'done' ? dones[0].refused : true).toBe(false)

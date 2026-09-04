@@ -3483,10 +3483,11 @@ export function buildApp(opts: BuildAppOptions): Hono {
       // One attempt normally. A second when a supplements-only intent's own
       // generation refuses outright (the data sheets matched on words but
       // held no answer) - on the general configuration - or when the
-      // generator refuses despite a strong best match while safety
-      // prequeries were in play: the probes crowded the grounding set, so
-      // the question is asked once more without them. Nothing has streamed
-      // by then, so the surface sees one answer.
+      // generator refuses despite a strong best match on a routed intent or
+      // with safety prequeries in play: the probes and the narrower
+      // configuration crowded the grounding set, so the question is asked
+      // once more on the default configuration without them. Nothing has
+      // streamed by then, so the surface sees one answer.
       const attempts: { intent: string | undefined; prequeries: string[] | undefined }[] = [{
         intent: intentForAsk,
         prequeries: askOpts.prequeries,
@@ -3571,8 +3572,8 @@ export function buildApp(opts: BuildAppOptions): Hono {
                   break
                 }
                 if (
-                  !documentScope && !retriedWithoutPrequeries &&
-                  (current.prequeries?.length ?? 0) > 0 && bestRelevance >= STRONG_MATCH
+                  !documentScope && !retriedWithoutPrequeries && bestRelevance >= STRONG_MATCH &&
+                  ((current.prequeries?.length ?? 0) > 0 || current.intent)
                 ) {
                   retry = 'prequeries'
                   break
@@ -3607,8 +3608,11 @@ export function buildApp(opts: BuildAppOptions): Hono {
             'The supplementary data configuration could not answer from the data sheets it found.',
           )
         } else if (retry === 'prequeries') {
+          // The generator, not the corpus, said no: a 90%-plus match was
+          // retrieved. Ask once more with neither the safety prequeries nor
+          // the intent's narrower configuration crowding the grounding set.
           retriedWithoutPrequeries = true
-          attempts.push({ intent: current.intent, prequeries: undefined })
+          attempts.push({ intent: undefined, prequeries: undefined })
         }
         retry = null
       }
