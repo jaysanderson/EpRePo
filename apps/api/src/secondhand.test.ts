@@ -56,6 +56,7 @@ describe('figureOffsets', () => {
     expect(figureOffsets('2698', 'n = 2,698 and 12698 and 2698.')).toEqual([4, 24])
     expect(figureOffsets('0.11', 'HR 0.11 and 10.11')).toEqual([3])
     expect(figureOffsets('83%', 'by 83% in')).toEqual([3])
+    expect(figureOffsets('14%', '14 days and 14 % and 14%')).toEqual([12, 21])
   })
 })
 

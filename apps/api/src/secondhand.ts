@@ -98,7 +98,9 @@ export function figureOffsets(figure: string, text: string): number[] {
   const bare = figure.replace(/[%\s,]/g, '')
   if (!bare || !/\d/.test(bare)) return []
   const body = bare.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/(\d)(?=\d)/g, '$1,?')
-  const pattern = new RegExp(`(?<![\\d.,])${body}(?![\\d])`, 'g')
+  // A percentage matches only as a percentage: "14%" is not "14 days".
+  const tail = figure.trim().endsWith('%') ? '\\s?%' : '(?![\\d])'
+  const pattern = new RegExp(`(?<![\\d.,])${body}${tail}`, 'g')
   const out: number[] = []
   for (const m of text.matchAll(pattern)) out.push(m.index ?? 0)
   return out
