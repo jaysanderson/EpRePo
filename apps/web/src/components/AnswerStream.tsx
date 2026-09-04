@@ -173,24 +173,46 @@ function renderCitationMarkers(
   renderMarker: MarkerRenderer,
   keyPrefix: string,
 ): ReactNode[] {
-  return text.split(/(\[\d+\])/g).map((segment, index) => {
+  return text.split(/(\[\d+\]|\[inference\]|\(inference\))/gi).map((segment, index) => {
     const key = `${keyPrefix}-${index}`
+    // The model's own hedge, rendered as one rather than as prose.
+    if (/^[[(]inference[\])]$/i.test(segment)) {
+      return (
+        <span
+          key={key}
+          className='text-ink-3 italic'
+          title="The model's own inference, not a statement in the cited sources"
+        >
+          (inference)
+        </span>
+      )
+    }
     const match = /^\[(\d+)\]$/.exec(segment)
     const marker = match?.[1] ? renderMarker(segment, Number(match[1]), key) : null
     return marker ?? <span key={key}>{segment}</span>
   })
 }
 
-/** Renders `**bold**` spans, and `[n]` markers, within one line/paragraph. */
+/** Renders `**bold**` and `*italic*` spans, and `[n]` markers, within one line/paragraph. */
 function renderInline(
   text: string,
   renderMarker: MarkerRenderer,
   keyPrefix: string,
 ): ReactNode[] {
-  const parts = text.split(/(\*\*[^*]+\*\*)/g)
+  const parts = text.split(/(\*\*[^*]+\*\*|(?<![\w*])\*[^*\n]+\*(?![\w*]))/g)
   return parts.flatMap((part, index): ReactNode[] =>
     part.startsWith('**') && part.endsWith('**') && part.length > 4
-      ? [<strong key={`${keyPrefix}-${index}`}>{part.slice(2, -2)}</strong>]
+      ? [
+        <strong key={`${keyPrefix}-${index}`}>
+          {renderCitationMarkers(part.slice(2, -2), renderMarker, `${keyPrefix}-${index}`)}
+        </strong>,
+      ]
+      : part.startsWith('*') && part.endsWith('*') && part.length > 2
+      ? [
+        <em key={`${keyPrefix}-${index}`}>
+          {renderCitationMarkers(part.slice(1, -1), renderMarker, `${keyPrefix}-${index}`)}
+        </em>,
+      ]
       : renderCitationMarkers(part, renderMarker, `${keyPrefix}-${index}`)
   )
 }
