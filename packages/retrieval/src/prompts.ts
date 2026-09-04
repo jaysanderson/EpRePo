@@ -29,6 +29,31 @@ export const PROMPT_VARIANTS: Record<Exclude<PromptVariant, 'default'>, string> 
     'supplementary file each comes from.',
 }
 
+/**
+ * A proportion without its denominator is not a figure a clinician or an
+ * epidemiologist can repeat. Applied to the variants that answer with
+ * numbers (the default, the clinical safety variant and the data variant).
+ */
+export const DENOMINATOR_RULE =
+  'Every proportion, rate or ratio you state must carry its denominator and analysis set ' +
+  'in the same sentence, exactly as the source gives them - "71.1% (n = 1644, full analysis ' +
+  'set)", "HR 1.41 (95% CI 1.02 to 1.97; 1,805 patients)" - and when the source states no ' +
+  'denominator, say so beside the figure rather than leaving it bare.'
+
+/** The clinical variant names each source\'s study design the first time it cites it. */
+export const DESIGN_RULE =
+  "The first sentence that cites a source names that source's study design in the " +
+  "source's own words (a randomised controlled trial, a nested case-control study, an " +
+  'observational cohort, a case series, a modelling or simulation study, a review). A ' +
+  'modelling or simulation result is reported as modelling, never as demonstrated ' +
+  'clinical efficacy.'
+
+const WITH_DENOMINATORS = new Set<PromptVariant>(['default', 'safety', 'data'])
+
 export function variantPreamble(variant: PromptVariant | undefined): string {
-  return variant && variant !== 'default' ? PROMPT_VARIANTS[variant] + '\n\n' : ''
+  const parts: string[] = []
+  if (variant && variant !== 'default') parts.push(PROMPT_VARIANTS[variant])
+  if (WITH_DENOMINATORS.has(variant ?? 'default')) parts.push(DENOMINATOR_RULE)
+  if (variant === 'safety') parts.push(DESIGN_RULE)
+  return parts.length > 0 ? parts.join(' ') + '\n\n' : ''
 }

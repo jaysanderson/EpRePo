@@ -38,17 +38,26 @@ export function extractNumbers(answer: string): string[] {
   const found = new Set<string>()
   for (
     const m of cleaned.matchAll(
-      /(?<![\w.])(\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)(\s?%|\s?mg(?:\/kg)?(?:\/day)?)?/g,
+      /(?<![\w.])(\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)(\s?%|\s?mg(?:\/kg)?(?:\/day)?|[\s-]?(?:months?|weeks?|years?|days?|hours?)\b)?/g,
     )
   ) {
     const raw = m[1] ?? ''
-    const unit = (m[2] ?? '').replace(/\s/g, '')
+    const unit = (m[2] ?? '').replace(/[\s-]/g, '')
     const value = raw.replace(/,/g, '')
     if (/^(19|20)\d{2}$/.test(value) && !unit) continue // a year
     if (!unit && !value.includes('.') && Number(value) < 10) continue // small counts
-    found.add(value + unit)
+    // A duration is a timepoint, not a result: "12 months" is checked as the
+    // unit-bearing token "12months" (never the bare 12 of a table cell), and
+    // counts under ten are as small as bare counts.
+    found.add(value + normaliseUnit(unit))
   }
   return [...found]
+}
+
+/** Plural and singular time units are one token: "12months" for "12 months" and "12-month". */
+function normaliseUnit(unit: string): string {
+  const time = /^(month|week|year|day|hour)s?$/.exec(unit)
+  return time ? `${time[1]}s` : unit
 }
 
 function normaliseText(text: string): string {
@@ -62,12 +71,15 @@ function normaliseText(text: string): string {
  * follows the second number ("21-45%").
  */
 export function figurePattern(token: string, flags = ''): RegExp {
-  const value = token.replace(/%|mg.*$/, '')
+  const value = token.replace(/%|mg.*$|(?:month|week|year|day|hour)s$/, '')
   const unit = token.slice(value.length)
   const number = `(?<![\\d.])${value.replace('.', '\\.')}(?![\\d])`
   if (!unit) return new RegExp(number, flags)
+  const time = /^(month|week|year|day|hour)s$/.exec(unit)
   const unitPattern = unit === '%'
     ? '\\s?(?:%|percent|per cent)'
+    : time
+    ? `[\\s-]?${time[1]}s?\\b`
     : `\\s?${unit.replace('/', '\\/')}`
   return new RegExp(`${number}(?:${unitPattern}|-\\d+(?:\\.\\d+)?${unitPattern})`, flags)
 }
@@ -221,13 +233,93 @@ export interface FigureCheck {
   supported: boolean
 }
 
+// ---------------------------------------------------------------------------
+// Abbreviations a paper defines for the names a claim hangs on
+// ---------------------------------------------------------------------------
+
+/**
+ * The "perampanel (PER)" and "antiseizure medication (ASM)" definitions in a
+ * text, as pairs of the defined phrase (lower-cased) and its abbreviation
+ * (as written, upper-case). A paper states its abbreviation once and uses
+ * it everywhere after, so the figure's own sentence reads "retention on PER
+ * treatment" while the claim names perampanel; without the pair the figure
+ * looks unsupported. Only a real acronym qualifies: its first letter opens
+ * the phrase and its letters occur in the phrase in order.
+ */
+export function abbreviationPairs(text: string): { phrase: string; abbr: string }[] {
+  const out: { phrase: string; abbr: string }[] = []
+  const seen = new Set<string>()
+  for (
+    const m of text.matchAll(
+      /((?:[A-Za-z][a-z-]{2,}\s){0,3}[A-Za-z][a-z-]{2,})\s\(([A-Z][A-Z0-9]{1,5})s?\)/g,
+    )
+  ) {
+    const words = m[1]!.toLowerCase().split(/\s+/)
+    const abbr = m[2]!
+    if (seen.has(abbr)) continue
+    const letters = abbr.toLowerCase().replace(/[0-9]/g, '')
+    // The shortest word suffix the abbreviation is an acronym of.
+    for (let k = 1; k <= words.length; k++) {
+      const phrase = words.slice(words.length - k).join(' ')
+      if (phrase[0] !== letters[0]) continue
+      if (!isSubsequence(letters, phrase.replace(/[\s-]/g, ''))) continue
+      out.push({ phrase, abbr })
+      seen.add(abbr)
+      break
+    }
+  }
+  return out
+}
+
+function isSubsequence(needle: string, haystack: string): boolean {
+  let i = 0
+  for (const ch of haystack) {
+    if (ch === needle[i]) i++
+    if (i === needle.length) return true
+  }
+  return i === needle.length
+}
+
+/**
+ * The forms a claim term may take in a text: the term itself and the phrase
+ * an abbreviation stands for (lower-case, matched in the lower-cased
+ * window) and the abbreviation the text defines for the term (upper-case,
+ * matched case-sensitively in the original window - "PER" is never the
+ * "per" of "per cent").
+ */
+export function termForms(
+  term: string,
+  pairs: readonly { phrase: string; abbr: string }[],
+): RegExp[] {
+  const forms: RegExp[] = [new RegExp(escapeRegExp(term))]
+  for (const { phrase, abbr } of pairs) {
+    if (phrase === term || phrase.endsWith(` ${term}`) || phrase.split(' ')[0] === term) {
+      forms.push(new RegExp(`\\b${escapeRegExp(abbr)}s?\\b`))
+    }
+    if (abbr.toLowerCase() === term) {
+      for (const word of phrase.split(' ')) {
+        if (word.length >= 4 && !GENERIC.has(word)) forms.push(new RegExp(escapeRegExp(word)))
+      }
+    }
+  }
+  return forms
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
 /**
  * Checks every figure in each sentence against the texts that sentence is
  * bound to: the figure must occur within a window that also carries at
  * least one of the claim's own terms, so a number copied from a passage
  * about a different intervention, population or study is caught even when
  * the bare number exists somewhere in the paper. A sentence bound to no
- * text is checked against every cited text under the same rule.
+ * text is checked against every cited text under the same rule. A term is
+ * matched in any form the text defines for it (`termForms`), and a sentence
+ * whose names are all absent from the window may still pass on three of
+ * its own words - a paper that names the drug once in the methods and
+ * writes "the drug" thereafter is not a misattribution.
  */
 export function verifyFigures(
   sentences: readonly { text: string; texts: readonly string[] }[],
@@ -235,11 +327,17 @@ export function verifyFigures(
   lexicon: readonly string[] = [],
 ): FigureCheck[] {
   const out: FigureCheck[] = []
-  const prepared = new Map<string, string>()
+  const prepared = new Map<
+    string,
+    { lower: string; original: string; pairs: { phrase: string; abbr: string }[] }
+  >()
   const norm = (t: string) => {
     let v = prepared.get(t)
     if (v === undefined) {
-      v = normaliseText(t).toLowerCase()
+      // Lower-casing keeps every index, so a window found in the lower text
+      // is the same slice of the original.
+      const original = normaliseText(t)
+      v = { lower: original.toLowerCase(), original, pairs: abbreviationPairs(original) }
       prepared.set(t, v)
     }
     return v
@@ -248,24 +346,40 @@ export function verifyFigures(
     const figures = extractNumbers(sentence.text)
     if (figures.length === 0) continue
     const { anchors, words } = claimTerms(sentence.text, lexicon)
-    const terms = anchors.length > 0 ? anchors : words
-    // One name beside the figure is enough; without names, two of the
-    // claim's words must be there - a lone "seizure" next to a "21%" in an
-    // epilepsy paper says nothing about which 21% that is.
-    const needed = anchors.length > 0 ? 1 : Math.min(2, terms.length)
     const texts = (sentence.texts.length > 0 ? sentence.texts : allTexts).map(norm)
     for (const figure of figures) {
       const re = figurePattern(figure, 'g')
       let supported = false
       for (const text of texts) {
+        const anchorForms = anchors.map((a) => termForms(a, text.pairs))
+        const wordForms = words.map((w) => termForms(w, text.pairs))
+        const hits = (forms: RegExp[][], lower: string, original: string) =>
+          forms.filter((alternatives) =>
+            alternatives.some((re) => re.test(lower) || re.test(original))
+          ).length
         let m: RegExpExecArray | null
-        while (!supported && (m = re.exec(text)) !== null) {
-          if (terms.length === 0) {
+        while (!supported && (m = re.exec(text.lower)) !== null) {
+          if (anchors.length === 0 && words.length === 0) {
             supported = true
             break
           }
-          const window = claimWindow(text, m.index)
-          if (terms.filter((term) => window.includes(term)).length >= needed) supported = true
+          const { start, end } = claimWindowBounds(text.lower, m.index)
+          const lower = text.lower.slice(start, end)
+          const original = text.original.slice(start, end)
+          if (anchors.length > 0 && hits(anchorForms, lower, original) >= 1) supported = true
+          // Without names, two of the claim's words must be there - a lone
+          // "seizure" next to a "21%" in an epilepsy paper says nothing
+          // about which 21% that is. With names that are all absent, three.
+          else if (
+            anchors.length === 0 &&
+            hits(wordForms, lower, original) >= Math.min(2, words.length)
+          ) {
+            supported = true
+          } else if (
+            anchors.length > 0 && words.length >= 3 && hits(wordForms, lower, original) >= 3
+          ) {
+            supported = true
+          }
         }
         re.lastIndex = 0
         if (supported) break
@@ -283,9 +397,18 @@ export function verifyFigures(
  * LITT" must not let LITT claim the 76%.
  */
 export function claimWindow(text: string, at: number): string {
+  const { start, end } = claimWindowBounds(text, at)
+  return text.slice(start, end)
+}
+
+/** The bounds `claimWindow` slices, for callers that slice a parallel text. */
+export function claimWindowBounds(text: string, at: number): { start: number; end: number } {
   const floor = Math.max(0, at - 350)
   const before = text.slice(floor, at)
-  const boundaries = [...before.matchAll(/[.!?;]\s+(?=[a-z0-9("])/g)].map((m) =>
+  // A semicolon ends a clause only before a word: "(aHR = 0.56; 95% CI
+  // 0.31-1.01)" is one statistic, and the drug named before it vouches
+  // for the interval after it.
+  const boundaries = [...before.matchAll(/[.!?]\s+(?=[a-z0-9("])|;\s+(?=[a-z(])/g)].map((m) =>
     m.index + m[0].length
   )
   const start = boundaries.length >= 2
@@ -294,9 +417,9 @@ export function claimWindow(text: string, at: number): string {
     ? 0
     : (boundaries[0] ?? 0)
   const after = text.slice(at, at + 200)
-  const endMatch = /[.!?;](?:\s|$)/.exec(after)
+  const endMatch = /[.!?](?:\s|$)|;\s(?=[a-z(])|;$/.exec(after)
   const end = endMatch ? at + endMatch.index + 1 : at + after.length
-  return text.slice(floor + start, end)
+  return { start: floor + start, end }
 }
 
 // ---------------------------------------------------------------------------
@@ -498,6 +621,14 @@ export function auditAddendum(
     missingDrugs: { drug: string; index: number }[]
     missingNumbers: string[]
     missingYears?: string[]
+    /** Proportions stated without a denominator, with the n the passage gives when it does. */
+    denominators?: DenominatorCheck[]
+    /** Study designs, in the sources' own words, for citations whose first sentence named none. */
+    designs?: { index: number; design: string }[]
+    /** Attributions rewritten because the cited paper lacks the named author. */
+    attributions?: { surname: string; replacedWith: string }[]
+    /** Boundary sentences, already in the portal's voice. */
+    notes?: string[]
   },
 ): string {
   const parts: string[] = []
@@ -522,5 +653,201 @@ export function auditAddendum(
       }. Check the publication year on each source.*`,
     )
   }
+  if (input.denominators && input.denominators.length > 0) {
+    const stated = input.denominators.filter((d) => d.stated)
+    const bare = input.denominators.filter((d) => !d.stated)
+    const pieces: string[] = []
+    if (stated.length > 0) {
+      pieces.push(
+        `the cited passage gives ${
+          stated.map((d) => `${d.stated} for ${d.figure}${d.index ? ` [${d.index}]` : ''}`).join(
+            ', ',
+          )
+        }`,
+      )
+    }
+    if (bare.length > 0) {
+      pieces.push(
+        `${bare.map((d) => d.figure).join(', ')} ${
+          bare.length === 1 ? 'is' : 'are'
+        } stated without a denominator, and the cited passage gives none beside the figure`,
+      )
+    }
+    parts.push(`*Denominators: ${pieces.join('; ')}.*`)
+  }
+  if (input.designs && input.designs.length > 0) {
+    parts.push(
+      `*Study designs, in the sources' own words: ${
+        input.designs.map((d) => `[${d.index}] ${d.design}`).join('; ')
+      }.*`,
+    )
+  }
+  if (input.attributions && input.attributions.length > 0) {
+    const names = [...new Set(input.attributions.map((a) => a.surname))].join(', ')
+    parts.push(
+      `*${
+        input.attributions.length === 1 ? 'One sentence' : `${input.attributions.length} sentences`
+      } attributed work to ${names} while citing a paper without that author; the attribution was ` +
+        "corrected to the cited paper's own authors.*",
+    )
+  }
+  for (const note of input.notes ?? []) parts.push(note)
   return parts.length > 0 ? `\n\n${parts.join('\n\n')}` : ''
+}
+
+// ---------------------------------------------------------------------------
+// Denominators: a proportion without its n is not a figure a clinician can
+// repeat. The prompt asks for the n; this reports where it was left out and,
+// when the cited passage states it, what it is.
+// ---------------------------------------------------------------------------
+
+/** "n = 1644", "(n=51)", "1644 patients", "of 1644 participants", "1,805 adults", "5/8". */
+const COUNT_IN_SENTENCE =
+  /\b(?:n\s*=\s*\d[\d,]*|\d[\d,]{1,}\s*(?:\/\s*\d[\d,]*)?\s+(?:patients|participants|subjects|adults|children|individuals|people|persons|cases|women|men|pwe|episodes|admissions|records|respondents|controls)\b|\b(?:of|among|in)\s+(?:the\s+)?\d[\d,]{1,}\b|\b\d+\s*\/\s*\d+\b)/i
+
+/** Whether a sentence states a count that can serve as a denominator for its proportions. */
+export function statesDenominator(sentence: string): boolean {
+  return COUNT_IN_SENTENCE.test(sentence.replace(/\[\d{1,3}\]/g, ' '))
+}
+
+/** A ratio the sentence names: "HR 1.41", "aHR of 0.56", "odds ratio 2.3". */
+const RATIO =
+  /\b(?:a?HR|OR|RR|IRR|SMR|hazard ratio|odds ratio|risk ratio|relative risk|rate ratio)\s*(?:of|=|:|was|is)?\s*(\d+(?:\.\d+)?)/gi
+
+/**
+ * Percentages and ratios in the sentence: the figures that need a
+ * denominator. The "95%" of a confidence interval is not a proportion.
+ */
+export function proportions(sentence: string): string[] {
+  const plain = sentence
+    .replace(/\b\d+(?:\.\d+)?\s?%\s*(?:CI\b|confidence)/g, ' ')
+    // An effect size ("a 20% greater reduction", "fell by 14%") is a change,
+    // not a share of a cohort: no denominator applies.
+    .replace(
+      /\b(?:by|a|an|up to)\s+\d+(?:\.\d+)?\s?%(?:\s+\w+){0,2}\s+(?:greater|reduction|increase|decrease|lower|higher|improvement|change|rise|fall|drop|relative)\b/gi,
+      ' ',
+    )
+    .replace(
+      /\b\d+(?:\.\d+)?\s?%\s+(?:reduction|increase|decrease|improvement|change|rise|fall|drop)\b/gi,
+      ' ',
+    )
+    .replace(
+      /\b(?:fell|rose|reduced|increased|decreased|dropped|improved|declined|lower|higher|greater|less|more|reduction|increase|decrease)\s+(?:by\s+)?\d+(?:\.\d+)?\s?%/gi,
+      ' ',
+    )
+  const out = new Set(extractNumbers(plain).filter((f) => f.endsWith('%')))
+  for (const m of plain.matchAll(RATIO)) out.add(m[1]!)
+  return [...out]
+}
+
+/**
+ * The n a cited text gives beside a figure, when the figure's own window
+ * carries an explicit count: "n = 51" or "51 patients". Undefined when the
+ * passage states no count - the audit never invents one.
+ */
+export function denominatorBeside(figure: string, texts: readonly string[]): string | undefined {
+  const re = figurePattern(figure, 'g')
+  for (const raw of texts) {
+    const text = normaliseText(raw).toLowerCase()
+    let m: RegExpExecArray | null
+    while ((m = re.exec(text)) !== null) {
+      // "64.2% (3031/4721)" - the fraction right after the figure is its n.
+      const fraction = /^\s*\((\d[\d,]*\s*\/\s*\d[\d,]*)\)/.exec(text.slice(m.index + m[0].length))
+      if (fraction?.[1]) return fraction[1].replace(/\s+/g, '')
+      const window = claimWindow(text, m.index)
+      const explicit = /\bn\s*=\s*(\d[\d,]*)/.exec(window)
+      if (explicit?.[1]) return `n = ${explicit[1]}`
+      const counted =
+        /\b(\d[\d,]{1,})\s+(patients|participants|subjects|adults|children|individuals|people|cases|women|men|pwe)\b/
+          .exec(window)
+      if (counted?.[1]) return `${counted[1]} ${counted[2]}`
+    }
+  }
+  return undefined
+}
+
+export interface DenominatorCheck {
+  figure: string
+  /** The n the cited passage states beside the figure, when it does. */
+  stated?: string
+  /** The marker of the passage the n came from. */
+  index?: number
+}
+
+/**
+ * Proportions the answer states in a sentence that carries no count of its
+ * own, each with the denominator its bound passage gives when one is there.
+ */
+export function denominatorsMissing(
+  sentences: readonly { text: string; texts: readonly { index: number; text: string }[] }[],
+): DenominatorCheck[] {
+  const out: DenominatorCheck[] = []
+  const seen = new Set<string>()
+  for (const sentence of sentences) {
+    const figures = proportions(sentence.text)
+    if (figures.length === 0 || statesDenominator(sentence.text)) continue
+    for (const figure of figures) {
+      if (seen.has(figure)) continue
+      seen.add(figure)
+      let found: DenominatorCheck = { figure }
+      for (const { index, text } of sentence.texts) {
+        const stated = denominatorBeside(figure, [text])
+        if (stated) {
+          found = { figure, stated, index }
+          break
+        }
+      }
+      out.push(found)
+    }
+  }
+  return out
+}
+
+// ---------------------------------------------------------------------------
+// Study design, in the source's own words
+// ---------------------------------------------------------------------------
+
+/** Design phrases in priority order: the most specific self-description wins. */
+const DESIGNS: [RegExp, string][] = [
+  [/\bsystematic review\b|\bmeta-?analys/i, 'a systematic review'],
+  [/\bpooled analysis\b|\bindividual patient data\b/i, 'a pooled analysis'],
+  // A paper that IS a protocol says so of itself; "the study protocol was
+  // approved" is every trial's ethics line.
+  [
+    /\b(?:this|the present) (?:study |trial )?protocol\b|\bprotocol for an? \b|\b(?:describes?|presents?|outlines?|reports?) the (?:study |trial )?protocol\b|\bstudy protocol\b.{0,60}\b(?:randomi[sz]ed|controlled) trial\b/i,
+    'a trial protocol',
+  ],
+  [
+    /\brandomi[sz]ed\b.{0,40}\b(?:trial|study)\b|\bplacebo-controlled\b|\bdouble-blind/i,
+    'a randomised controlled trial',
+  ],
+  [/\bnested,? case[-‐–—]?\s?control\b/i, 'a nested case-control study'],
+  [/\bcase[-‐–—]?\s?control\b/i, 'a case-control study'],
+  [/\bfirst-in-human\b/i, 'a first-in-human study'],
+  [
+    /\bprospective\b.{0,30}\bcohort\b|\bcohort study\b|\bobservational cohort\b/i,
+    'an observational cohort study',
+  ],
+  [/\bretrospective\b.{0,30}\b(?:cohort|study|analysis|review)\b/i, 'a retrospective cohort study'],
+  [/\bcross-sectional\b/i, 'a cross-sectional study'],
+  [/\bcase series\b/i, 'a case series'],
+  [/\bcase report\b/i, 'a case report'],
+  [/\bsurvey\b/i, 'a survey'],
+  [
+    /\b(?:computational|mathematical|in silico|simulation|theoretical) (?:model|study|analysis|framework)|\bsimulations?\b.{0,40}\bmodel|\bwe simulated\b/i,
+    'a modelling study',
+  ],
+  [/\bnarrative review\b|\breview article\b|\bthis review\b/i, 'a narrative review'],
+  [/\bobservational study\b|\bprospective study\b|\bprospective, /i, 'an observational study'],
+]
+
+/**
+ * How a paper describes its own design, from its opening pages: "a nested
+ * case-control study", "a modelling study". Undefined when the text never
+ * says - the audit reports designs, it never guesses them.
+ */
+export function studyDesignOf(text: string): string | undefined {
+  const head = text.slice(0, 8000)
+  for (const [re, label] of DESIGNS) if (re.test(head)) return label
+  return undefined
 }

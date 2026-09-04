@@ -198,3 +198,40 @@ describe('isThinlyGrounded', () => {
     }
   })
 })
+
+describe('assessConfidence with the audit', () => {
+  const clean = {
+    figuresChecked: 3,
+    figuresUnsupported: [],
+    yearsUnsupported: [],
+    contraindicationsUnsupported: [],
+    sentencesChecked: 4,
+    sentencesCited: 4,
+  }
+  const remiLow = { groundedness: 1, answerRelevance: 5, contextRelevance: 5 }
+  const remiHigh = { groundedness: 5, answerRelevance: 5, contextRelevance: 5 }
+
+  it('lets a clean audit override a low platform score', () => {
+    const result = assessConfidence(remiLow, clean)
+    expect(result.state).toBe('high')
+    expect(result.basis).toBe('audit')
+    expect(isThinlyGrounded(remiLow, clean)).toBe(false)
+  })
+
+  it('lets an unsupported figure override a high platform score', () => {
+    const result = assessConfidence(remiHigh, { ...clean, figuresUnsupported: ['64.2%'] })
+    expect(result.state).toBe('low')
+    expect(result.basis).toBe('audit')
+  })
+
+  it('is moderate when the figures hold but half the sentences carry no citation', () => {
+    expect(assessConfidence(remiHigh, { ...clean, sentencesCited: 1 }).state).toBe('moderate')
+  })
+
+  it('falls back to the platform score when the audit checked nothing', () => {
+    const empty = { ...clean, figuresChecked: 0, sentencesChecked: 0, sentencesCited: 0 }
+    const result = assessConfidence(remiLow, empty)
+    expect(result.state).toBe('low')
+    expect(result.basis).toBe('remi')
+  })
+})

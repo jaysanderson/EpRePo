@@ -1,13 +1,19 @@
 import { describe, it } from '@std/testing/bdd'
 import { expect } from '@std/expect'
 import {
+  abbreviationPairs,
   auditAddendum,
+  denominatorsMissing,
   drugsFlaggedInSources,
   drugsMissingFromAnswer,
   extractNumbers,
   normaliseFigures,
   numbersMissing,
+  proportions,
+  statesDenominator,
   stripUnsupportedContraindications,
+  studyDesignOf,
+  termForms,
   verifyFigures,
   yearsInAnswer,
   yearsUnsupported,
@@ -92,8 +98,9 @@ describe('answer audit - claim verification', () => {
     )
     expect(checks.map((c) => [c.figure, c.supported])).toEqual([
       ['76%', false],
-      ['12', false],
+      ['12months', false],
       ['68%', true],
+      ['2years', true],
     ])
   })
 
@@ -137,5 +144,117 @@ describe('answer audit - claim verification', () => {
       'Lamotrigine is contraindicated in children with DS.',
     ], ['lamotrigine'])
     expect(result).toEqual({ text: answer, unsupported: [] })
+  })
+})
+
+describe('answer audit - abbreviations, denominators and designs', () => {
+  it('learns the abbreviation a paper defines and accepts it beside the figure', () => {
+    const permit =
+      'Patients were treated with perampanel (PER). Retention on PER treatment at 3, 6, and 12 months was 90.5%, 79.8%, and 64.2%, respectively.'
+    expect(abbreviationPairs(permit)).toEqual([{ phrase: 'perampanel', abbr: 'PER' }])
+    const forms = termForms('perampanel', [{ phrase: 'perampanel', abbr: 'PER' }])
+    expect(forms.some((re) => re.test('retention on PER treatment'))).toBe(true)
+    expect(forms.some((re) => re.test('per cent of patients'))).toBe(false)
+    const checks = verifyFigures(
+      [{ text: 'The retention rate on perampanel at 12 months was 64.2%.', texts: [permit] }],
+      [permit],
+      ['perampanel'],
+    )
+    expect(checks.map((c) => [c.figure, c.supported])).toEqual([
+      ['12months', true],
+      ['64.2%', true],
+    ])
+  })
+
+  it('keeps a confidence interval in the window of the statistic it belongs to', () => {
+    const text =
+      'Multivariable Cox regression revealed no significant difference in SUDEP risk in those prescribed lamotrigine at EMU admission (adjusted hazard ratio [aHR] = 0.56; 95% CI: 0.31– 1.01, p = 0.054). There was also no difference for NaM-ASMs (aHR = 0.82; 95% CI: 0.40– 1.68).'
+    const checks = verifyFigures(
+      [{
+        text: 'SUDEP risk did not differ with lamotrigine (aHR 0.56, 95% CI 0.31–1.01, P = 0.054).',
+        texts: [text],
+      }],
+      [text],
+      ['lamotrigine'],
+    )
+    expect(checks.filter((c) => !c.supported).map((c) => c.figure)).toEqual([])
+  })
+
+  it('accepts the long form when the claim uses the abbreviation', () => {
+    const text =
+      'Radiofrequency thermocoagulation (RFTC) was performed. Naming declined by 30.60 (SD 39.60) after radiofrequency thermocoagulation of the language-dominant side.'
+    const checks = verifyFigures(
+      [{ text: 'After RFTC, naming declined by 30.60 (SD 39.60).', texts: [text] }],
+      [text],
+    )
+    expect(checks.every((c) => c.supported)).toBe(true)
+  })
+
+  it('treats a duration as a unit-bearing figure', () => {
+    expect(extractNumbers('Retention at 12 months was 64.2% over 2 years.')).toEqual([
+      '12months',
+      '64.2%',
+      '2years',
+    ])
+    const text = 'the 12-month retention was 64.2%'
+    expect(
+      verifyFigures([{ text: 'Retention at 12 months was 64.2%.', texts: [text] }], [text])
+        .map((c) => c.supported),
+    ).toEqual([true, true])
+  })
+
+  it('finds proportions stated without a denominator and the n the passage gives', () => {
+    expect(proportions('HR 1.41 (95% CI 1.02 to 1.97) and 23.2% seizure freedom')).toEqual([
+      '23.2%',
+      '1.41',
+    ])
+    expect(proportions('up to a 20% greater reduction in discharges; risk fell by 14%')).toEqual([])
+    expect(statesDenominator('Retention was 71.1% (n = 1644).')).toBe(true)
+    expect(statesDenominator('Retention was 71.1% in 1644 patients.')).toBe(true)
+    expect(statesDenominator('Retention was 71.1%.')).toBe(false)
+    const passage = 'The 12-month retention rate was 71.1% in the full analysis set (n = 1644).'
+    expect(
+      denominatorsMissing([
+        { text: 'The 12-month retention rate was 71.1%.', texts: [{ index: 1, text: passage }] },
+        {
+          text: 'Seizure freedom was 23.2%.',
+          texts: [{ index: 2, text: 'seizure freedom was 23.2% overall' }],
+        },
+      ]),
+    ).toEqual([
+      { figure: '71.1%', stated: 'n = 1644', index: 1 },
+      { figure: '23.2%' },
+    ])
+    expect(
+      denominatorsMissing([{
+        text: 'Retention at 12 months was 64.2%.',
+        texts: [{ index: 1, text: 'retention at 12 months was 64.2% (3031/4721)' }],
+      }]),
+    ).toEqual([{ figure: '64.2%', stated: '3031/4721', index: 1 }])
+  })
+
+  it('reads the study design from the paper itself', () => {
+    expect(studyDesignOf('We conducted a nested case-control study of SUDEP.')).toBe(
+      'a nested case-control study',
+    )
+    expect(studyDesignOf('A retrospective nested case–control study (en dash) of SUDEP.')).toBe(
+      'a nested case-control study',
+    )
+    expect(
+      studyDesignOf('Here we present a computational model of seizure cycles; simulations show'),
+    ).toBe('a modelling study')
+    expect(studyDesignOf('This prospective, multicenter first-in-human study implanted')).toBe(
+      'a first-in-human study',
+    )
+    expect(studyDesignOf('Nothing about design here.')).toBeUndefined()
+    expect(
+      studyDesignOf(
+        'The study protocol was approved by the ethics committee of this pooled analysis.',
+      ),
+    )
+      .toBe('a pooled analysis')
+    expect(studyDesignOf('This protocol for a randomised trial of befriending')).toBe(
+      'a trial protocol',
+    )
   })
 })

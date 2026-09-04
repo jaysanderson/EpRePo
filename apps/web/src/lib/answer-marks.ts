@@ -10,6 +10,18 @@ export interface AnswerAudit {
   figuresUnsupported: string[]
   yearsUnsupported: string[]
   contraindicationsUnsupported: string[]
+  /** Sentences the binding pass judged, and how many kept a citation. */
+  sentencesChecked?: number
+  sentencesCited?: number
+  /** Proportions stated in a sentence with no denominator. */
+  denominatorsMissing?: string[]
+  /** Authors whose attribution was corrected because the cited paper lacks them. */
+  attributionsCorrected?: string[]
+}
+
+/** "12months" reads as "12 months" in the badge and the tooltip. */
+export function figureLabel(token: string): string {
+  return token.replace(/(\d)((?:month|week|year|day|hour)s)$/, '$1 $2')
 }
 
 export type AuditTone = 'ok' | 'warn'
@@ -27,11 +39,21 @@ export function auditBadge(audit: AnswerAudit | undefined): {
   const checked = audit.figuresChecked === 1
     ? '1 figure checked'
     : `${audit.figuresChecked} figures checked`
+  const cited = typeof audit.sentencesChecked === 'number' && audit.sentencesChecked > 0 &&
+      typeof audit.sentencesCited === 'number'
+    ? ` ${audit.sentencesCited} of ${audit.sentencesChecked} sentences carry a citation.`
+    : ''
+  const denominators = (audit.denominatorsMissing ?? []).length > 0
+    ? ` Stated without a denominator: ${
+      (audit.denominatorsMissing ?? []).map(figureLabel).join(', ')
+    }.`
+    : ''
   if (unsupported === 0 && stripped === 0) {
     return {
       label: checked,
       tone: 'ok',
-      title: 'Every figure in this answer was found beside its claim in a cited passage.',
+      title:
+        `Every figure in this answer was found beside its claim in a cited passage.${cited}${denominators}`,
     }
   }
   const parts: string[] = []
@@ -49,7 +71,11 @@ export function auditBadge(audit: AnswerAudit | undefined): {
   }
   const detail: string[] = []
   if (audit.figuresUnsupported.length > 0) {
-    detail.push(`Figures not found beside their claim: ${audit.figuresUnsupported.join(', ')}.`)
+    detail.push(
+      `Figures not found beside their claim: ${
+        audit.figuresUnsupported.map(figureLabel).join(', ')
+      }.`,
+    )
   }
   if (audit.yearsUnsupported.length > 0) {
     detail.push(`Years the cited resources do not carry: ${audit.yearsUnsupported.join(', ')}.`)
@@ -61,7 +87,11 @@ export function auditBadge(audit: AnswerAudit | undefined): {
       }.`,
     )
   }
-  return { label: parts.join(' · '), tone: 'warn', title: detail.join(' ') }
+  return {
+    label: parts.join(' · '),
+    tone: 'warn',
+    title: `${detail.join(' ')}${cited}${denominators}`,
+  }
 }
 
 function escapeRegExp(value: string): string {
@@ -78,13 +108,22 @@ export function unsupportedFigurePattern(audit: AnswerAudit | undefined): RegExp
   if (!audit) return null
   const alternatives: string[] = []
   for (const figure of audit.figuresUnsupported) {
-    const m = /^(\d+(?:\.\d+)?)(%|mg(?:\/kg)?(?:\/day)?)?$/.exec(figure)
+    const m = /^(\d+(?:\.\d+)?)(%|mg(?:\/kg)?(?:\/day)?|(?:month|week|year|day|hour)s)?$/.exec(
+      figure,
+    )
     if (!m) continue
     const [, value, unit] = m
     const digits = value!.includes('.')
       ? escapeRegExp(value!)
       : value!.split('').join(',?').replace(/^(\d),\?/, '$1,?')
-    const unitPattern = unit === '%' ? '\\s?%' : unit ? `\\s?${escapeRegExp(unit)}` : ''
+    const time = unit ? /^(month|week|year|day|hour)s$/.exec(unit) : null
+    const unitPattern = unit === '%'
+      ? '\\s?%'
+      : time
+      ? `[\\s-]?${time[1]}s?\\b`
+      : unit
+      ? `\\s?${escapeRegExp(unit)}`
+      : ''
     alternatives.push(`(?<![\\d.])${digits}${unitPattern}(?![\\d])`)
   }
   for (const year of audit.yearsUnsupported) {

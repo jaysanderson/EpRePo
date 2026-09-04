@@ -28,7 +28,12 @@ import {
 import { secondsUntilRetry } from '../lib/ask-budget.ts'
 import { AnswerMarkdown } from '../components/AnswerMarkdown.tsx'
 import { answerHtml, escapeHtml, referenceListHtml } from '../lib/answer-export.ts'
-import { citationHref, ContextJourney, EvidenceDisclosure } from '../components/AnswerStream.tsx'
+import {
+  citationHref,
+  ContextJourney,
+  EvidenceDisclosure,
+  InferenceMark,
+} from '../components/AnswerStream.tsx'
 import { CompareConfigurations } from '../components/CompareConfigurations.tsx'
 import { CurrencyNote } from '../components/CurrencyNote.tsx'
 import { RouteChip } from '../components/RouteChip.tsx'
@@ -98,6 +103,8 @@ type ChatMessage = {
   wasDeep?: boolean
   /** True when the corpus could not answer and guidance was shown instead of a real answer. */
   refused?: boolean
+  /** The generation stopped mid-sentence; the incomplete tail was cut back to the last complete sentence. */
+  truncated?: boolean
   /** What the post-answer audit checked against the cited texts, once it has run. */
   audit?: AnswerAudit
   /** The intent-routing decision this answer ran under (docs/INTENT-ROUTING.md). */
@@ -178,6 +185,7 @@ function migrateMessage(raw: unknown): ChatMessage {
     deepBadge: typeof message?.deepBadge === 'boolean' ? message.deepBadge : undefined,
     wasDeep: typeof message?.wasDeep === 'boolean' ? message.wasDeep : undefined,
     refused: typeof message?.refused === 'boolean' ? message.refused : undefined,
+    truncated: typeof message?.truncated === 'boolean' ? message.truncated : undefined,
     audit: migrateAudit(message?.audit),
     verdicts: message?.verdicts && typeof message.verdicts === 'object'
       ? message.verdicts as Record<string, EvidenceVerdictInfo>
@@ -191,11 +199,16 @@ function migrateAudit(raw: unknown): AnswerAudit | undefined {
   const strings = (v: unknown): string[] =>
     Array.isArray(v) ? v.filter((item): item is string => typeof item === 'string') : []
   if (typeof value.figuresChecked !== 'number') return undefined
+  const count = (v: unknown): number | undefined => typeof v === 'number' ? v : undefined
   return {
     figuresChecked: value.figuresChecked,
     figuresUnsupported: strings(value.figuresUnsupported),
     yearsUnsupported: strings(value.yearsUnsupported),
     contraindicationsUnsupported: strings(value.contraindicationsUnsupported),
+    sentencesChecked: count(value.sentencesChecked),
+    sentencesCited: count(value.sentencesCited),
+    denominatorsMissing: strings(value.denominatorsMissing),
+    attributionsCorrected: strings(value.attributionsCorrected),
   }
 }
 
@@ -310,15 +323,7 @@ function renderCitationMarkers(
   const segments = text.split(splitter).filter((segment) => segment !== undefined)
   return segments.map((segment, index) => {
     if (/^[[(]inference[\])]$/i.test(segment)) {
-      return (
-        <span
-          key={`${keyPrefix}-${index}`}
-          className='text-ink-3 italic'
-          title="The model's own inference, not a statement in the cited sources"
-        >
-          (inference)
-        </span>
-      )
+      return <InferenceMark key={`${keyPrefix}-${index}`} />
     }
     if (isUnsupportedFigure(segment, unsupported)) {
       return (
@@ -347,7 +352,7 @@ function renderCitationMarkers(
       return (
         <sup key={`${keyPrefix}-${index}`}>
           <Link
-            to={citationHref(slug, citation.resourceId, matchedPassage)}
+            to={citationHref(slug, citation.resourceId, matchedPassage, source?.matchedPage)}
             className='font-semibold no-underline'
             style={{ color: 'var(--rp-accent-fg)' }}
             title={`Source ${citationIndex} - ${citation.title}; click to open, or find it in the Evidence table below`}
@@ -1074,7 +1079,7 @@ function AnswerCard({
   // deep (nothing deeper to escalate to).
   const groundedness = message.quality?.groundedness
   const offerDeepReanswer = !message.pending && !message.healDismissed && !message.wasDeep &&
-    !message.deepBadge && isThinlyGrounded(message.quality)
+    !message.deepBadge && isThinlyGrounded(message.quality, message.audit)
   const isSparselyGrounded = !message.pending && groundedness !== null &&
     groundedness !== undefined &&
     groundedness <= 2
@@ -1221,6 +1226,32 @@ function AnswerCard({
           never softens a poorly grounded answer. See AnswerQualityDisclosure. */
       }
 
+      {message.truncated && !message.pending
+        ? (
+          <div
+            className='rp-answer-tail mt-3 flex flex-wrap items-center justify-between gap-2 rounded-[var(--rp-radius)] border p-3'
+            role='status'
+            style={{
+              ...tailStyle(TAIL_NOTICE),
+              borderColor: 'var(--rp-warn-line)',
+              background: 'var(--rp-warn-bg)',
+            }}
+          >
+            <p className='text-xs leading-relaxed text-[var(--rp-warn-ink)]'>
+              The answer stopped mid-sentence. The incomplete sentence was removed; what remains is
+              complete and cited. Ask again for the rest.
+            </p>
+            <button
+              type='button'
+              onClick={() => onAskSubquery?.(question)}
+              className='rp-btn rp-btn-outline h-8 shrink-0 px-2 text-xs'
+            >
+              Ask again
+            </button>
+          </div>
+        )
+        : null}
+
       {message.error && message.text.trim()
         ? (
           <div
@@ -1288,6 +1319,7 @@ function AnswerCard({
               <AuditBadge audit={message.audit} />
               <AnswerQualityDisclosure
                 quality={message.quality}
+                audit={message.audit}
                 {...(offerDeepReanswer ? { onReanswerDeeply } : {})}
                 sparselyGrounded={isSparselyGrounded && evidenceSources.length > 0}
               />
@@ -1379,13 +1411,21 @@ function AnswerCard({
                       }
                       <div className='flex flex-wrap gap-1.5'>
                         {message.citations.map((citation) => {
-                          const matchedPassage = message.sources.find((source) =>
+                          const source = message.sources.find((source) =>
                             source.id === citation.resourceId
-                          )?.matchedPassage
+                          )
+                          const matchedPassage = source?.matchedField === 'summary'
+                            ? undefined
+                            : source?.matchedPassage
                           return (
                             <Link
                               key={citation.index}
-                              to={citationHref(slug, citation.resourceId, matchedPassage)}
+                              to={citationHref(
+                                slug,
+                                citation.resourceId,
+                                matchedPassage,
+                                source?.matchedPage,
+                              )}
                               title={citation.headline
                                 ? `${citation.title} - ${citation.headline}`
                                 : citation.title}
@@ -2225,6 +2265,10 @@ export function AskPage() {
                   figuresUnsupported: event.figuresUnsupported,
                   yearsUnsupported: event.yearsUnsupported,
                   contraindicationsUnsupported: event.contraindicationsUnsupported,
+                  sentencesChecked: event.sentencesChecked,
+                  sentencesCited: event.sentencesCited,
+                  denominatorsMissing: event.denominatorsMissing ?? [],
+                  attributionsCorrected: event.attributionsCorrected ?? [],
                 },
               }))
               break
@@ -2241,6 +2285,7 @@ export function AskPage() {
                 text: event.text ?? message.text,
                 pending: false,
                 refused: event.refused,
+                truncated: event.truncated === true,
               }))
               // The answer is complete here; the quality scores follow on
               // the same stream a few seconds later. The composer is

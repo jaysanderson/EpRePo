@@ -35,6 +35,11 @@ export interface AskOptions {
   context?: { author: 'USER' | 'AGENT'; text: string }[]
   /** Scope the answer to a single resource (per-document chat). */
   resourceId?: string
+  /**
+   * Scope retrieval to these resources (a question about a named author's
+   * papers). Ignored when `resourceId` is set.
+   */
+  resourceIds?: string[]
   topicIds?: string[]
   /** Override the surface's system prompt (portal management setting). */
   systemPrompt?: string

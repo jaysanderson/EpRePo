@@ -23,7 +23,7 @@ const HEADING =
  * bulleted or bracketed) or nothing at all - a paragraph that merely
  * mentions sources is left alone.
  */
-export function referenceBlockStart(text: string): number {
+export function referenceBlockStart(text: string, titles: readonly string[] = []): number {
   // A trailing run of "[n] Title." lines is a reference list even without a
   // heading: bracketed entries are never prose, while a numbered list only
   // counts under a heading (numbered items are how the model structures a
@@ -34,7 +34,59 @@ export function referenceBlockStart(text: string): number {
     const headed = headedBlockStart(text.slice(0, at))
     return headed === -1 ? at : headed
   }
-  return headedBlockStart(text)
+  const headed = headedBlockStart(text)
+  if (headed !== -1) return headed
+  return trailingBibliographyStart(text, titles)
+}
+
+/**
+ * "Surname et al. (2017). Title of the paper.[1]" - an author-year entry
+ * the model appended to its last paragraph or wrote as a line of its own.
+ * Anchored at a sentence start, with no nested repetition, so it cannot
+ * backtrack.
+ */
+const AUTHOR_YEAR_ENTRY =
+  /^[A-Z][A-Za-z'’-]+(?: [A-Z][A-Za-z'’-]+){0,3}(?:,? (?:[A-Z]\.?){1,3})?(?:,? et al\.?)?,? \((?:19|20)\d{2}[a-z]?\)\.?(?: [A-Z]|$)/
+
+/** Sentence boundaries at which a trailing entry may start: after ". ", "?[1] " and the like. */
+const SENTENCE_START = /(?:^|(?<=[.!?]["'”’)]*(?:\[\d{1,3}\])*\s))(?=[A-Z])/g
+
+function normaliseTitle(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+}
+
+/**
+ * Where a trailing run of reference-like sentences begins, or -1. A
+ * sentence counts when it is an author-year entry, or when it is one of
+ * the cited titles written out ("Multiday cycles of heart rate are
+ * associated with seizure likelihood: An observational cohort study.[1]").
+ * Only sentences that run to the very end of the text are cut.
+ */
+export function trailingBibliographyStart(text: string, titles: readonly string[] = []): number {
+  const wanted = titles.map(normaliseTitle).filter((t) => t.length >= 20)
+  const starts = [...text.matchAll(SENTENCE_START)].map((m) => m.index)
+  const sentences = starts.map((from, i) => {
+    const to = i + 1 < starts.length ? starts[i + 1]! : text.length
+    return { from, plain: text.slice(from, to).replace(/\s*\[\d{1,3}\]/g, '').trim() }
+  })
+  const authorYear = sentences.map((s) => AUTHOR_YEAR_ENTRY.test(s.plain))
+  const knownTitle = sentences.map((s) => {
+    const candidate = normaliseTitle(s.plain)
+    return candidate.length >= 20 &&
+      wanted.some((t) => candidate === t || candidate.startsWith(t) || t.startsWith(candidate))
+  })
+  // "Seneviratne et al. (2017)." then "Electroencephalography in ... Syndromes."
+  // - the title sentence of an author-year entry that closed on its year.
+  const titleOfEntry = sentences.map((_s, i) =>
+    i > 0 && authorYear[i - 1] === true && /\)\.?$/.test(sentences[i - 1]!.plain)
+  )
+  let cut = -1
+  for (let i = sentences.length - 1; i >= 0; i--) {
+    if (!sentences[i]!.plain) continue
+    if (!(authorYear[i] || knownTitle[i] || titleOfEntry[i])) break
+    cut = sentences[i]!.from
+  }
+  return cut
 }
 
 function headedBlockStart(text: string): number {
@@ -60,11 +112,69 @@ function cutPoint(text: string, at: number): number {
   return trimmed.length
 }
 
-/** The text with any trailing model-authored reference block removed. */
-export function stripModelReferences(text: string): string {
-  const at = referenceBlockStart(text)
+/**
+ * The text with any trailing model-authored reference block removed. The
+ * cited titles, when given, let a bare title sentence at the end be
+ * recognised as a reference line.
+ */
+export function stripModelReferences(text: string, titles: readonly string[] = []): string {
+  const at = referenceBlockStart(text, titles)
   if (at === -1) return text
-  return text.slice(0, cutPoint(text, at))
+  return text.slice(0, cutPoint(text, at)).replace(/[ \t]+$/, '')
+}
+
+// ---------------------------------------------------------------------------
+// A final text that stops mid-sentence
+// ---------------------------------------------------------------------------
+
+/** A last word no English sentence ends on: a conjunction, a preposition, an article, "Therefore,". */
+const DANGLING_WORD =
+  /\b(?:and|or|but|nor|so|yet|which|that|because|although|though|whereas|while|whether|if|as|than|the|a|an|of|to|in|on|at|by|for|with|from|into|onto|about|between|among|therefore|thus|hence|however|moreover|furthermore|additionally|also|is|are|was|were|be|been|has|have|had|may|might|can|could|would|should|will|not|no)[,;:]?$/i
+
+/**
+ * Whether a finished answer ends mid-sentence: no closing punctuation on its
+ * last line, a trailing comma, colon or dash, or a dangling conjunction.
+ * Markers after the last word are looked through ("...analysis.[1] Therefore,").
+ */
+export function endsMidSentence(text: string): boolean {
+  const lines = text.trimEnd().split('\n')
+  const last = (lines[lines.length - 1] ?? '').replace(/\s*\[\d{1,3}\]/g, '').trimEnd()
+  if (!last) return false
+  // A heading or a list item introducing nothing is a different defect; a
+  // one-word line is not a sentence to judge.
+  if (/^\s*#{1,6}\s/.test(last)) return false
+  if (/[.!?]["'”’)*_]*$/.test(last)) return false
+  if (/[,;:\-–]$/.test(last)) return true
+  return DANGLING_WORD.test(last) || /\s\S+$/.test(last)
+}
+
+/**
+ * The text cut back to its last complete sentence when it ends mid-sentence,
+ * and whether it was cut. The incomplete tail is dropped only when a complete
+ * sentence remains before it in the same paragraph; otherwise the dangling
+ * paragraph goes as a whole, unless it is the only one - then the text stands
+ * and is merely flagged.
+ */
+export function trimTruncatedTail(text: string): { text: string; truncated: boolean } {
+  if (!endsMidSentence(text)) return { text, truncated: false }
+  const trimmed = text.trimEnd()
+  const lines = trimmed.split('\n')
+  const lastIndex = lines.length - 1
+  const last = lines[lastIndex] ?? ''
+  // The last sentence boundary in the final line, markers kept with their sentence.
+  const boundary = /[.!?]["'”’)*_]*(?:\s*\[\d{1,3}\])*(?=\s+\S)/g
+  let cut = -1
+  let m: RegExpExecArray | null
+  while ((m = boundary.exec(last)) !== null) cut = m.index + m[0].length
+  if (cut > 0) {
+    lines[lastIndex] = last.slice(0, cut).trimEnd()
+    return { text: lines.join('\n'), truncated: true }
+  }
+  const before = lines.slice(0, lastIndex).join('\n').trimEnd()
+  if (before.replace(/^\s*#{1,6}\s.*$/gm, '').trim().length === 0) {
+    return { text, truncated: true }
+  }
+  return { text: before, truncated: true }
 }
 
 /**

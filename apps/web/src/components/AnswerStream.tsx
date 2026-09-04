@@ -53,9 +53,30 @@ export function citationHref(
   slug: string,
   resourceId: string,
   matchedPassage: string | undefined,
+  /** The page the passage sits on, so the reader's PDF pane opens there too. */
+  page?: number,
 ): string {
-  const query = matchedPassage ? `?passage=${encodeURIComponent(matchedPassage.slice(0, 300))}` : ''
-  return `/t/${slug}/library/${resourceId}${query}`
+  const params: string[] = []
+  if (matchedPassage) params.push(`passage=${encodeURIComponent(matchedPassage.slice(0, 300))}`)
+  if (page && matchedPassage) params.push(`page=${page}`)
+  return `/t/${slug}/library/${resourceId}${params.length > 0 ? `?${params.join('&')}` : ''}`
+}
+
+/**
+ * The model's own hedge, shown as a mark rather than as prose: a reader sees
+ * a small "inference" flag with its meaning on hover and for screen readers,
+ * never the literal "(inference)" the prompt asked the model to write.
+ */
+export function InferenceMark() {
+  return (
+    <sup
+      className='ml-0.5 select-none rounded-[var(--rp-radius-chip)] px-1 text-[0.6em] font-semibold uppercase tracking-wide text-ink-3'
+      style={{ backgroundColor: 'var(--rp-surface-3)' }}
+      title="The model's own inference, not a statement in the cited sources"
+    >
+      inference
+    </sup>
+  )
 }
 
 /**
@@ -175,18 +196,8 @@ function renderCitationMarkers(
 ): ReactNode[] {
   return text.split(/(\[\d+\]|\[inference\]|\(inference\))/gi).map((segment, index) => {
     const key = `${keyPrefix}-${index}`
-    // The model's own hedge, rendered as one rather than as prose.
-    if (/^[[(]inference[\])]$/i.test(segment)) {
-      return (
-        <span
-          key={key}
-          className='text-ink-3 italic'
-          title="The model's own inference, not a statement in the cited sources"
-        >
-          (inference)
-        </span>
-      )
-    }
+    // The model's own hedge, rendered as a mark rather than as prose.
+    if (/^[[(]inference[\])]$/i.test(segment)) return <InferenceMark key={key} />
     const match = /^\[(\d+)\]$/.exec(segment)
     const marker = match?.[1] ? renderMarker(segment, Number(match[1]), key) : null
     return marker ?? <span key={key}>{segment}</span>
