@@ -783,6 +783,15 @@ export const ScoredResourceSchema = ResourceSummarySchema.extend({
   matchedPassage: z.string().optional(),
   /** Page the matched passage sits on (PDFs), for open-at-page links. */
   matchedPage: z.number().int().positive().optional(),
+  /**
+   * Every paragraph retrieval returned for this resource, best first, each
+   * with its page when known - so the evidence card can quote the paragraph
+   * that carries the answer's figure rather than the top-scoring one.
+   */
+  passages: z.object({
+    text: z.string(),
+    page: z.number().int().positive().optional(),
+  }).array().optional(),
   /** True when the matched passage looks like a reference list or front matter. */
   referenceChunk: z.boolean().optional(),
   /** Where the matched passage came from: the document body, a generated summary field, or the bibliographic record (an identifier or author lookup). */
@@ -1056,6 +1065,12 @@ export const AskEventSchema = z.discriminatedUnion('type', [
      * targets agree by construction.
      */
     text: z.string().optional(),
+    /**
+     * The generation stopped mid-sentence and the incomplete tail was cut
+     * back to the last complete sentence (or the text left standing when
+     * nothing complete preceded it). The surface says so and offers a retry.
+     */
+    truncated: z.boolean().optional(),
   }),
   z.object({ type: z.literal('error'), message: z.string() }),
   /**
@@ -1072,6 +1087,13 @@ export const AskEventSchema = z.discriminatedUnion('type', [
     figuresUnsupported: z.string().array(),
     yearsUnsupported: z.string().array(),
     contraindicationsUnsupported: z.string().array(),
+    /** Sentences the binding pass judged, and how many kept at least one citation. */
+    sentencesChecked: z.number().int().nonnegative().optional(),
+    sentencesCited: z.number().int().nonnegative().optional(),
+    /** Proportions stated in a sentence that gives no denominator. */
+    denominatorsMissing: z.string().array().optional(),
+    /** Attributions ("X and colleagues") rewritten because the cited paper lacks that author. */
+    attributionsCorrected: z.string().array().optional(),
   }),
   /**
    * The routed intent's retrieval found nothing usable (a supplements-only

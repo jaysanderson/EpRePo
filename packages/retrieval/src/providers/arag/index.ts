@@ -1774,7 +1774,11 @@ export class AragProvider implements RetrievalProvider {
     let paragraphs = 0
     for (const [group, fields] of Object.entries(full.data ?? {})) {
       if (group === 'generics') continue
-      for (const field of Object.values(fields ?? {})) {
+      for (const [fieldKey, field] of Object.entries(fields ?? {})) {
+        // A generated summary field is not the document: the audit and the
+        // evidence cards read the extraction to check claims against what
+        // the paper says, and a DA summary would vouch for itself.
+        if (isGeneratedField(fieldKey)) continue
         const t = field.extracted?.text?.text
         if (t) texts.push(t)
         paragraphs += field.extracted?.metadata?.metadata?.paragraphs?.length ?? 0
@@ -3227,6 +3231,10 @@ export class AragProvider implements RetrievalProvider {
       }))
     }
     if (opts.resourceId) body.resource_filters = [opts.resourceId]
+    else if (opts.resourceIds && opts.resourceIds.length > 0) {
+      // An author's papers: the platform's resource filter takes a list.
+      body.resource_filters = opts.resourceIds.slice(0, 80)
+    }
     if (opts.topicIds && opts.topicIds.length > 0) {
       body.filters = opts.topicIds.map((t) => `/classification.labels/topic/${t}`)
     }
@@ -3287,9 +3295,22 @@ export class AragProvider implements RetrievalProvider {
         let passage: string | undefined
         let page: number | undefined
         let matchedField: 'body' | 'summary' = 'body'
+        // Every body paragraph retrieval returned, best first: the evidence
+        // card chooses among them for the paragraph that carries the claim.
+        const paged: { score: number; text: string; page?: number }[] = []
         for (const [fieldKey, field] of Object.entries(raw.fields ?? {})) {
           for (const paragraph of Object.values(field.paragraphs ?? {})) {
             if (paragraph.text) contextTexts.push(paragraph.text)
+            const paragraphPage = displayPage(
+              (paragraph as { position?: { page_number?: number } }).position?.page_number,
+            )
+            if (paragraph.text && !isGeneratedField(fieldKey)) {
+              paged.push({
+                score: paragraph.score ?? 0,
+                text: paragraph.text.slice(0, 2000),
+                ...(paragraphPage ? { page: paragraphPage } : {}),
+              })
+            }
             if ((paragraph.score ?? 0) >= best) {
               best = paragraph.score ?? 0
               passage = paragraph.text ?? passage
@@ -3300,6 +3321,10 @@ export class AragProvider implements RetrievalProvider {
         }
         const reference = passage ? looksLikeReferenceChunk(passage) : false
         const shown = reference ? best * 0.4 : best
+        const passages = paged
+          .sort((a, b) => b.score - a.score)
+          .slice(0, 12)
+          .map(({ text, page }) => ({ text, ...(page ? { page } : {}) }))
         return {
           ...(byId.get(id) ?? this.toSummary(id, raw)),
           // Same calibration as search: semantic scores pass through, BM25
@@ -3309,6 +3334,7 @@ export class AragProvider implements RetrievalProvider {
           citedCount: 0,
           matchedPassage: passage,
           ...(displayPage(page) ? { matchedPage: displayPage(page) } : {}),
+          ...(passages.length > 0 ? { passages } : {}),
           ...(reference ? { referenceChunk: true } : {}),
           ...(passage ? { matchedField } : {}),
         }

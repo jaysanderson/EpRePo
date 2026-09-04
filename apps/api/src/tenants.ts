@@ -364,7 +364,7 @@ const eprepo: TenantConfig = TenantConfigSchema.parse({
       ],
       retrieval: {
         features: ['keyword', 'semantic'],
-        topK: 12,
+        topK: 20,
         reranker: 'predict',
         exclude: [
           { labelset: 'format', label: 'supplement' },
@@ -388,7 +388,7 @@ const eprepo: TenantConfig = TenantConfigSchema.parse({
       examples: ['How does the ketogenic diet work?'],
       retrieval: {
         features: ['keyword', 'semantic'],
-        topK: 20,
+        topK: 30,
         reranker: 'predict',
         exclude: [
           { labelset: 'format', label: 'supplement' },
