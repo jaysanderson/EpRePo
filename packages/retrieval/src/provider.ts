@@ -70,7 +70,8 @@ export interface CatalogOptions {
   kindIds?: string[]
   /** Labels in the 'format' labelset (article / supplement / media) to filter by. */
   formatIds?: string[]
-  sortField?: 'created' | 'modified' | 'title'
+  /** `published` orders by the source's publication date (newest first by default). */
+  sortField?: 'created' | 'modified' | 'title' | 'published'
   sortOrder?: 'asc' | 'desc'
 }
 
@@ -96,5 +97,7 @@ export interface RetrievalProvider {
   /** Top resources filed under one topic (Explore's topic rows) - via the classification index, not per-resource topicIds. */
   topicResources(tenant: TenantConfig, topicId: string, limit?: number): Promise<ResourceSummary[]>
   facets(tenant: TenantConfig, labelsets: string[], filters?: string[]): Promise<FacetCounts>
+  /** Resources carrying no label at all from a labelset (the "Untagged" count). Optional. */
+  untaggedCount?(tenant: TenantConfig, labelset: string): Promise<number>
   labelsets(tenant: TenantConfig): Promise<Labelset[]>
 }

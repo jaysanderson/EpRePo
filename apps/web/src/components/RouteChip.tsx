@@ -89,7 +89,16 @@ export function RouteChip(
           )
           : null}
       </button>
-      <span className='hidden text-xs text-ink-3 sm:inline'>{decision.rationale}</span>
+      {
+        /* The rationale can run to a sentence; it truncates with an ellipsis
+        * and the full text rides on the title, so it never cuts mid-word. */
+      }
+      <span
+        className='hidden min-w-0 max-w-[48ch] truncate text-xs text-ink-3 sm:inline'
+        title={decision.rationale}
+      >
+        {decision.rationale}
+      </span>
       {open && onOverride
         ? (
           <ul

@@ -377,6 +377,18 @@ export const TenantConfigSchema = z.object({
   defaultIntent: z.string().optional(),
   /** Domain lexicon (drug and gene names) the router recognises as entities. */
   entityTerms: z.string().array().optional(),
+  /**
+   * Portal-facing example copy. Every field has a default derived from
+   * `suggestedQuestions` and `topics` (see apps/web/src/lib/tenant-copy.ts),
+   * so a tenant sets only what it wants to say - and no other tenant's
+   * examples can leak into its pages.
+   */
+  copy: z.object({
+    /** Placeholder for a new investigation's name, e.g. "Does X pay off in Y?". */
+    investigationExample: z.string().optional(),
+    /** Placeholder per Generate kind (comparison, briefing, timeline, proscons, faq, assessment). */
+    generateExamples: z.record(z.string(), z.string()).optional(),
+  }).optional(),
   /** Extraction routing rules (docs/EXTRACTION-LAB.md). Absent = platform default for everything. */
   extraction: ExtractionRulesSchema.optional(),
 })
@@ -792,6 +804,10 @@ export const CatalogItemSchema = z.object({
   topicIds: z.string().array(),
   /** Label in the 'kind' labelset, when classified. */
   kind: z.string().optional(),
+  /** Label in the 'format' labelset (article / supplement / media), when filed that way. */
+  format: z.string().optional(),
+  /** Content type, so a card can badge a text-only article honestly. */
+  type: ResourceTypeSchema.optional(),
   /** ISO date the source was published, when known. */
   published: z.string().optional(),
   /** Merchandised blurb from the default enrichment, when generated. */
@@ -824,7 +840,12 @@ export const LabelsetSchema = z.object({
   kind: z.enum(['RESOURCES', 'PARAGRAPHS']).optional(),
 })
 
-/** Facet counts: labelset id -> label -> count of resources carrying it. */
+/**
+ * Facet counts: labelset id -> label -> count of resources carrying it. The
+ * reserved key `untagged` maps a labelset id to the number of resources
+ * carrying NO label from it (the honest "Untagged" row - topics are
+ * multi-valued, so resources minus the sum of counts is wrong).
+ */
 export const FacetCountsSchema = z.record(z.string(), z.record(z.string(), z.number()))
 
 /** Label co-occurrence graph (the reference portal's knowledge-graph model). */

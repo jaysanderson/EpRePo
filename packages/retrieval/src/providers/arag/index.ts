@@ -44,6 +44,21 @@ import { dedupeResourceFamilies } from './resource-groups.ts'
 import { dedupeEntityCase } from './graph-relations.ts'
 import { dedupeNames, isNoiseEntity, keepEntity, preferredSpelling } from './entity-filter.ts'
 import { rankSuggestedQuestions } from './suggest-ranking.ts'
+import {
+  catalogFilterExpression,
+  matchesCatalogFilters,
+  paginateCatalogItems,
+  sortCatalogItems,
+  untaggedFilterExpression,
+} from './catalog-browse.ts'
+import {
+  chooseSnippet,
+  extractDoi,
+  isCitationNoise,
+  isExactTermMatch,
+  matchesDoi,
+  type ScoredParagraph,
+} from './snippet.ts'
 
 const CATALOG_TTL_MS = 60_000
 /** Identical search queries return the identical list for this long. */
@@ -770,12 +785,19 @@ function cleanEntityNames(names: readonly string[], group: string): string[] {
     .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
 }
 
+/** The portal's content type for a resource, from the metadata the ingest stored. */
+function resourceTypeFromMeta(meta: PortalMetadata): ResourceType {
+  const t = meta.type
+  return t === 'video' || t === 'web' || t === 'pdf' ? t : 'document'
+}
+
 function catalogItemFromRaw(id: string, r: RawResource): CatalogItem {
   const status = r.metadata?.status
   const safe = displayTitle(r.title, id)
   const rawTitle = safe === 'Untitled resource' ? '' : (r.title ?? '')
   const merch = baselineMerchandising(rawTitle, r.summary ?? r.extra?.metadata?.summary)
   const { keywords: _keywords, ...bib } = bibliographic(r.extra?.metadata ?? {})
+  const format = classificationLabels(r, 'format')[0]
   return {
     id,
     title: merch.title,
@@ -783,6 +805,8 @@ function catalogItemFromRaw(id: string, r: RawResource): CatalogItem {
     created: r.created,
     topicIds: classificationLabels(r, 'topic'),
     kind: classificationLabels(r, 'kind')[0],
+    ...(format ? { format } : {}),
+    type: resourceTypeFromMeta(r.extra?.metadata ?? {}),
     published: r.extra?.metadata?.published,
     ...(merch.sourceName ? { sourceName: merch.sourceName } : {}),
     ...bib,
@@ -886,13 +910,16 @@ export interface AragProviderOptions {
  */
 export class AragProvider implements RetrievalProvider {
   private readonly clients = new Map<string, KbClient>()
-  private readonly catalogCache = new Map<string, { at: number; resources: ResourceSummary[] }>()
   private readonly searchCache = new Map<string, { at: number; results: SearchResults }>()
   private readonly graphCache = new Map<string, { at: number; graph: RelationsGraphResult }>()
   /** Cleaned entity names per group, uncapped - the display list is a slice of it. */
   private readonly entityGroupsCache = new Map<
     string,
     { at: number; groups: { group: string; entities: string[] }[] }
+  >()
+  private readonly catalogCache = new Map<
+    string,
+    { at: number; resources: ResourceSummary[]; items: CatalogItem[] }
   >()
   private readonly augmentationModelId: string
 
@@ -937,10 +964,7 @@ export class AragProvider implements RetrievalProvider {
     const meta = raw.extra?.metadata ?? {}
     const topicFromLabels = classificationLabels(raw, 'topic')
     const kindLabel = classificationLabels(raw, 'kind')[0]
-    const type: ResourceType = ((): ResourceType => {
-      const t = meta.type
-      return t === 'video' || t === 'web' || t === 'pdf' ? t : 'document'
-    })()
+    const type = resourceTypeFromMeta(meta)
     // Merchandise the raw title/summary so a filename ("1981-071-DLD.pdf") is
     // never the headline. Junk titles (hash/bot/system) collapse to "Untitled
     // resource" with no source name shown. The API overlays a generated
@@ -968,13 +992,29 @@ export class AragProvider implements RetrievalProvider {
   }
 
   async listResources(tenant: TenantConfig): Promise<ResourceSummary[]> {
+    return (await this.loadCatalogue(tenant)).resources
+  }
+
+  /**
+   * Every displayable resource as a library item, from the same paged read
+   * `listResources` makes and under the same TTL - the publication-date sort
+   * the platform cannot do runs over this.
+   */
+  private async catalogItems(tenant: TenantConfig): Promise<CatalogItem[]> {
+    return (await this.loadCatalogue(tenant)).items
+  }
+
+  private async loadCatalogue(
+    tenant: TenantConfig,
+  ): Promise<{ resources: ResourceSummary[]; items: CatalogItem[] }> {
     const cached = this.catalogCache.get(tenant.slug)
-    if (cached && Date.now() - cached.at < CATALOG_TTL_MS) return cached.resources
+    if (cached && Date.now() - cached.at < CATALOG_TTL_MS) return cached
     const client = this.client(tenant)
     // Read the catalogue in pages and build summaries from the page payload
     // itself. A per-resource fetch here would mean one request per document -
     // thousands of parallel calls on a real corpus, on the hot search path.
     const resources: ResourceSummary[] = []
+    const items: CatalogItem[] = []
     for (let page = 0; page < CATALOG_MAX_PAGES; page++) {
       const catalog = await client.getJson<{ resources?: Record<string, RawResource> }>(
         `/catalog?page_number=${page}&page_size=${CATALOG_PAGE_SIZE}&show=basic&show=extra&show=origin`,
@@ -986,12 +1026,14 @@ export class AragProvider implements RetrievalProvider {
         // is research-invisible: it never appears in the research catalogue.
         if (!isDisplayableResource(raw) || isDocumentationResource(raw)) continue
         resources.push(this.toSummary(id, raw))
+        items.push(catalogItemFromRaw(id, raw))
       }
       if (batch.length < CATALOG_PAGE_SIZE) break
     }
     resources.sort((a, b) => (b.published ?? '').localeCompare(a.published ?? ''))
-    this.catalogCache.set(tenant.slug, { at: Date.now(), resources })
-    return resources
+    const entry = { at: Date.now(), resources, items }
+    this.catalogCache.set(tenant.slug, entry)
+    return entry
   }
 
   async resource(tenant: TenantConfig, id: string): Promise<ResourceSummary | null> {
@@ -1245,13 +1287,22 @@ export class AragProvider implements RetrievalProvider {
     else if (mode === 'hybrid') body.search_configuration = SEARCH_CONFIG_RESEARCH_FIND
     const searchIntent = opts.intent ? tenant.intents?.find((i) => i.id === opts.intent) : undefined
     if (searchIntent && !opts.docScope && searchIntent.answer.surfaces.includes('search')) {
-      // The stored configuration carries the intent's features and filter;
-      // it overrides request features, so they are dropped rather than sent.
+      // The stored configuration carries the intent's features and filter and
+      // overrides request features - but `findWithFallback` sheds the
+      // configuration on a zero result, and a retry with no features at all
+      // is the platform's fuzzy default. Sending the intent's own features
+      // keeps a keyword-only lookup keyword-only on that retry.
       body.search_configuration = intentConfigurationName(tenant, searchIntent.id, 'find')
-      delete body.features
+      body.features = searchIntent.retrieval.features
       body.reranker = searchIntent.retrieval.reranker
       body.page_size = opts.pageSize ?? searchIntent.retrieval.topK
     }
+    // An exact lookup (a bare identifier or term on the keyword
+    // configuration) promises the documents that contain it, never near
+    // misses; a DOI names one document. Both are enforced below.
+    const exactLookup = searchIntent !== undefined && !opts.docScope &&
+      !searchIntent.answer.surfaces.includes('ask')
+    const wantedDoi = opts.docScope ? undefined : extractDoi(trimmed)
     const filters = [
       ...(opts.topicIds ?? []).map((t) => `/classification.labels/topic/${t}`),
       ...(opts.kindIds ?? []).map((k) => `/classification.labels/kind/${k}`),
@@ -1276,36 +1327,57 @@ export class AragProvider implements RetrievalProvider {
     const MIN_SCORE = 0.1
     const scored = entries
       .map(([id, raw]) => {
-        let best = 0
-        let passage: string | undefined
-        let page: number | undefined
-        let matchedField: 'body' | 'summary' = 'body'
+        const paragraphs: ScoredParagraph[] = []
         for (const [fieldKey, field] of Object.entries(raw.fields ?? {})) {
           for (const paragraph of Object.values(field.paragraphs ?? {})) {
-            const score = paragraph.score ?? 0
-            if (score >= best) {
-              best = score
-              passage = paragraph.text ?? passage
-              page = (paragraph as { position?: { page_number?: number } }).position?.page_number
-              matchedField = isGeneratedField(fieldKey) ? 'summary' : 'body'
-            }
+            paragraphs.push({
+              score: paragraph.score ?? 0,
+              text: paragraph.text ?? '',
+              page: (paragraph as { position?: { page_number?: number } }).position?.page_number,
+              fieldKey,
+            })
           }
         }
-        const reference = passage ? looksLikeReferenceChunk(passage) : false
-        // A reference-list match is citation-title noise - keep it findable
-        // but never let it outrank body text.
+        // The snippet is the best BODY paragraph whenever one matched: a
+        // reference-list line, a first-page title/author block or a DOI
+        // fragment never outranks or stands in for body text. A resource
+        // whose only matches are such noise stays findable, flagged, at a
+        // fraction of its score.
+        const choice = chooseSnippet(
+          paragraphs,
+          MIN_SCORE,
+          (text) => looksLikeReferenceChunk(text) || isCitationNoise(text),
+        )
+        const passage = choice.passage?.text || undefined
+        const summaryDoi = byId.get(id)?.doi
+        const texts = paragraphs.map((p) => p.text)
+        // A DOI query matches one document; the resource that records it is
+        // a certain match whatever its paragraph scores say.
+        const doiHit = wantedDoi !== undefined && matchesDoi(wantedDoi, { doi: summaryDoi, texts })
         return {
           id,
           title: raw.title,
           raw,
-          best: reference ? best * 0.4 : best,
+          best: doiHit && summaryDoi ? Math.max(choice.score, 1) : choice.score,
           passage,
-          page,
-          reference,
-          matchedField,
+          page: choice.passage?.page,
+          reference: choice.reference,
+          matchedField: choice.passage?.fieldKey && isGeneratedField(choice.passage.fieldKey)
+            ? 'summary' as const
+            : 'body' as const,
+          texts,
+          doiHit,
         }
       })
       .filter((s) => s.best >= MIN_SCORE)
+      // A DOI names one document: nothing else - least of all a reference
+      // list citing a neighbouring DOI - is a result for it.
+      .filter((s) => wantedDoi === undefined || s.doiHit)
+      // An exact lookup returns only documents that contain every term.
+      .filter((s) =>
+        !exactLookup || wantedDoi !== undefined ||
+        isExactTermMatch(trimmed, { title: s.title, texts: s.texts })
+      )
     // Near-duplicate suppression: crawled pages repeat nav/footer chrome, so
     // two results opening with the same 120 characters are the same content.
     const seenSignatures = new Set<string>()
@@ -1385,6 +1457,10 @@ export class AragProvider implements RetrievalProvider {
     // retrieval path `search` uses; unfiltered browse/paging below is
     // untouched.
     if (query) return await this.catalogByQuery(tenant, query, opts)
+    // The platform's `sort_field` is created/modified/title only, so a
+    // publication-date sort runs over the cached listing (same paged read,
+    // same TTL) with the same OR-within / AND-across facet semantics.
+    if (opts.sortField === 'published') return await this.catalogByPublished(tenant, opts)
     const params = new URLSearchParams()
     params.set('page_number', String(opts.page ?? 0))
     params.set('page_size', String(opts.pageSize ?? 24))
@@ -1394,15 +1470,11 @@ export class AragProvider implements RetrievalProvider {
     params.set('sort_field', opts.sortField ?? 'created')
     params.set('sort_order', opts.sortOrder ?? 'desc')
     params.set('hidden', 'false')
-    for (const topic of opts.topicIds ?? []) {
-      params.append('filters', `/classification.labels/topic/${topic}`)
-    }
-    for (const format of opts.formatIds ?? []) {
-      params.append('filters', `/classification.labels/format/${format}`)
-    }
-    for (const kind of opts.kindIds ?? []) {
-      params.append('filters', `/classification.labels/kind/${kind}`)
-    }
+    // One expression, not the legacy `filters` params: those AND every label,
+    // so Articles + Video returned nothing. Labels within a facet OR, facets
+    // AND (docs/ARAG-DEV.md: `/catalog` keys the expression under `resource`).
+    const expression = catalogFilterExpression(opts)
+    if (expression) params.set('filter_expression', JSON.stringify(expression))
     const raw = await this.client(tenant).getJson<{
       resources?: Record<string, RawResource & { created?: string }>
       fulltext?: { total?: number }
@@ -1419,6 +1491,37 @@ export class AragProvider implements RetrievalProvider {
     const items: CatalogItem[] = dedupeResourceFamilies(entries)
       .map(({ id, raw }) => catalogItemFromRaw(id, raw))
     return { items, total: raw.fulltext?.total ?? raw.total ?? items.length }
+  }
+
+  /** Browse ordered by publication date, over the cached listing. */
+  private async catalogByPublished(
+    tenant: TenantConfig,
+    opts: CatalogOptions,
+  ): Promise<CatalogPage> {
+    const all = await this.catalogItems(tenant)
+    const matching = dedupeResourceFamilies(
+      all.filter((item) => matchesCatalogFilters(item, opts)),
+    )
+    const sorted = sortCatalogItems(matching, 'published', opts.sortOrder ?? 'desc')
+    return {
+      items: paginateCatalogItems(sorted, opts.page ?? 0, opts.pageSize ?? 24),
+      total: sorted.length,
+    }
+  }
+
+  /**
+   * How many resources carry no label at all from a labelset - a real count
+   * from the index, because topics are multi-valued and "resources minus the
+   * sum of topic counts" goes negative.
+   */
+  async untaggedCount(tenant: TenantConfig, labelset: string): Promise<number> {
+    const params = new URLSearchParams({ page_size: '0', hidden: 'false' })
+    params.set('filter_expression', JSON.stringify(untaggedFilterExpression(labelset)))
+    const raw = await this.client(tenant).getJson<{
+      fulltext?: { total?: number }
+      total?: number
+    }>(`/catalog?${params.toString()}`)
+    return raw.fulltext?.total ?? raw.total ?? 0
   }
 
   /**

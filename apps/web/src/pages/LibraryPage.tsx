@@ -2,28 +2,63 @@ import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link, useOutletContext, useSearchParams } from 'react-router-dom'
 import type { CatalogItem } from '@research-portal/core'
-import { getCatalog, getCounters, getFacets } from '../api/client.ts'
+import { getCatalog, getFacets } from '../api/client.ts'
 import { Byline, bylineFor } from '../components/Byline.tsx'
 import { ResourceThumb } from '../components/ResourceThumb.tsx'
 import { SearchField } from '../components/SearchField.tsx'
 import { GridDensity, ViewToggle } from '../components/ViewControls.tsx'
 import { useViewMode, type ViewMode } from '../components/useViewMode.ts'
-import { EmptyState, ErrorCard, prettyLabel, Skeleton } from '../components/ui.tsx'
+import { EmptyState, ErrorCard, prettyLabel, sameLabel, Skeleton } from '../components/ui.tsx'
+import { plainDashes, presentTitle } from '../lib/display-title.ts'
 import type { TenantOutletContext } from './TenantLayout.tsx'
 
 const PAGE_SIZE = 24
 
-export type SortValue = 'newest' | 'oldest' | 'title'
+export type SortValue = 'published' | 'oldestPublished' | 'newest' | 'oldest' | 'title'
 
-export const SORT_VALUES: SortValue[] = ['newest', 'oldest', 'title']
+export const SORT_VALUES: SortValue[] = [
+  'published',
+  'oldestPublished',
+  'newest',
+  'oldest',
+  'title',
+]
+
+/** The default sort: what was published most recently, not what was uploaded last. */
+export const DEFAULT_SORT: SortValue = 'published'
 
 export const SORT_OPTIONS: Record<
   SortValue,
-  { label: string; sort: 'created' | 'title'; order: 'asc' | 'desc' }
+  { label: string; sort: 'created' | 'title' | 'published'; order: 'asc' | 'desc' }
 > = {
+  published: { label: 'Newest published', sort: 'published', order: 'desc' },
+  oldestPublished: { label: 'Oldest published', sort: 'published', order: 'asc' },
   newest: { label: 'Newest added', sort: 'created', order: 'desc' },
   oldest: { label: 'Oldest added', sort: 'created', order: 'asc' },
   title: { label: 'Title A-Z', sort: 'title', order: 'asc' },
+}
+
+/** How a `format` label reads on a card and on the artwork placeholder. */
+export function formatLabel(format: string | undefined, type: string | undefined): string | null {
+  if (format === 'article') return 'Article'
+  if (format === 'supplement') return 'Supplement'
+  if (format === 'media') return type === 'video' ? 'Video' : 'Media'
+  return null
+}
+
+/**
+ * The day a corpus was bulk-imported, when there is one: the created date
+ * shared by at least four in five of the items on the page. "Added 3 Sept
+ * 2026" on every card carries no information, so cards on that day drop
+ * the line; anything added since still shows it.
+ */
+export function bulkImportDay(items: { created?: string }[]): string | null {
+  const days = items.map((i) => i.created?.slice(0, 10)).filter((d): d is string => Boolean(d))
+  if (days.length < 5) return null
+  const counts = new Map<string, number>()
+  for (const day of days) counts.set(day, (counts.get(day) ?? 0) + 1)
+  const [day, count] = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]!
+  return count / days.length >= 0.8 ? day : null
 }
 
 const STATUS_BADGES: Record<'pending' | 'error', { label: string; className: string }> = {
@@ -43,13 +78,6 @@ function formatYear(iso: string): string | null {
   return match ? match[1] ?? null : null
 }
 
-/**
- * Catalogue items may carry the platform's `kind` label and the source's
- * original publish date - fields not yet in the shared CatalogItem type, so
- * they're read defensively here and simply omitted when absent.
- */
-type CatalogItemMeta = CatalogItem & { kind?: string; published?: string }
-
 function LibraryCard(
   {
     item,
@@ -58,6 +86,7 @@ function LibraryCard(
     organisation,
     view = 'grid',
     compact = false,
+    hideAdded = false,
   }: {
     item: CatalogItem
     slug: string
@@ -67,15 +96,24 @@ function LibraryCard(
     view?: ViewMode
     /** Narrow viewport - a list row's short lines earn a longer summary. */
     compact?: boolean
+    /** This item's created date is the corpus's bulk-import day - say nothing about it. */
+    hideAdded?: boolean
   },
 ) {
-  const meta = item as CatalogItemMeta
   const topicLabels = item.topicIds
     .map((id) => topicLabel(id))
     .filter((label): label is string => Boolean(label))
   const statusInfo = item.status === 'processed' ? null : STATUS_BADGES[item.status]
-  const publishedYear = meta.published ? formatYear(meta.published) : null
+  const publishedYear = item.published ? formatYear(item.published) : null
   const byline = bylineFor(item)
+  const format = formatLabel(item.format, item.type)
+  // The kind chip is dropped when it only restates the format badge
+  // ("Supplementary Material" under "Supplement").
+  const kind = item.kind && !(format && sameLabel(prettyLabel(item.kind, organisation), format))
+    ? prettyLabel(item.kind, organisation)
+    : null
+  const title = presentTitle(item.title)
+  const summary = item.summary ? plainDashes(item.summary) : ''
 
   const list = view === 'list'
   const body = (
@@ -95,7 +133,18 @@ function LibraryCard(
             ? 'absolute inset-0 overflow-hidden bg-surface'
             : 'rp-shadow-sm absolute inset-x-6 bottom-0 top-6 overflow-hidden bg-surface'}
         >
-          <ResourceThumb slug={slug} id={item.id} type='document' imgClassName='object-top' />
+          {
+            /* Same artwork pipeline as Search: the platform thumbnail when one
+            * exists. A text-only article has no page to render, so its
+            * placeholder says what it is ("Article"), never "Report". */
+          }
+          <ResourceThumb
+            slug={slug}
+            id={item.id}
+            type={item.type ?? 'document'}
+            label={format ?? undefined}
+            imgClassName='object-top'
+          />
         </div>
         {
           /* A list row's thumbnail is only 4.5rem wide, too narrow to carry the
@@ -116,7 +165,7 @@ function LibraryCard(
           : 'flex flex-1 flex-col gap-2 border-t border-line p-3.5'}
       >
         <h3 className='rp-clamp-2 text-sm font-semibold leading-snug text-ink'>
-          {item.title}
+          {title}
         </h3>
         {byline ? <Byline parts={byline} className='!mt-0' /> : null}
         {
@@ -130,30 +179,25 @@ function LibraryCard(
           * thousand pixels, so three lines already carry a few hundred
           * characters and a four-line clamp would mostly buy whitespace. */
         }
-        {item.summary && item.summary !== item.title
+        {summary && summary !== item.title
           ? (
             <p
               className={`text-xs leading-relaxed text-ink-3 ${
                 list && compact ? 'rp-clamp-4' : 'rp-clamp-3'
               }`}
             >
-              {item.summary}
+              {summary}
             </p>
           )
           : null}
-        {topicLabels.length > 0 || meta.kind || (statusInfo && list)
+        {topicLabels.length > 0 || format || kind || (statusInfo && list)
           ? (
             <div className='flex flex-wrap gap-1'>
               {statusInfo && list
                 ? <span className={statusInfo.className}>{statusInfo.label}</span>
                 : null}
-              {meta.kind
-                ? (
-                  <span className='rp-badge rp-badge-quiet'>
-                    {prettyLabel(meta.kind, organisation)}
-                  </span>
-                )
-                : null}
+              {format ? <span className='rp-badge rp-badge-quiet'>{format}</span> : null}
+              {kind ? <span className='rp-badge rp-badge-quiet'>{kind}</span> : null}
               {topicLabels.slice(0, 3).map((label) => (
                 <span
                   key={label}
@@ -165,14 +209,16 @@ function LibraryCard(
             </div>
           )
           : null}
-        {item.created || publishedYear || item.sourceName
+        {(item.created && !hideAdded) || (publishedYear && !byline) || item.sourceName
           ? (
             <div className='mt-auto pt-1'>
-              {item.created || publishedYear
+              {(item.created && !hideAdded) || (publishedYear && !byline)
                 ? (
                   <p className='flex flex-wrap items-baseline gap-x-1.5 text-xs tabular-nums text-ink-3'>
                     {publishedYear && !byline ? <span>Published {publishedYear}</span> : null}
-                    {item.created ? <span>Added {formatDate(item.created)}</span> : null}
+                    {item.created && !hideAdded
+                      ? <span>Added {formatDate(item.created)}</span>
+                      : null}
                   </p>
                 )
                 : null}
@@ -255,7 +301,7 @@ export function LibraryBrowser(
 
   const [queryDraft, setQueryDraft] = useState('')
   const [debouncedQuery, setDebouncedQuery] = useState('')
-  const [sortState, setSortState] = useState<SortValue>('newest')
+  const [sortState, setSortState] = useState<SortValue>(DEFAULT_SORT)
   const sort = sortProp ?? sortState
   const setSort = onSortChange ?? setSortState
   // Grid density: how many cards sit across the widest breakpoint.
@@ -309,20 +355,23 @@ export function LibraryBrowser(
 
   const sortOption = SORT_OPTIONS[sort]
 
+  // The same aggregation, under the same query key, as the Search rail - so
+  // the two never show different numbers for one topic.
   const { data: facets } = useQuery({
     queryKey: ['facets', config.slug],
-    queryFn: () => getFacets(config.slug, ['topic', 'format']),
+    queryFn: () => getFacets(config.slug),
   })
   const topicCounts = facets?.topic ?? {}
   // Resources carrying none of the portal's topics - the gap the classifier
-  // has yet to close, made visible rather than silently filtered away.
-  const { data: counters } = useQuery({
-    queryKey: ['counters', config.slug],
-    queryFn: () => getCounters(config.slug),
-    staleTime: 60_000,
-  })
-  const tagged = config.topics.reduce((n, topic) => n + (topicCounts[topic.id] ?? 0), 0)
-  const untagged = counters ? Math.max(0, counters.resources - tagged) : null
+  // has yet to close, made visible rather than silently filtered away. A
+  // real count from the index: topics are multi-valued, so "resources minus
+  // the sum of topic counts" could never surface it.
+  const untagged = facets?.untagged?.topic ?? null
+  const kindCounts = facets?.kind ?? {}
+  const kindIds = useMemo(() => Object.keys(kindCounts).sort(), [kindCounts])
+  const kindLabel = (id: string) => prettyLabel(id, config.branding.organisation)
+  const toggleKind = (id: string) =>
+    setSelectedKinds((prev) => prev.includes(id) ? prev.filter((k) => k !== id) : [...prev, id])
   const formatCounts = facets?.format ?? {}
   const FORMATS = [
     { id: 'article', label: 'Articles' },
@@ -385,6 +434,7 @@ export function LibraryBrowser(
 
   const hasMore = accumulated.length < total
   const isInitialLoading = isLoading && page === 0
+  const importDay = useMemo(() => bulkImportDay(accumulated), [accumulated])
 
   return (
     <main className={bare ? '' : 'rp-shell py-8'}>
@@ -529,7 +579,7 @@ export function LibraryBrowser(
       <div
         className={bare
           ? ''
-          : `mt-6 grid grid-cols-1 gap-6 ${showFilterRail ? 'lg:grid-cols-[230px_1fr]' : ''}`}
+          : `mt-6 grid grid-cols-1 gap-6 ${showFilterRail ? 'lg:grid-cols-[14.5rem_1fr]' : ''}`}
       >
         {showFilterRail
           ? (
@@ -568,8 +618,12 @@ export function LibraryBrowser(
                           className='mt-[2px] h-4 w-4 shrink-0 rounded-[var(--rp-radius-input)] border-line'
                           style={{ accentColor: 'var(--rp-accent)' }}
                         />
-                        <span className='min-w-0 flex-1'>{topic.label}</span>
-                        <span className='self-center text-xs tabular-nums text-ink-3'>{count}</span>
+                        <span className='min-w-0 flex-1 [overflow-wrap:anywhere]'>
+                          {topic.label}
+                        </span>
+                        <span className='shrink-0 self-center text-xs tabular-nums text-ink-3'>
+                          {count}
+                        </span>
                       </label>
                     )
                   })}
@@ -584,11 +638,61 @@ export function LibraryBrowser(
                           aria-hidden='true'
                         />
                         <span className='min-w-0 flex-1 italic'>Untagged</span>
-                        <span className='self-center text-xs tabular-nums'>{untagged}</span>
+                        <span className='shrink-0 self-center text-xs tabular-nums'>
+                          {untagged}
+                        </span>
                       </p>
                     )
                     : null}
                 </div>
+                {kindIds.length > 0
+                  ? (
+                    <div className='mt-4 border-t border-line pt-3'>
+                      <div className='flex items-center justify-between gap-2'>
+                        <p className='rp-eyebrow text-ink-3'>Kind</p>
+                        {selectedKinds.length > 0
+                          ? (
+                            <button
+                              type='button'
+                              onClick={() => setSelectedKinds([])}
+                              className='text-xs font-medium text-[var(--rp-ink-3)] transition-colors duration-150 hover:text-[var(--rp-ink)]'
+                            >
+                              Clear
+                            </button>
+                          )
+                          : null}
+                      </div>
+                      <div className='mt-2.5 space-y-0.5'>
+                        {kindIds.map((id) => {
+                          const count = kindCounts[id] ?? 0
+                          const checked = selectedKinds.includes(id)
+                          return (
+                            <label
+                              key={id}
+                              className={`flex cursor-pointer items-start gap-2.5 rounded-[var(--rp-radius-btn)] px-1 py-1 text-sm ${
+                                count === 0 && !checked ? 'text-ink-3' : 'text-ink-2'
+                              }`}
+                            >
+                              <input
+                                type='checkbox'
+                                checked={checked}
+                                onChange={() => toggleKind(id)}
+                                className='mt-[2px] h-4 w-4 shrink-0 rounded-[var(--rp-radius-input)] border-line'
+                                style={{ accentColor: 'var(--rp-accent)' }}
+                              />
+                              <span className='min-w-0 flex-1 [overflow-wrap:anywhere]'>
+                                {kindLabel(id)}
+                              </span>
+                              <span className='shrink-0 self-center text-xs tabular-nums text-ink-3'>
+                                {count}
+                              </span>
+                            </label>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )
+                  : null}
                 {formatFacets.length > 0
                   ? (
                     <div className='mt-4 border-t border-line pt-3'>
@@ -624,8 +728,10 @@ export function LibraryBrowser(
                                 className='mt-[2px] h-4 w-4 shrink-0 rounded-[var(--rp-radius-input)] border-line'
                                 style={{ accentColor: 'var(--rp-accent)' }}
                               />
-                              <span className='min-w-0 flex-1'>{format.label}</span>
-                              <span className='self-center text-xs tabular-nums text-ink-3'>
+                              <span className='min-w-0 flex-1 [overflow-wrap:anywhere]'>
+                                {format.label}
+                              </span>
+                              <span className='shrink-0 self-center text-xs tabular-nums text-ink-3'>
                                 {formatCounts[format.id] ?? 0}
                               </span>
                             </label>
@@ -662,7 +768,7 @@ export function LibraryBrowser(
             ? (
               <EmptyState
                 title='No resources match these filters'
-                description='Try a different search term, or clear the topic filters.'
+                description='Try a different search term, or clear a filter.'
               />
             )
             : null}
@@ -680,6 +786,7 @@ export function LibraryBrowser(
                       slug={config.slug}
                       topicLabel={topicLabel}
                       organisation={config.branding.organisation}
+                      hideAdded={importDay !== null && item.created?.slice(0, 10) === importDay}
                     />
                   ))}
                 </div>

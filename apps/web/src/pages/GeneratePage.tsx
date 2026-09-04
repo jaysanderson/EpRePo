@@ -7,6 +7,7 @@ import { CurrencyNote } from '../components/CurrencyNote.tsx'
 import { EmptyState } from '../components/ui.tsx'
 import { SaveArtefactButton } from '../components/SaveEvidence.tsx'
 import { suggestedTopicChips } from '../lib/generate-suggestions.ts'
+import { tenantCopy } from '../lib/tenant-copy.ts'
 import type { TenantOutletContext } from './TenantLayout.tsx'
 
 // ---------------------------------------------------------------------------
@@ -17,7 +18,6 @@ import type { TenantOutletContext } from './TenantLayout.tsx'
 type KindMeta = {
   id: GenerateKind
   label: string
-  placeholder: string
   description: string
 }
 
@@ -25,40 +25,34 @@ const KINDS: KindMeta[] = [
   {
     id: 'comparison',
     label: 'Comparison',
-    placeholder: 'e.g. Compare controlled traffic farming with conventional tillage',
     description:
       "A side-by-side matrix that scores a handful of options against the dimensions that matter, grounded in the portal's content.",
   },
   {
     id: 'briefing',
     label: 'Briefing',
-    placeholder: 'e.g. Brief me on the current state of soil carbon measurement',
     description:
       'An executive briefing document - an overview, structured sections, and the key takeaways worth remembering.',
   },
   {
     id: 'timeline',
     label: 'Timeline',
-    placeholder: 'e.g. Timeline of drought policy changes since 2015',
     description:
       'A chronological timeline of events drawn from the sources, oldest to most recent.',
   },
   {
     id: 'proscons',
     label: 'Pros and cons',
-    placeholder: 'e.g. Pros and cons of adopting variable rate technology',
     description: 'A balanced pros and cons breakdown, with the rationale behind each point.',
   },
   {
     id: 'faq',
     label: 'FAQ',
-    placeholder: 'e.g. Common questions about grain storage regulations',
     description: 'A set of frequently asked questions with grounded, source-backed answers.',
   },
   {
     id: 'assessment',
     label: 'Assessment',
-    placeholder: 'e.g. Quiz me on the basics of integrated pest management',
     description: 'A short interactive quiz to test understanding of a topic, with explanations.',
   },
 ]
@@ -958,6 +952,7 @@ function SuggestedTopicChips({
  */
 export function GeneratePage() {
   const { config } = useOutletContext<TenantOutletContext>()
+  const copy = tenantCopy(config)
   // Direct links can select a kind (?kind=briefing).
   const [searchParams] = useSearchParams()
   const requestedKind = searchParams.get('kind')
@@ -1000,7 +995,11 @@ export function GeneratePage() {
         Schema-enforced research artifacts, grounded in the portal's content.
       </p>
 
-      <div className='rp-no-scrollbar mt-6 flex items-center gap-1 overflow-x-auto whitespace-nowrap rounded-[var(--rp-radius)] border border-line bg-surface p-1'>
+      {
+        /* The tabs wrap onto a second row on a phone rather than clipping at
+        * "Pros a" with no scroll affordance. */
+      }
+      <div className='mt-6 flex flex-wrap items-center gap-1 rounded-[var(--rp-radius)] border border-line bg-surface p-1'>
         {KINDS.map((k) => (
           <button
             key={k.id}
@@ -1031,7 +1030,7 @@ export function GeneratePage() {
           rows={3}
           value={drafts[kind]}
           onChange={(e) => setDrafts((prev) => ({ ...prev, [kind]: e.target.value }))}
-          placeholder={activeMeta?.placeholder}
+          placeholder={copy.generateExample(kind)}
           className='rp-input'
         />
         <SuggestedTopicChips kind={kind} topics={config.topics} onPick={pickSuggestion} />

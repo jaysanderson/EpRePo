@@ -1107,7 +1107,7 @@ export function InvestigationDetailPage() {
 
   if (isLoading) {
     return (
-      <main className='mx-auto max-w-4xl px-6 py-10'>
+      <main className='rp-shell py-10'>
         <div className='space-y-3'>
           <Skeleton className='h-32 w-full' />
           <Skeleton className='h-40 w-full' />
@@ -1120,7 +1120,7 @@ export function InvestigationDetailPage() {
   if (isError || !investigation) {
     const notFound = error instanceof ApiError && error.status === 404
     return (
-      <main className='mx-auto max-w-4xl px-6 py-10'>
+      <main className='rp-shell py-10'>
         <ErrorCard
           message={notFound
             ? 'This investigation does not exist or has been removed.'
@@ -1166,235 +1166,250 @@ export function InvestigationDetailPage() {
   }
 
   return (
-    <main className='mx-auto max-w-4xl px-6 py-10'>
+    <main className='rp-shell py-10'>
       <Link to={`/t/${config.slug}/investigations`} className='text-sm text-ink-3 hover:text-ink'>
         &larr; Investigations
       </Link>
 
-      <div className='mt-3'>
-        <InvestigationHeader slug={config.slug} investigation={investigation} />
-      </div>
+      {
+        /* One column up to `xl`, in reading order. From `xl` the question,
+        * notebook and tags sit beside the evidence and artefacts, so a wide
+        * display is used rather than stranding a 900px column in its middle. */
+      }
+      <div className='xl:grid xl:grid-cols-2 xl:gap-8 2xl:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]'>
+        <div className='min-w-0'>
+          <div className='mt-3'>
+            <InvestigationHeader slug={config.slug} investigation={investigation} />
+          </div>
 
-      <div className='mt-6'>
-        <NotebookSection slug={config.slug} investigation={investigation} />
-      </div>
+          <div className='mt-6'>
+            <NotebookSection slug={config.slug} investigation={investigation} />
+          </div>
 
-      <div className='mt-6'>
-        <TagsSection
-          evidence={investigation.evidence}
-          activeTag={tagFilter}
-          onSelectTag={setTagFilter}
-          groupByTag={groupByTag}
-          onToggleGroupByTag={() => setGroupByTag((g) => !g)}
-        />
-      </div>
-
-      <section id='evidence-list' className='mt-6'>
-        <div className='flex flex-wrap items-center justify-between gap-3'>
-          <h2 className='text-sm font-semibold text-ink'>
-            Evidence <span className='font-normal text-ink-3'>({sortedEvidence.length})</span>
-          </h2>
-          <div className='flex flex-wrap items-center gap-2'>
-            <button
-              type='button'
-              disabled={sortedEvidence.length === 0 || synthesise.isPending}
-              onClick={startSynthesis}
-              className='rp-btn rp-btn-primary disabled:cursor-not-allowed'
-            >
-              {synthesise.isPending ? 'Synthesising…' : 'Synthesise the evidence'}
-            </button>
-            <button
-              type='button'
-              disabled={sortedEvidence.length === 0}
-              onClick={() => exportInvestigationToWord(investigation)}
-              className='rp-btn rp-btn-outline disabled:cursor-not-allowed'
-            >
-              Export to Word
-            </button>
+          <div className='mt-6'>
+            <TagsSection
+              evidence={investigation.evidence}
+              activeTag={tagFilter}
+              onSelectTag={setTagFilter}
+              groupByTag={groupByTag}
+              onToggleGroupByTag={() => setGroupByTag((g) => !g)}
+            />
           </div>
         </div>
 
-        {synthesisWarning && !synthesise.isPending
-          ? (
-            <div
-              role='alert'
-              className='mt-3 rounded-[var(--rp-radius)] border p-4'
-              style={{ borderColor: 'var(--rp-warn-line)', background: 'var(--rp-warn-bg)' }}
-            >
-              <p className='text-sm font-medium' style={{ color: 'var(--rp-warn-ink)' }}>
-                Some of this evidence has not been weighed
-              </p>
-              <ul
-                className='mt-1.5 list-disc space-y-0.5 pl-5 text-xs leading-relaxed'
-                style={{ color: 'var(--rp-warn-ink)' }}
-              >
-                {coverage.unjudged > 0
-                  ? (
-                    <li>
-                      {coverage.unjudged}{' '}
-                      {coverage.unjudged === 1 ? 'passage has' : 'passages have'}{' '}
-                      no verdict. They will be included and flagged as unjudged.
-                    </li>
-                  )
-                  : null}
-                {coverage.contradicting > 0
-                  ? (
-                    <li>
-                      {coverage.contradicting}{' '}
-                      {coverage.contradicting === 1 ? 'passage is' : 'passages are'}{' '}
-                      marked Contradicts. They will be reported as opposing evidence, never as
-                      support.
-                    </li>
-                  )
-                  : null}
-                {coverage.excluded.length > 0
-                  ? (
-                    <li>
-                      {coverage.excluded.length}{' '}
-                      {coverage.excluded.length === 1 ? 'passage' : 'passages'}{' '}
-                      marked Not relevant will be left out.
-                    </li>
-                  )
-                  : null}
-              </ul>
-              <div className='mt-3 flex flex-wrap gap-2'>
-                <button type='button' onClick={startSynthesis} className='rp-btn rp-btn-primary'>
-                  Synthesise anyway
+        <div className='min-w-0'>
+          <section id='evidence-list' className='mt-6 xl:mt-3'>
+            <div className='flex flex-wrap items-center justify-between gap-3'>
+              <h2 className='text-sm font-semibold text-ink'>
+                Evidence <span className='font-normal text-ink-3'>({sortedEvidence.length})</span>
+              </h2>
+              <div className='flex flex-wrap items-center gap-2'>
+                <button
+                  type='button'
+                  disabled={sortedEvidence.length === 0 || synthesise.isPending}
+                  onClick={startSynthesis}
+                  className='rp-btn rp-btn-primary disabled:cursor-not-allowed'
+                >
+                  {synthesise.isPending ? 'Synthesising…' : 'Synthesise the evidence'}
                 </button>
                 <button
                   type='button'
-                  onClick={() => {
-                    setSynthesisWarning(false)
-                    setVerdictFilter('all')
-                    document.getElementById('evidence-list')?.scrollIntoView({
-                      behavior: 'smooth',
-                      block: 'start',
-                    })
-                  }}
-                  className='rp-btn rp-btn-outline'
+                  disabled={sortedEvidence.length === 0}
+                  onClick={() => exportInvestigationToWord(investigation)}
+                  className='rp-btn rp-btn-outline disabled:cursor-not-allowed'
                 >
-                  Judge the evidence first
+                  Export to Word
                 </button>
               </div>
             </div>
-          )
-          : null}
-        {synthesise.isPending
-          ? <p aria-live='polite' className='mt-2 text-xs text-ink-3'>{synthesisMessage}</p>
-          : null}
-        {synthesise.isError
-          ? (
-            <p className='mt-2 text-xs' style={{ color: 'var(--rp-bad-ink)' }}>
-              Could not synthesise the evidence - try again.
-            </p>
-          )
-          : null}
 
-        {sortedEvidence.length > 0
-          ? (
-            <div className='mt-3 flex flex-wrap gap-1.5'>
-              {VERDICT_FILTERS.map((f) => (
-                <button
-                  key={f}
-                  type='button'
-                  aria-pressed={verdictFilter === f}
-                  onClick={() => setVerdictFilter(f)}
-                  className={`rp-chip ${verdictFilter === f ? 'rp-chip-active' : ''}`}
+            {synthesisWarning && !synthesise.isPending
+              ? (
+                <div
+                  role='alert'
+                  className='mt-3 rounded-[var(--rp-radius)] border p-4'
+                  style={{ borderColor: 'var(--rp-warn-line)', background: 'var(--rp-warn-bg)' }}
                 >
-                  {f === 'all' ? 'All' : verdictLabel(f)} ({counts[f]})
-                </button>
-              ))}
-            </div>
-          )
-          : null}
-
-        <div className='mt-4'>
-          {sortedEvidence.length === 0
-            ? (
-              <EmptyState
-                title='No evidence yet'
-                description='Save passages from Search, Ask answers, or the document reader.'
-              />
-            )
-            : filteredEvidence.length === 0
-            ? (
-              <EmptyState
-                title='No evidence matches this filter'
-                description='Try a different verdict or tag, or clear filters to see everything.'
-              />
-            )
-            : groupByTag
-            ? (
-              <div className='space-y-5'>
-                {groupEvidenceByTag(filteredEvidence).map((group) => (
-                  <div key={group.tag}>
-                    <h3 className='mb-2 text-xs font-semibold uppercase tracking-[0.06em] text-ink-3'>
-                      {group.tag}{' '}
-                      <span className='font-normal normal-case tracking-normal'>
-                        ({group.items.length})
-                      </span>
-                    </h3>
-                    <div className='space-y-3'>
-                      {group.items.map((item) => (
-                        <EvidenceCard
-                          key={item.id}
-                          slug={config.slug}
-                          investigationId={investigation.id}
-                          item={item}
-                        />
-                      ))}
-                    </div>
+                  <p className='text-sm font-medium' style={{ color: 'var(--rp-warn-ink)' }}>
+                    Some of this evidence has not been weighed
+                  </p>
+                  <ul
+                    className='mt-1.5 list-disc space-y-0.5 pl-5 text-xs leading-relaxed'
+                    style={{ color: 'var(--rp-warn-ink)' }}
+                  >
+                    {coverage.unjudged > 0
+                      ? (
+                        <li>
+                          {coverage.unjudged}{' '}
+                          {coverage.unjudged === 1 ? 'passage has' : 'passages have'}{' '}
+                          no verdict. They will be included and flagged as unjudged.
+                        </li>
+                      )
+                      : null}
+                    {coverage.contradicting > 0
+                      ? (
+                        <li>
+                          {coverage.contradicting}{' '}
+                          {coverage.contradicting === 1 ? 'passage is' : 'passages are'}{' '}
+                          marked Contradicts. They will be reported as opposing evidence, never as
+                          support.
+                        </li>
+                      )
+                      : null}
+                    {coverage.excluded.length > 0
+                      ? (
+                        <li>
+                          {coverage.excluded.length}{' '}
+                          {coverage.excluded.length === 1 ? 'passage' : 'passages'}{' '}
+                          marked Not relevant will be left out.
+                        </li>
+                      )
+                      : null}
+                  </ul>
+                  <div className='mt-3 flex flex-wrap gap-2'>
+                    <button
+                      type='button'
+                      onClick={startSynthesis}
+                      className='rp-btn rp-btn-primary'
+                    >
+                      Synthesise anyway
+                    </button>
+                    <button
+                      type='button'
+                      onClick={() => {
+                        setSynthesisWarning(false)
+                        setVerdictFilter('all')
+                        document.getElementById('evidence-list')?.scrollIntoView({
+                          behavior: 'smooth',
+                          block: 'start',
+                        })
+                      }}
+                      className='rp-btn rp-btn-outline'
+                    >
+                      Judge the evidence first
+                    </button>
                   </div>
-                ))}
-              </div>
-            )
-            : (
-              <div className='space-y-3'>
-                {filteredEvidence.map((item) => (
-                  <EvidenceCard
-                    key={item.id}
-                    slug={config.slug}
-                    investigationId={investigation.id}
-                    item={item}
-                  />
-                ))}
-              </div>
-            )}
-        </div>
-      </section>
+                </div>
+              )
+              : null}
+            {synthesise.isPending
+              ? <p aria-live='polite' className='mt-2 text-xs text-ink-3'>{synthesisMessage}</p>
+              : null}
+            {synthesise.isError
+              ? (
+                <p className='mt-2 text-xs' style={{ color: 'var(--rp-bad-ink)' }}>
+                  Could not synthesise the evidence - try again.
+                </p>
+              )
+              : null}
 
-      <section className='mt-6'>
-        <h2 className='text-sm font-semibold text-ink'>
-          Artefacts{' '}
-          <span className='font-normal text-ink-3'>({investigation.artefacts.length})</span>
-        </h2>
-        <div className='mt-3'>
-          {investigation.artefacts.length === 0
-            ? (
-              <EmptyState
-                title='No artefacts yet'
-                description='Outputs saved from research tools will appear here.'
-              />
-            )
-            : (
-              <div className='space-y-2'>
-                {investigation.artefacts.map((artefact) =>
-                  artefact.kind === 'synthesis'
-                    ? (
-                      <SynthesisArtefactCard
-                        key={artefact.id}
+            {sortedEvidence.length > 0
+              ? (
+                <div className='mt-3 flex flex-wrap gap-1.5'>
+                  {VERDICT_FILTERS.map((f) => (
+                    <button
+                      key={f}
+                      type='button'
+                      aria-pressed={verdictFilter === f}
+                      onClick={() => setVerdictFilter(f)}
+                      className={`rp-chip ${verdictFilter === f ? 'rp-chip-active' : ''}`}
+                    >
+                      {f === 'all' ? 'All' : verdictLabel(f)} ({counts[f]})
+                    </button>
+                  ))}
+                </div>
+              )
+              : null}
+
+            <div className='mt-4'>
+              {sortedEvidence.length === 0
+                ? (
+                  <EmptyState
+                    title='No evidence yet'
+                    description='Save passages from Search, Ask answers, or the document reader.'
+                  />
+                )
+                : filteredEvidence.length === 0
+                ? (
+                  <EmptyState
+                    title='No evidence matches this filter'
+                    description='Try a different verdict or tag, or clear filters to see everything.'
+                  />
+                )
+                : groupByTag
+                ? (
+                  <div className='space-y-5'>
+                    {groupEvidenceByTag(filteredEvidence).map((group) => (
+                      <div key={group.tag}>
+                        <h3 className='mb-2 text-xs font-semibold uppercase tracking-[0.06em] text-ink-3'>
+                          {group.tag}{' '}
+                          <span className='font-normal normal-case tracking-normal'>
+                            ({group.items.length})
+                          </span>
+                        </h3>
+                        <div className='space-y-3'>
+                          {group.items.map((item) => (
+                            <EvidenceCard
+                              key={item.id}
+                              slug={config.slug}
+                              investigationId={investigation.id}
+                              item={item}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )
+                : (
+                  <div className='space-y-3'>
+                    {filteredEvidence.map((item) => (
+                      <EvidenceCard
+                        key={item.id}
                         slug={config.slug}
-                        artefact={artefact}
-                        highlighted={highlightArtefactId === artefact.id}
-                        evidence={investigation.evidence}
+                        investigationId={investigation.id}
+                        item={item}
                       />
-                    )
-                    : <ArtefactRow key={artefact.id} artefact={artefact} />
+                    ))}
+                  </div>
                 )}
-              </div>
-            )}
+            </div>
+          </section>
+
+          <section className='mt-6'>
+            <h2 className='text-sm font-semibold text-ink'>
+              Artefacts{' '}
+              <span className='font-normal text-ink-3'>({investigation.artefacts.length})</span>
+            </h2>
+            <div className='mt-3'>
+              {investigation.artefacts.length === 0
+                ? (
+                  <EmptyState
+                    title='No artefacts yet'
+                    description='Outputs saved from research tools will appear here.'
+                  />
+                )
+                : (
+                  <div className='space-y-2'>
+                    {investigation.artefacts.map((artefact) =>
+                      artefact.kind === 'synthesis'
+                        ? (
+                          <SynthesisArtefactCard
+                            key={artefact.id}
+                            slug={config.slug}
+                            artefact={artefact}
+                            highlighted={highlightArtefactId === artefact.id}
+                            evidence={investigation.evidence}
+                          />
+                        )
+                        : <ArtefactRow key={artefact.id} artefact={artefact} />
+                    )}
+                  </div>
+                )}
+            </div>
+          </section>
         </div>
-      </section>
+      </div>
     </main>
   )
 }

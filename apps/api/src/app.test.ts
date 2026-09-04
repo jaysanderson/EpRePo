@@ -8,6 +8,7 @@ import {
   DEFAULT_RESEARCH_ENRICHMENT,
   type Enrichment,
   type FacetCounts,
+  FacetCountsSchema,
   type Labelset,
   type Question,
   type ResourceSummary,
@@ -588,6 +589,95 @@ describe('GET /api/t/:slug/resources/:id/questions', () => {
     await new Promise((resolve) => setTimeout(resolve, 10))
     expect(generated).toBe(1)
     expect(enrichments.get('frdc', 'res-2', 'suggested-questions')?.data).toEqual({ questions: [] })
+  })
+})
+
+describe('GET /api/t/:slug/catalog', () => {
+  /** Records what the route asked the provider for. */
+  class RecordingProvider extends StubProvider {
+    lastOpts: Parameters<RetrievalProvider['catalog']>[1]
+    override catalog(tenant: TenantConfig, opts?: Parameters<RetrievalProvider['catalog']>[1]) {
+      this.lastOpts = opts
+      return super.catalog(tenant)
+    }
+  }
+
+  it('accepts the documented facet names as well as the short forms', async () => {
+    const provider = new RecordingProvider()
+    const app = buildApp({ provider, tenants: freshTenants() })
+    const response = await app.request(
+      '/api/t/frdc/catalog?formatIds=article,media&kindIds=protocol&topicIds=stock-assessment',
+    )
+    expect(response.status).toBe(200)
+    expect(provider.lastOpts?.formatIds).toEqual(['article', 'media'])
+    expect(provider.lastOpts?.kindIds).toEqual(['protocol'])
+    expect(provider.lastOpts?.topicIds).toEqual(['stock-assessment'])
+
+    await app.request('/api/t/frdc/catalog?format=supplement&kind=case-study&topics=a,b')
+    expect(provider.lastOpts?.formatIds).toEqual(['supplement'])
+    expect(provider.lastOpts?.kindIds).toEqual(['case-study'])
+    expect(provider.lastOpts?.topicIds).toEqual(['a', 'b'])
+  })
+
+  it('passes a publication-date sort through and falls back to created otherwise', async () => {
+    const provider = new RecordingProvider()
+    const app = buildApp({ provider, tenants: freshTenants() })
+    await app.request('/api/t/frdc/catalog?sort=published&order=asc')
+    expect(provider.lastOpts?.sortField).toBe('published')
+    expect(provider.lastOpts?.sortOrder).toBe('asc')
+
+    await app.request('/api/t/frdc/catalog?sort=year')
+    expect(provider.lastOpts?.sortField).toBe('created')
+    expect(provider.lastOpts?.sortOrder).toBe('desc')
+  })
+})
+
+describe('GET /api/t/:slug/facets', () => {
+  /** Counts every labelset asked for, and records each call so memoisation is observable. */
+  class FacetProvider extends StubProvider {
+    calls: string[][] = []
+    untaggedCalls = 0
+    override async facets(_tenant: TenantConfig, labelsets: string[]): Promise<FacetCounts> {
+      this.calls.push(labelsets)
+      return Object.fromEntries(labelsets.map((ls) => [ls, { [`${ls}-label`]: 3 }]))
+    }
+    async untaggedCount(_tenant: TenantConfig, _labelset: string): Promise<number> {
+      this.untaggedCalls += 1
+      return 14
+    }
+  }
+
+  it('serves the three rail facets by default with a real untagged count', async () => {
+    const provider = new FacetProvider()
+    const app = buildApp({ provider, tenants: freshTenants() })
+    const response = await app.request('/api/t/frdc/facets')
+    expect(response.status).toBe(200)
+    const body = FacetCountsSchema.parse(await response.json())
+    expect(Object.keys(body).sort()).toEqual(['format', 'kind', 'topic', 'untagged'])
+    expect(body.untagged).toEqual({ topic: 14 })
+  })
+
+  it('accepts labelsets= and ls= alike', async () => {
+    const provider = new FacetProvider()
+    const app = buildApp({ provider, tenants: freshTenants() })
+    const documented = await (await app.request('/api/t/frdc/facets?labelsets=kind,format')).json()
+    expect(Object.keys(documented).sort()).toEqual(['format', 'kind'])
+    const short = await (await app.request('/api/t/frdc/facets?ls=kind')).json()
+    expect(Object.keys(short)).toEqual(['kind'])
+  })
+
+  it('answers every rail from one aggregation within the memo window', async () => {
+    const provider = new FacetProvider()
+    const app = buildApp({ provider, tenants: freshTenants() })
+    await app.request('/api/t/frdc/facets?labelsets=topic,kind,format')
+    await app.request('/api/t/frdc/facets?labelsets=topic,format')
+    await app.request('/api/t/frdc/facets?labelsets=topic,kind')
+    // The first call fetched all three; the rest were served from it.
+    expect(provider.calls).toEqual([['topic', 'kind', 'format']])
+    expect(provider.untaggedCalls).toBe(1)
+    // A labelset the window has not seen is fetched on its own.
+    await app.request('/api/t/frdc/facets?labelsets=topic,chunk-labels')
+    expect(provider.calls).toEqual([['topic', 'kind', 'format'], ['chunk-labels']])
   })
 })
 

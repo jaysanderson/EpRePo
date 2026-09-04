@@ -18,8 +18,15 @@ import { ResourceThumb } from '../components/ResourceThumb.tsx'
 import { SearchField } from '../components/SearchField.tsx'
 import { GridDensity, ViewToggle } from '../components/ViewControls.tsx'
 import { useViewMode } from '../components/useViewMode.ts'
-import { LibraryBrowser, SORT_OPTIONS, SORT_VALUES, type SortValue } from './LibraryPage.tsx'
+import {
+  DEFAULT_SORT,
+  LibraryBrowser,
+  SORT_OPTIONS,
+  SORT_VALUES,
+  type SortValue,
+} from './LibraryPage.tsx'
 import { sameLabel, typeLabel } from '../components/ui.tsx'
+import { plainDashes, presentTitle } from '../lib/display-title.ts'
 import { SaveEvidenceButton } from '../components/SaveEvidence.tsx'
 import { SearchAnswer, type SearchAnswerResult } from '../components/SearchAnswer.tsx'
 import { EmptyState, ErrorCard, prettyLabel, Skeleton, TypeBadge } from '../components/ui.tsx'
@@ -88,8 +95,14 @@ function RelevanceMeter(
 /** Deep link into the reader, carrying the matched passage and (for PDFs) the page it sits on. */
 function resourceLink(slug: string, resource: ScoredResource): string {
   const params = new URLSearchParams()
-  if (resource.matchedPassage) params.set('passage', resource.matchedPassage.slice(0, 300))
-  if (resource.matchedPage) params.set('page', String(resource.matchedPage))
+  if (resource.matchedField === 'summary') {
+    // Generated text is not in the document, so there is nothing to
+    // highlight; the reader says so rather than landing on page one.
+    params.set('matched', 'summary')
+  } else {
+    if (resource.matchedPassage) params.set('passage', resource.matchedPassage.slice(0, 300))
+    if (resource.matchedPage) params.set('page', String(resource.matchedPage))
+  }
   const query = params.toString()
   return `/t/${slug}/library/${resource.id}${query ? `?${query}` : ''}`
 }
@@ -112,9 +125,17 @@ function ResultCard(
   const keyFacts = resource.keyFacts.slice(0, 3)
   const year = resource.published ? formatYear(resource.published) : null
   const byline = bylineFor(resource)
+  const title = presentTitle(resource.title)
+  const summary = resource.summary ? plainDashes(resource.summary) : ''
   const snippet = resource.matchedPassage ? scrubSnippetBoilerplate(resource.matchedPassage) : ''
+  // A reference-list, front-matter or DOI-fragment match is flagged by the
+  // API and labelled on the meter; quoting it would only show the reader a
+  // bibliography line. A snippet that merely repeats the title or the summary
+  // is noise of a different kind.
   const showSnippet = snippet.length > 0 &&
+    !resource.referenceChunk &&
     passageIsInformative(snippet, query) &&
+    !passageRepeatsSummary(snippet, resource.title) &&
     !(resource.summary && passageRepeatsSummary(snippet, resource.summary))
 
   return (
@@ -160,7 +181,7 @@ function ResultCard(
               to={resourceLink(slug, resource)}
               className='rp-focus rounded-[var(--rp-radius-btn)]'
             >
-              {resource.title}
+              {title}
             </Link>
           </h3>
           {byline ? <Byline parts={byline} doi={resource.doi} /> : null}
@@ -171,8 +192,8 @@ function ResultCard(
               </p>
             )
             : null}
-          {resource.summary && resource.summary !== resource.title
-            ? <p className='mt-1.5 text-sm leading-relaxed text-ink-2'>{resource.summary}</p>
+          {summary && summary !== resource.title
+            ? <p className='mt-1.5 text-sm leading-relaxed text-ink-2'>{summary}</p>
             : null}
 
           {showSnippet
@@ -423,7 +444,7 @@ function WatchStrip(
 
   return (
     <div className='mb-4 flex flex-wrap items-center gap-1.5'>
-      <span className='rp-eyebrow shrink-0 text-ink-3'>Saved</span>
+      <span className='rp-eyebrow shrink-0 text-ink-3'>Watches</span>
       {watches.map((watch) => (
         <div
           key={watch.id}
@@ -511,11 +532,15 @@ export function SearchPage() {
   const lookupOnly = routedIntent !== undefined && !routedIntent.answer.surfaces.includes('ask')
   const answerMode = answerModeParamValue && !lookupOnly
 
-  // Open by default on the desktop layout; the Filters button hides it again.
-  const [filtersOpen, setFiltersOpen] = useState(true)
+  // Open by default on the desktop layout, where the rail sits beside the
+  // results; closed on a phone, where it would otherwise stack two full facet
+  // lists above the first result. The Filters button toggles it either way.
+  const [filtersOpen, setFiltersOpen] = useState(
+    () => typeof matchMedia !== 'function' || matchMedia('(min-width: 1024px)').matches,
+  )
   // The no-query state is the library listing, so its controls belong in the
   // same row as the retrieval modes rather than floating above the grid.
-  const [librarySort, setLibrarySort] = useState<SortValue>('newest')
+  const [librarySort, setLibrarySort] = useState<SortValue>(DEFAULT_SORT)
   const [libraryDensity, setLibraryDensity] = useState(4)
   // The listing here is the same listing the library route renders, so it takes
   // the same viewport-derived default: a phone opens in list, a desktop in grid,
@@ -571,9 +596,10 @@ export function SearchPage() {
   const topicLabel = (id: string) => config.topics.find((topic) => topic.id === id)?.label ?? id
   const kindLabel = (id: string) => prettyLabel(id, config.branding.organisation)
 
+  // The same aggregation, under the same query key, as the Library rail.
   const { data: facets } = useQuery({
     queryKey: ['facets', config.slug],
-    queryFn: () => getFacets(config.slug, ['topic', 'kind']),
+    queryFn: () => getFacets(config.slug),
   })
   const topicCounts = facets?.topic ?? {}
   const kindCounts = facets?.kind ?? {}
@@ -892,9 +918,9 @@ export function SearchPage() {
               ? (
                 <span
                   className='rp-badge rp-badge-quiet'
-                  title='This search is re-checked daily - a dot appears in the saved strip when new results arrive.'
+                  title='This search is in your Watches - it is re-checked daily and a dot appears in the strip when new results arrive.'
                 >
-                  Watching
+                  In your Watches
                 </span>
               )
               : (
@@ -905,7 +931,7 @@ export function SearchPage() {
                   title='Get notified here when new results appear for this search'
                   className='rp-chip h-9 sm:h-7'
                 >
-                  {addWatchMutation.isPending ? 'Saving…' : 'Watch this search'}
+                  {addWatchMutation.isPending ? 'Adding…' : 'Add to Watches'}
                 </button>
               )
           )
@@ -916,7 +942,7 @@ export function SearchPage() {
         ? (
           <div className='mt-4 flex flex-wrap items-center gap-3'>
             <RouteChip decision={route} intents={intents} pending={!routeFetched} />
-            {lookupOnly
+            {lookupOnly && !(results && results.resources.length === 0)
               ? (
                 <Link
                   to={`/t/${config.slug}/ask?ask=${encodeURIComponent(q)}`}
@@ -938,7 +964,7 @@ export function SearchPage() {
         : null}
 
       <div
-        className={`mt-6 grid grid-cols-1 gap-6 ${filtersOpen ? 'lg:grid-cols-[275px_1fr]' : ''}`}
+        className={`mt-6 grid grid-cols-1 gap-6 ${filtersOpen ? 'lg:grid-cols-[17rem_1fr]' : ''}`}
       >
         <aside className={filtersOpen ? 'block' : 'hidden'}>
           <div className='rp-card p-4 lg:sticky lg:top-[calc(var(--rp-header-h,_4rem)_+_var(--spacing)_*_4)]'>
@@ -978,8 +1004,10 @@ export function SearchPage() {
                             className='mt-[2px] h-4 w-4 shrink-0 rounded-[var(--rp-radius-input)] border-line'
                             style={{ accentColor: 'var(--rp-accent)' }}
                           />
-                          <span className='min-w-0 flex-1'>{topic.label}</span>
-                          <span className='self-center text-xs tabular-nums text-ink-3'>
+                          <span className='min-w-0 flex-1 [overflow-wrap:anywhere]'>
+                            {topic.label}
+                          </span>
+                          <span className='shrink-0 self-center text-xs tabular-nums text-ink-3'>
                             {count}
                           </span>
                         </label>
@@ -1026,8 +1054,10 @@ export function SearchPage() {
                             className='mt-[2px] h-4 w-4 shrink-0 rounded-[var(--rp-radius-input)] border-line'
                             style={{ accentColor: 'var(--rp-accent)' }}
                           />
-                          <span className='min-w-0 flex-1'>{kindLabel(id)}</span>
-                          <span className='self-center text-xs tabular-nums text-ink-3'>
+                          <span className='min-w-0 flex-1 [overflow-wrap:anywhere]'>
+                            {kindLabel(id)}
+                          </span>
+                          <span className='shrink-0 self-center text-xs tabular-nums text-ink-3'>
                             {count}
                           </span>
                         </label>
@@ -1088,7 +1118,7 @@ export function SearchPage() {
           {hasQuery
             ? (
               <p className='-mt-2 mb-4 text-xs text-ink-3'>
-                Watched searches are re-checked daily - a dot appears here when results change.
+                Watches are re-checked daily - a dot appears here when results change.
               </p>
             )
             : null}
@@ -1165,10 +1195,29 @@ export function SearchPage() {
                   )
                   : results.resources.length === 0
                   ? (
-                    <EmptyState
-                      title='No resources matched that search'
-                      description='Try broader terms, a different retrieval mode, or fewer topic filters.'
-                    />
+                    /* Honest and specific: an exact lookup found no document
+                     * carrying the term, and the way forward is a question,
+                     * not a browse listing under an "Exact lookup" chip. */
+                    lookupOnly
+                      ? (
+                        <EmptyState
+                          title={`No resource contains "${trimmedQuery}"`}
+                          description='An exact lookup returns only documents that carry every term. Ask searches by meaning and can find related work instead.'
+                        >
+                          <Link
+                            to={`/t/${config.slug}/ask?ask=${encodeURIComponent(trimmedQuery)}`}
+                            className='rp-btn rp-btn-primary'
+                          >
+                            Ask this instead
+                          </Link>
+                        </EmptyState>
+                      )
+                      : (
+                        <EmptyState
+                          title='No resources matched that search'
+                          description='Try broader terms, a different retrieval mode, or fewer topic filters.'
+                        />
+                      )
                   )
                   : filteredResults.length === 0
                   ? (

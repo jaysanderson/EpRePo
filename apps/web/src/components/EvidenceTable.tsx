@@ -97,8 +97,18 @@ function SourceGlyph({ type }: { type: ResourceType | undefined }) {
   )
 }
 
-/** "Open PDF at page 4" - what following the citation will do, said plainly. */
-function openLabel(type: ResourceType | undefined, page: number | undefined): string {
+/**
+ * What following the citation actually opens - the portal's reader for
+ * the resource, at the cited page when there is one - said plainly. It
+ * used to promise "Open PDF", which on a text-only ingest opened the
+ * extracted text instead; a summary-only match has no page to promise.
+ */
+export function openLabel(
+  type: ResourceType | undefined,
+  page: number | undefined,
+  summaryMatch = false,
+): string {
+  if (summaryMatch) return 'Open in the reader'
   const noun = type === 'pdf'
     ? 'PDF'
     : type === 'video'
@@ -107,8 +117,8 @@ function openLabel(type: ResourceType | undefined, page: number | undefined): st
     ? 'page'
     : 'document'
   return page && type !== 'video' && type !== 'web'
-    ? `Open ${noun} at page ${page}`
-    : `Open ${noun}`
+    ? `Open ${noun} in the reader at page ${page}`
+    : `Open ${noun} in the reader`
 }
 
 export interface EvidenceVerdictInfo {
@@ -223,8 +233,10 @@ function EvidenceRow({
   // A passage from a generated summary has no page or position in the
   // document, so the link opens the resource plainly rather than promising a
   // highlight it cannot deliver.
+  // The reader is told it was a summary match, so it can say so instead of
+  // landing on page one in silence.
   const href = summaryMatch
-    ? citationHref(slug, source.id, undefined)
+    ? `${citationHref(slug, source.id, undefined)}?matched=summary`
     : withPage(citationHref(slug, source.id, passage), source.matchedPage)
   const showUnusedFlag = citationsKnown && !isCited && verdict?.verdict === 'supports'
 
@@ -353,10 +365,12 @@ function EvidenceRow({
         <div className='flex flex-wrap items-center gap-x-3 gap-y-1'>
           <Link
             to={href}
-            aria-label={`${openLabel(source.type, source.matchedPage)}: ${source.title}`}
+            aria-label={`${
+              openLabel(source.type, source.matchedPage, summaryMatch)
+            }: ${source.title}`}
             className='rp-focus inline-flex items-center gap-1 rounded-[var(--rp-radius)] text-xs font-medium text-[var(--rp-accent-fg)] hover:underline'
           >
-            {openLabel(source.type, summaryMatch ? undefined : source.matchedPage)}
+            {openLabel(source.type, source.matchedPage, summaryMatch)}
             <svg
               viewBox='0 0 24 24'
               fill='none'

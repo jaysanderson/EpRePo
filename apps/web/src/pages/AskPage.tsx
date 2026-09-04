@@ -493,31 +493,50 @@ function UserBubble({
   message: ChatMessage
   onAskSubquery: (subquery: string) => void
 }) {
+  const subqueries = message.subqueries ?? []
+  const chips = (
+    <div className='flex flex-wrap justify-end gap-1.5'>
+      {subqueries.map((subquery, index) => (
+        <button
+          key={index}
+          type='button'
+          onClick={() => onAskSubquery(subquery)}
+          className='rp-chip text-[11px]'
+        >
+          {subquery}
+        </button>
+      ))}
+    </div>
+  )
   return (
-    <div className='flex flex-col items-end gap-1.5'>
+    /* scroll-mt: below `lg` the title bar is sticky over the thread, so a
+     * bubble scrolled to the top would otherwise slide under it. */
+    <div className='flex scroll-mt-16 flex-col items-end gap-1.5 lg:scroll-mt-0'>
       <div
         className='max-w-[85%] rounded-[calc(var(--rp-radius)+4px)] rounded-tr-sm px-4 py-3 text-sm leading-relaxed text-ink sm:max-w-[70%]'
         style={{ backgroundColor: 'var(--rp-wash)' }}
       >
         {message.text}
       </div>
-      {message.subqueries && message.subqueries.length > 0
+      {subqueries.length > 0
         ? (
           <div className='flex max-w-[85%] flex-col items-end gap-1 sm:max-w-[70%]'>
-            <p className='text-[11px] font-medium uppercase tracking-wide text-ink-3'>
-              Searched for
-            </p>
-            <div className='flex flex-wrap justify-end gap-1.5'>
-              {message.subqueries.map((subquery, index) => (
-                <button
-                  key={index}
-                  type='button'
-                  onClick={() => onAskSubquery(subquery)}
-                  className='rp-chip text-[11px]'
-                >
-                  {subquery}
-                </button>
-              ))}
+            {
+              /* On a phone the prequery stack filled the whole first screen
+              * and pushed the answer below the fold - so there it sits
+              * behind a one-line disclosure; from `sm` up the chips show. */
+            }
+            <details className='w-full sm:hidden'>
+              <summary className='cursor-pointer text-right text-[11px] font-medium uppercase tracking-wide text-ink-3'>
+                Searched for {subqueries.length} sub-questions
+              </summary>
+              <div className='mt-1.5'>{chips}</div>
+            </details>
+            <div className='hidden flex-col items-end gap-1 sm:flex'>
+              <p className='text-[11px] font-medium uppercase tracking-wide text-ink-3'>
+                Searched for
+              </p>
+              {chips}
             </div>
           </div>
         )
@@ -717,7 +736,7 @@ function WatchControl({ question, slug }: { question: string; slug: string }) {
   if (status === 'done') {
     return (
       <p className='text-xs text-ink-3'>
-        Watching - you will see a change badge in Search when results change.
+        In your Watches - a change badge appears in Search when results change.
       </p>
     )
   }
@@ -725,13 +744,17 @@ function WatchControl({ question, slug }: { question: string; slug: string }) {
   return (
     <div className='flex items-center gap-1.5'>
       <ActionIcon
-        label={status === 'busy' ? 'Saving the watch' : 'Watch this question'}
+        label={status === 'busy' ? 'Adding to Watches' : 'Add to Watches'}
         onClick={handleWatch}
         disabled={status === 'busy'}
         path={ICON_WATCH}
       />
       {status === 'error'
-        ? <p className='text-xs text-[var(--rp-bad-ink)]'>Could not save the watch - try again.</p>
+        ? (
+          <p className='text-xs text-[var(--rp-bad-ink)]'>
+            Could not add it to Watches - try again.
+          </p>
+        )
         : null}
     </div>
   )
@@ -2349,6 +2372,30 @@ export function AskPage() {
 
   const isEmpty = messages.length === 0
   const lastMessage = messages[messages.length - 1]
+  // The latest settled answer and the question it answered, for the wide
+  // display's sources rail. The rail is a layout affordance: the same
+  // sources still sit in the answer's own evidence disclosure.
+  const railAnswerIndex = (() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i]
+      if (m && m.author === 'AGENT' && !m.pending && m.sources.length > 0) return i
+    }
+    return -1
+  })()
+  const railAnswer = railAnswerIndex >= 0 ? messages[railAnswerIndex] : undefined
+  const railQuestion = railAnswerIndex > 0 ? messages[railAnswerIndex - 1]?.text ?? '' : ''
+  const railSources: EvidenceSource[] = (railAnswer?.sources ?? []).map((source) => ({
+    id: source.id,
+    title: source.title,
+    passage: source.matchedPassage,
+    score: source.relevance,
+    matchedPage: source.matchedPage,
+    referenceChunk: source.referenceChunk,
+    published: source.published,
+    sourceName: source.sourceName,
+    type: source.type,
+    matchedField: source.matchedField,
+  }))
   const liveMessage = isStreaming
     ? 'Answer in progress'
     : lastMessage?.author === 'AGENT' && !lastMessage.pending
@@ -2806,6 +2853,35 @@ export function AskPage() {
           </form>
         </div>
       </div>
+
+      {
+        /* From `xl` up the right third of a wide display, which used to sit
+        * empty beside a 75ch answer column, carries the latest answer's
+        * sources. It scrolls on its own; the thread keeps its scrollbar. */
+      }
+      {railAnswer && railSources.length > 0
+        ? (
+          <aside
+            aria-label='Sources for the latest answer'
+            className='hidden min-h-0 w-80 shrink-0 flex-col xl:flex 2xl:w-96'
+          >
+            <div className='rp-scroll min-h-0 flex-1 overflow-y-auto rounded-[calc(var(--rp-radius)+4px)] border border-line bg-surface p-3'>
+              <p className='rp-eyebrow text-ink-3'>Sources for the latest answer</p>
+              <div className='mt-3'>
+                <EvidenceTable
+                  slug={config.slug}
+                  question={railQuestion}
+                  sources={railSources}
+                  citations={railAnswer.citations}
+                  verdicts={railAnswer.verdicts}
+                  anchorPrefix={`rail-${railAnswer.id}`}
+                  collapsible={false}
+                />
+              </div>
+            </div>
+          </aside>
+        )
+        : null}
     </main>
   )
 }
