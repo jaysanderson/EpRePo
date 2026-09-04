@@ -1,5 +1,15 @@
 # Intent-routed search configurations
 
+> Status 2026-09-05: the D'Souza loop 1 fixes (docs/persona-reports/dsouza-loop1.md, D1-01 to
+> D1-03, D1-07, D1-09, D1-11, D1-18). The `data` intent now reads the papers **and** their
+> attachments (a preferred-label pass joins the grounding set instead of a supplements-only
+> filter); the classifier may choose it only for a question that names a table, a data sheet, a
+> protocol document or a peer review file; a results question (a rate, a count, an outcome)
+> routes to the papers by rule; a study the question names (BREATHS, UMPIRE, a quoted title) is
+> pinned into the grounding set; `/search` runs the rule stage itself and never waits on a
+> classifier; and `/ask` routes automatically (`route: 'auto'`), rules at once and the
+> classifier beside retrieval, reporting the decision as a `route` event. Section 7 below.
+>
 > Status 2026-09-03: built and live on the EpRePo box. Six stored configurations converged
 > (`portal-intent-lookup`, `-data`, `-data-find`, `-latest`, `-clinical`, `-review`), the route
 > chip and override on Ask and Search, compare mode, the Manage table with live read-back, and the
@@ -342,3 +352,65 @@ Risks:
   main answer, lower their weight to 0.7 rather than dropping them.
 - **Recency without a sort.** `latest` relies on the prequery and post-retrieval ordering, not a
   platform sort; say so in the chip rationale so it is not mistaken for a date filter.
+
+## 7. Loop 1 revisions (2026-09-05)
+
+What the D'Souza persona test found, and what changed. The pattern is unchanged: one stored
+configuration per job, a router that picks it, the decision always visible.
+
+**The data intent is additive.** A supplements-only filter excluded the paper the question was
+about: BREATHS became another trial's design, UMPIRE a retrospective series, PERMIT "not in the
+collection". The stored `portal-intent-data` filter is now `not documentation, not media`, the
+same corpus the papers live in, and the intent's new `retrieval.prefer` labels
+(`format:supplement`) add a second retrieval pass restricted to the attachments through the
+prequeries strategy (`filters: ['/classification.labels/format/supplement']`, verified live). A
+data question reads the paper's results beside its tables. The fallback for a genuinely
+restricted intent (`retrieval.only`) is unchanged and still tested.
+
+**The classifier is gated.** `classifierGate` on an intent lists expressions the question must
+match before the classifier may choose it; `data` is gated on the words that name a table, a
+supplement, a data sheet, an appendix, a protocol document, a peer review file or raw data. A
+question that merely asks for a figure can no longer be classified as data. The intent's
+description says the same in words, for the classifier's own prompt.
+
+**Results questions route by rule.** `RESULTS_QUESTION_RULE` (intent-router.ts, shared with the
+tenant's rule list) sends a question for a rate, a count, an outcome, a sample size, a hazard
+ratio and the like to the default configuration with the rationale "a results question, answered
+from the papers themselves". It runs after every narrower intent's rules, so "sample size in the
+supplement" is still data and "compare retention across studies" is still review, and it
+answers in microseconds where the classifier took five to eight seconds. A survey of what a group
+has published ("what has X published on") is a review rule now.
+
+**The study-name guard.** `apps/api/src/study-guard.ts`: an upper-case token of four or more
+characters that titles at most three articles (BREATHS, UMPIRE, PERMIT, EXPERIENCE, RESILIENCE,
+SERIAS) is a study name; one that titles a dozen (ILAE, SUDEP) is a topic; a gene symbol is a
+gene; a quoted fragment of twelve or more characters is a title. Each pinned resource gets its
+own prequery scoped by `resource_filters` (verified live: the BREATHS protocol joined a grounding
+set it had been absent from), a targeted find beside the probe so its passage and score are
+known before generation, and the sources are ordered with the pinned papers first.
+
+**Search never waits on a classifier.** `GET /search` runs stage 0 and stage 1 itself and returns
+the decision as `route` in the results: an identifier, a gene symbol, a lexicon term or an author
+surname is an exact lookup decided in microseconds, with `lookup` naming the match. The page no
+longer calls `POST /route`; the chip renders from the results, a lookup shows no generated
+answer, and the results query never carries an intent. An intent narrower than the default that
+lists nothing falls back to the default configuration. The paragraph budget behind a listing is
+sixty (`top_k`, request level), because twenty paragraphs from the one paper that answers a
+sentence otherwise fill the page and return that paper alone ("risk of SUDEP with lamotrigine":
+one resource before, eighteen after).
+
+**Ask routes itself.** `POST /ask` with `route: 'auto'` (and no `intent`) runs the rules
+synchronously and emits `{ type: 'route', decision }` at once; when no rule fires, the classifier
+(memoised per tenant, surface and normalised question, shared with `/route`) runs in parallel
+with the retrieval probe, the pinned finds and the question decomposition, so a classified
+question costs the slowest of them rather than their sum. The probe's shortlist is sent as a
+`sources` event before generation so the reader sees retrieval progress; the platform's own
+grounding set replaces it. A results question skips the decomposition (one figure from one paper
+is narrow already). An answer whose every citation the binding stripped, and which states a
+figure, becomes the honest decline rather than bare prose.
+
+Measured on the persona's questions through the portal (route, first sources, first word):
+BREATHS 15 ms, 0.9 s, 8.0 s (was 0 + 5.1 s, wrong trial); UMPIRE 12 ms, 1.6 s, 11.4 s (was
+5.7 + 14.8 s, fabricated); PERMIT 12 ms, 2.6 s, 11.4 s (was 6.8 + 5.7 s, "not provided");
+the first-seizure PRO cohort 11 ms (cached classifier), 1.1 s, 12.3 s (was 5.9 + 6.0 s, "not in
+corpus"). The remaining time to the first word is the platform's own retrieval and generation.

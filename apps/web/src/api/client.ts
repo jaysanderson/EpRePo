@@ -312,6 +312,11 @@ export interface AskRequest {
   depth?: 'default' | 'deep'
   /** Sub-questions researched alongside the main query (deep-research mode). */
   prequeries?: string[]
+  /**
+   * 'auto': the server routes the question (rules at once, the classifier
+   * beside retrieval) and reports its decision as a `route` event.
+   */
+  route?: 'auto'
 }
 
 /**

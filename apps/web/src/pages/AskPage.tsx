@@ -22,7 +22,6 @@ import {
   listServerSessions,
   putServerSession,
   type RouteDecision,
-  routeIntent,
   sendAnswerFeedback,
   streamAsk,
 } from '../api/client.ts'
@@ -2120,32 +2119,13 @@ export function AskPage() {
       setMessages(working)
     }
 
-    // Route first: which stored configuration answers this question. Rules
-    // are near-instant; the classifier is one short generation. A routing
-    // failure never blocks the answer - it simply runs on the default.
-    let route = options?.route
-    if (!route && (config.intents?.length ?? 0) > 0 && contextTurns.length === 0) {
-      try {
-        route = await routeIntent(config.slug, query, 'ask', controller.signal)
-      } catch (thrown) {
-        route = undefined
-        // A rate-limited route means the ask would be refused too: stop here
-        // with the countdown rather than spend the retry on a second 429.
-        if (thrown instanceof ApiError && thrown.status === 429 && !controller.signal.aborted) {
-          update((existing) => ({
-            ...existing,
-            pending: false,
-            error: thrown.message,
-            rateLimited: true,
-            retryAfterSec: thrown.retryAfterSec,
-          }))
-          setIsStreaming(false)
-          abortRef.current = null
-          forgetSession(sessionId)
-          return
-        }
-      }
-    }
+    // Routing: which stored configuration answers this question. A choice
+    // already made (the route chip's override) is passed as the intent;
+    // otherwise the server routes inside the ask itself - rules at once,
+    // the classifier beside retrieval rather than ahead of it - and reports
+    // the decision as a `route` event, so no round trip precedes the answer.
+    const route = options?.route
+    const autoRoute = !route && (config.intents?.length ?? 0) > 0 && contextTurns.length === 0
     if (route) update((message) => ({ ...message, route }))
 
     try {
@@ -2157,9 +2137,13 @@ export function AskPage() {
           depth: options?.depth,
           prequeries: options?.prequeries,
           ...(route ? { intent: route.intent } : {}),
+          ...(autoRoute ? { route: 'auto' as const } : {}),
         },
         (event: AskEvent) => {
           switch (event.type) {
+            case 'route':
+              update((message) => ({ ...message, route: event.decision }))
+              break
             case 'stage':
               if (event.status === 'started') {
                 setActiveStage(event.stage)
