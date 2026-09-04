@@ -84,7 +84,7 @@ import {
   rankClosest,
 } from './ask-entities.ts'
 import { markedSentences, secondhandFigures, secondhandNote } from './secondhand.ts'
-import { briefingGrounding } from './briefing-grounding.ts'
+import { briefingGrounding, groundingParagraphs } from './briefing-grounding.ts'
 import { passageDenominators, unusedReferences } from './synthesis-check.ts'
 import {
   authorLine,
@@ -3949,6 +3949,24 @@ export function buildApp(opts: BuildAppOptions): Hono {
         heldCitations = []
         heldDecline = false
         record.citations = 0
+        // The document-scoped retry reads the pinned paper's own paragraphs
+        // beside retrieval: the ones in its Abstract, Results, Methods and
+        // Conclusion that carry the question's words or figures, from the
+        // platform's extracted text, so the n the text states and the
+        // figure the outcome sits in are both in front of the generator.
+        let attemptContext = extraContext
+        if (current.resourceId && opts.management) {
+          try {
+            const text = await extractionText(opts.management, config, current.resourceId)
+            const title = pinnedTitles[pinnedIds.indexOf(current.resourceId)] ?? ''
+            const blocks = groundingParagraphs(text, query, 8).map((p) =>
+              `From "${title}" [${p.section}]: ${p.text}`
+            )
+            if (blocks.length > 0) attemptContext = [...(extraContext ?? []), ...blocks]
+          } catch {
+            // Retrieval alone grounds the retry.
+          }
+        }
         try {
           for await (
             const event of provider.ask(config, query, {
@@ -3962,7 +3980,7 @@ export function buildApp(opts: BuildAppOptions): Hono {
               ...(pinnedQueries.length > 0 ? { pinnedQueries } : {}),
               ...(settings.ask ? { systemPrompt: settings.ask } : {}),
               ...(settings.images ? { images: true } : {}),
-              ...(extraContext ? { extraContext } : {}),
+              ...(attemptContext ? { extraContext: attemptContext } : {}),
               ...(promptAddendum ? { promptAddendum } : {}),
             })
           ) {
