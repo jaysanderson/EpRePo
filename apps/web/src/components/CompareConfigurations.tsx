@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Intent, ScoredResource } from '@research-portal/core'
 import type { AskEvent } from '@research-portal/core'
-import { streamAsk } from '../api/client.ts'
+import { ApiError, streamAsk } from '../api/client.ts'
 import { AnswerMarkdown } from './AnswerMarkdown.tsx'
 import { intentSummary } from './RouteChip.tsx'
 
@@ -11,7 +11,73 @@ interface Column {
   sources: ScoredResource[]
   pending: boolean
   error?: string
+  /** The server asked us to wait (HTTP 429); the column retries after `retryAfterSec`. */
+  rateLimited?: boolean
+  retryAfterSec?: number
   seconds?: number
+}
+
+/** When a 429 carries no Retry-After, wait this long before the automatic retry. */
+const RETRY_FALLBACK_SEC = 15
+
+/**
+ * A column that was rate limited: the shared copy, a countdown to the
+ * automatic retry, and a way to retry at once. Matches the Ask and Search
+ * pages' treatment of the same condition.
+ */
+function RateLimitedColumn(
+  { message, retryAfterSec, onRetry }: {
+    message: string
+    retryAfterSec?: number
+    onRetry: () => void
+  },
+) {
+  const wait = Math.max(1, retryAfterSec ?? RETRY_FALLBACK_SEC)
+  const [left, setLeft] = useState(wait)
+  const onRetryRef = useRef(onRetry)
+  onRetryRef.current = onRetry
+  useEffect(() => {
+    const started = Date.now()
+    const timer = setInterval(() => {
+      const remaining = wait - Math.floor((Date.now() - started) / 1000)
+      if (remaining <= 0) {
+        clearInterval(timer)
+        setLeft(0)
+        onRetryRef.current()
+      } else {
+        setLeft(remaining)
+      }
+    }, 250)
+    return () => clearInterval(timer)
+  }, [wait])
+  return (
+    <div
+      role='status'
+      className='rounded-[var(--rp-radius)] border p-3'
+      style={{ borderColor: 'var(--rp-warn-line)', background: 'var(--rp-warn-bg)' }}
+    >
+      <p className='text-sm font-medium' style={{ color: 'var(--rp-warn-ink)' }}>
+        The portal is busy
+      </p>
+      <p className='mt-1 text-sm' style={{ color: 'var(--rp-warn-ink)' }}>{message}</p>
+      <div className='mt-3 flex flex-wrap items-center gap-3'>
+        <button
+          type='button'
+          onClick={onRetry}
+          className='rp-btn rp-btn-outline h-8 px-2.5 text-xs'
+        >
+          Retry now
+        </button>
+        {left > 0
+          ? (
+            <span className='text-xs tabular-nums' style={{ color: 'var(--rp-warn-ink)' }}>
+              Retrying in {left} s
+            </span>
+          )
+          : null}
+      </div>
+    </div>
+  )
 }
 
 /**
@@ -55,10 +121,13 @@ export function CompareConfigurations(
       .then(() => update((c) => ({ ...c, pending: false, seconds: (Date.now() - started) / 1000 })))
       .catch((err) => {
         if (controller.signal.aborted) return
+        const rateLimited = err instanceof ApiError && err.status === 429
         update((c) => ({
           ...c,
           pending: false,
-          error: err instanceof Error ? err.message : 'failed',
+          error: err instanceof Error ? err.message : 'The answer service is unavailable.',
+          rateLimited,
+          retryAfterSec: rateLimited ? err.retryAfterSec : undefined,
         }))
       })
   }
@@ -124,8 +193,27 @@ export function CompareConfigurations(
                 )
                 : null}
               <div className='mt-3 min-h-[6rem] text-sm'>
-                {col.error
-                  ? <p className='text-[var(--rp-bad-ink)]'>{col.error}</p>
+                {col.error && col.rateLimited
+                  ? (
+                    <RateLimitedColumn
+                      message={col.error}
+                      retryAfterSec={col.retryAfterSec}
+                      onRetry={() => run(index, col.intent)}
+                    />
+                  )
+                  : col.error
+                  ? (
+                    <div className='flex flex-wrap items-center gap-3'>
+                      <p className='text-[var(--rp-bad-ink)]'>{col.error}</p>
+                      <button
+                        type='button'
+                        onClick={() => run(index, col.intent)}
+                        className='rp-btn rp-btn-outline h-8 px-2.5 text-xs'
+                      >
+                        Retry
+                      </button>
+                    </div>
+                  )
                   : col.text
                   ? <AnswerMarkdown text={col.text} renderInline={(run) => run} />
                   : col.pending

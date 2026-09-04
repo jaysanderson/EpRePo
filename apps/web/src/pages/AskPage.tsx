@@ -12,6 +12,7 @@ import { useQuery } from '@tanstack/react-query'
 import type { AskEvent, AskStage, Citation, ScoredResource } from '@research-portal/core'
 import {
   addWatch,
+  ApiError,
   deleteServerSession,
   getFollowUpQuestions,
   getServerSession,
@@ -25,6 +26,7 @@ import {
   sendAnswerFeedback,
   streamAsk,
 } from '../api/client.ts'
+import { secondsUntilRetry } from '../lib/ask-budget.ts'
 import { AnswerMarkdown } from '../components/AnswerMarkdown.tsx'
 import { citationHref, ContextJourney, EvidenceDisclosure } from '../components/AnswerStream.tsx'
 import { CompareConfigurations } from '../components/CompareConfigurations.tsx'
@@ -68,6 +70,9 @@ type ChatMessage = {
   }
   quality?: QualityScores
   error?: string
+  /** The error was the server asking us to wait (HTTP 429): retry after this many seconds. */
+  rateLimited?: boolean
+  retryAfterSec?: number
   pending?: boolean
   /** How the platform interpreted/rephrased the question (first turn only). */
   interpretedQuery?: string
@@ -195,6 +200,14 @@ function loadSessions(slug: string): ChatSession[] {
   } catch {
     return []
   }
+}
+
+/** True when at least one assistant turn carries an answer rather than a transport error. */
+export function hasAnsweredTurn(messages: readonly ChatMessage[]): boolean {
+  return messages.some((message) =>
+    message.author === 'AGENT' && !message.pending && !message.error &&
+    message.text.trim().length > 0
+  )
 }
 
 function saveSessions(slug: string, sessions: ChatSession[], deletedIds?: Set<string>) {
@@ -760,6 +773,85 @@ function tailStyle(index: number): CSSProperties {
   return { '--rp-stage-i': index } as CSSProperties
 }
 
+/**
+ * The failed-answer state. A rate limit is not "something went wrong": the
+ * portal is busy, the server said how long to wait, and the card counts that
+ * down and retries by itself - the reader can also retry at once. The copy
+ * is the same sentence the Search page uses (`RATE_LIMIT_MESSAGE`).
+ */
+function AnswerErrorCard({ message, rateLimited, retryAfterSec, onRetry }: {
+  message: string
+  rateLimited: boolean
+  retryAfterSec?: number
+  onRetry: () => void
+}) {
+  const wait = Math.max(1, retryAfterSec ?? (secondsUntilRetry() || RETRY_FALLBACK_SEC))
+  const [left, setLeft] = useState(rateLimited ? wait : 0)
+  const onRetryRef = useRef(onRetry)
+  onRetryRef.current = onRetry
+  useEffect(() => {
+    if (!rateLimited) return
+    setLeft(wait)
+    const started = Date.now()
+    const timer = setInterval(() => {
+      const remaining = wait - Math.floor((Date.now() - started) / 1000)
+      if (remaining <= 0) {
+        clearInterval(timer)
+        setLeft(0)
+        onRetryRef.current()
+      } else {
+        setLeft(remaining)
+      }
+    }, 250)
+    return () => clearInterval(timer)
+  }, [rateLimited, wait])
+  return (
+    <div
+      role='status'
+      className='rounded-[calc(var(--rp-radius)+4px)] border p-3 sm:p-5'
+      style={rateLimited
+        ? { borderColor: 'var(--rp-warn-line)', background: 'var(--rp-warn-bg)' }
+        : { borderColor: 'var(--rp-bad-line)', background: 'var(--rp-bad-bg)' }}
+    >
+      <p
+        className='text-sm font-medium'
+        style={{ color: rateLimited ? 'var(--rp-warn-ink)' : 'var(--rp-bad-ink)' }}
+      >
+        {rateLimited ? 'The portal is busy' : 'Something went wrong'}
+      </p>
+      <p
+        className='mt-1 text-sm'
+        style={{ color: rateLimited ? 'var(--rp-warn-ink)' : 'var(--rp-bad-ink)' }}
+      >
+        {message}
+      </p>
+      <div className='mt-3 flex flex-wrap items-center gap-3'>
+        <button
+          type='button'
+          onClick={onRetry}
+          className={rateLimited ? 'rp-btn rp-btn-outline' : 'rp-btn rp-btn-danger'}
+        >
+          {rateLimited ? 'Retry now' : 'Retry'}
+        </button>
+        {rateLimited && left > 0
+          ? (
+            <span
+              className='text-sm tabular-nums'
+              style={{ color: 'var(--rp-warn-ink)' }}
+              aria-live='polite'
+            >
+              Retrying in {left} s
+            </span>
+          )
+          : null}
+      </div>
+    </div>
+  )
+}
+
+/** When a 429 carries no Retry-After, wait this long before the automatic retry. */
+const RETRY_FALLBACK_SEC = 15
+
 function AnswerCard({
   message,
   slug,
@@ -841,16 +933,12 @@ function AnswerCard({
 
   if (message.error && !message.text.trim()) {
     return (
-      <div
-        className='rounded-[calc(var(--rp-radius)+4px)] border p-3 sm:p-5'
-        style={{ borderColor: 'var(--rp-bad-line)', background: 'var(--rp-bad-bg)' }}
-      >
-        <p className='text-sm font-medium text-[var(--rp-bad-ink)]'>Something went wrong</p>
-        <p className='mt-1 text-sm text-[var(--rp-bad-ink)]'>{message.error}</p>
-        <button type='button' onClick={onRetry} className='rp-btn rp-btn-danger mt-3'>
-          Retry
-        </button>
-      </div>
+      <AnswerErrorCard
+        message={message.error}
+        rateLimited={message.rateLimited === true}
+        retryAfterSec={message.retryAfterSec}
+        onRetry={onRetry}
+      />
     )
   }
 
@@ -1697,6 +1785,31 @@ export function AskPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, isStreaming])
 
+  /**
+   * Drop a session that never received an answer - the pending turn may have
+   * been saved when the question was sent, and an error card is not a
+   * research-trail entry.
+   */
+  function forgetSession(sessionId: string) {
+    setSessions((prev) => {
+      const existing = prev.find((session) => session.id === sessionId)
+      if (!existing || hasAnsweredTurn(existing.messages)) return prev
+      const next = prev.filter((session) => session.id !== sessionId)
+      deletedIdsRef.current.add(sessionId)
+      saveSessions(config.slug, next, deletedIdsRef.current)
+      const timer = syncTimersRef.current.get(sessionId)
+      if (timer) {
+        clearTimeout(timer)
+        syncTimersRef.current.delete(sessionId)
+      }
+      return next
+    })
+    if (activeSessionId === sessionId) {
+      // Keep the thread on screen; a retry starts a fresh trail entry.
+      setActiveSessionId(null)
+    }
+  }
+
   function persist(nextMessages: ChatMessage[], sessionId: string) {
     setSessions((prev) => {
       const existing = prev.find((session) => session.id === sessionId)
@@ -1859,8 +1972,23 @@ export function AskPage() {
     if (!route && (config.intents?.length ?? 0) > 0 && contextTurns.length === 0) {
       try {
         route = await routeIntent(config.slug, query, 'ask', controller.signal)
-      } catch {
+      } catch (thrown) {
         route = undefined
+        // A rate-limited route means the ask would be refused too: stop here
+        // with the countdown rather than spend the retry on a second 429.
+        if (thrown instanceof ApiError && thrown.status === 429 && !controller.signal.aborted) {
+          update((existing) => ({
+            ...existing,
+            pending: false,
+            error: thrown.message,
+            rateLimited: true,
+            retryAfterSec: thrown.retryAfterSec,
+          }))
+          setIsStreaming(false)
+          abortRef.current = null
+          forgetSession(sessionId)
+          return
+        }
       }
     }
     if (route) update((message) => ({ ...message, route }))
@@ -1971,6 +2099,15 @@ export function AskPage() {
             ? { ...existing, pending: false }
             : { ...existing, pending: false, error: 'Stopped before an answer arrived.' }
         )
+      } else if (thrown instanceof ApiError && thrown.status === 429) {
+        // The server asked us to wait: the card counts down and retries.
+        update((existing) => ({
+          ...existing,
+          pending: false,
+          error: thrown.message,
+          rateLimited: true,
+          retryAfterSec: thrown.retryAfterSec,
+        }))
       } else {
         const message = thrown instanceof Error
           ? thrown.message
@@ -1982,7 +2119,11 @@ export function AskPage() {
       setActiveStage(null)
       setSeenStages(new Set())
       abortRef.current = null
-      persist(working, sessionId)
+      // A trail entry is an answer, not a failed transport: a session whose
+      // only assistant turns are errors is not saved (and is dropped again
+      // if an earlier save of the pending turn already wrote it).
+      if (hasAnsweredTurn(working)) persist(working, sessionId)
+      else forgetSession(sessionId)
       // After the answer, never during it - and never after a Stop, which is
       // the reader saying they have finished with this question.
       if (!controller.signal.aborted) {
@@ -2200,7 +2341,9 @@ export function AskPage() {
   const liveMessage = isStreaming
     ? 'Answer in progress'
     : lastMessage?.author === 'AGENT' && !lastMessage.pending
-    ? 'Answer complete'
+    ? lastMessage.error && !lastMessage.text.trim()
+      ? (lastMessage.rateLimited ? 'The portal is busy - retrying shortly' : 'Answer unavailable')
+      : 'Answer complete'
     : ''
 
   return (
