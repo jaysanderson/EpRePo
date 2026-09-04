@@ -320,7 +320,6 @@ export interface AskRequest {
  * error). Returns when the stream closes; abort via the signal.
  */
 
-
 export async function streamAsk(
   slug: string,
   body: AskRequest,
