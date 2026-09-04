@@ -1043,6 +1043,9 @@ export interface AragProviderOptions {
  * per tenant, bound by slug. Every answer, search result and resource comes
  * from the live regional API; nothing is fabricated here.
  */
+/** How long the REMi answer-quality request may run before the answer's stream closes without it. */
+const REMI_CAP_MS = 8000
+
 export class AragProvider implements RetrievalProvider {
   private readonly clients = new Map<string, KbClient>()
   private readonly searchCache = new Map<string, { at: number; results: SearchResults }>()
@@ -3820,29 +3823,32 @@ export class AragProvider implements RetrievalProvider {
         // with the composer still locked. Consumers keep reading after
         // `done` for the trailing `quality` event.
         const doneText = refused ? refusalMessage : boundText
-        yield { type: 'done', refused, ...(doneText !== undefined ? { text: doneText } : {}) }
-        yield { type: 'stage', stage: 'validating', status: 'started' }
         // REMi trust signal: score the finished answer against the full
         // retrieved context. Best effort with a hard time cap - the answer is
-        // never held hostage by the scorer.
-        if (fullAnswer.trim() && contextTexts.length > 0) {
-          try {
-            let capTimer: ReturnType<typeof setTimeout> | undefined
-            const quality = await Promise.race([
-              this.remi(tenant, {
-                question: query,
-                answer: fullAnswer,
-                contexts: contextTexts,
-              }),
-              new Promise<null>((resolve) => {
-                capTimer = setTimeout(() => resolve(null), 12000)
-              }),
-            ])
-            clearTimeout(capTimer)
-            if (quality) yield { type: 'quality', ...quality }
-          } catch {
-            // scoring unavailable - skip silently
-          }
+        // never held hostage by the scorer. The request starts BEFORE `done`
+        // goes out, so it runs alongside the consumer's own audit of the
+        // answer rather than after it: awaited only once `done` has been
+        // consumed, it adds the cap minus the audit's own time at most, not
+        // a fixed tail on every answer (D2-17).
+        let capTimer: ReturnType<typeof setTimeout> | undefined
+        const qualityPending = fullAnswer.trim() && contextTexts.length > 0
+          ? Promise.race([
+            this.remi(tenant, {
+              question: query,
+              answer: fullAnswer,
+              contexts: contextTexts,
+            }),
+            new Promise<null>((resolve) => {
+              capTimer = setTimeout(() => resolve(null), REMI_CAP_MS)
+            }),
+          ]).catch(() => null)
+          : null
+        yield { type: 'done', refused, ...(doneText !== undefined ? { text: doneText } : {}) }
+        yield { type: 'stage', stage: 'validating', status: 'started' }
+        if (qualityPending) {
+          const quality = await qualityPending
+          clearTimeout(capTimer)
+          if (quality) yield { type: 'quality', ...quality }
         }
         yield { type: 'stage', stage: 'validating', status: 'completed' }
         return

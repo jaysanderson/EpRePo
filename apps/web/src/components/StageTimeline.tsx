@@ -4,12 +4,13 @@ import type { AskStage } from '@research-portal/core'
 export type StageStatus = 'pending' | 'active' | 'complete'
 export type StageStatuses = Partial<Record<AskStage, StageStatus>>
 
-/** The four stages an ask moves through, in order, with reader-facing labels. */
+/** The five stages an ask moves through, in order, with reader-facing labels. */
 export const STAGE_STEPS: { key: AskStage; label: string }[] = [
   { key: 'preprocessing', label: 'Reading your question' },
   { key: 'retrieval', label: 'Searching the corpus' },
   { key: 'generating', label: 'Writing the answer' },
-  { key: 'validating', label: 'Checking the answer' },
+  { key: 'auditing', label: 'Checking the figures' },
+  { key: 'validating', label: 'Scoring the answer' },
 ]
 
 /** Everything before the active stage is finished, whether or not we saw its event. */

@@ -10,6 +10,7 @@ import {
   denominatorsMissing,
   drugsFlaggedInSources,
   drugsMissingFromAnswer,
+  extractNumbers,
   stripUnsupportedContraindications,
   studyDesignOf,
   verifyFigures,
@@ -18,8 +19,16 @@ import {
 import {
   bindSentences,
   looksLikeReferencePassage,
+  namedEntities,
   stripReferenceSection,
 } from './citation-binding.ts'
+import {
+  designLead,
+  effectSizeNote,
+  effectSizesFor,
+  gateFigures,
+  removalNote,
+} from './answer-gate.ts'
 import { correctAttributions, type NamedAuthor } from './ask-author.ts'
 import { choosePassage, paragraphsOf } from './evidence-passages.ts'
 import {
@@ -44,6 +53,9 @@ export interface AuditEvent {
   sentencesCited: number
   denominatorsMissing: string[]
   attributionsCorrected: string[]
+  /** Sentences the figure gate removed, and the figures they stated. */
+  sentencesRemoved: number
+  figuresRemoved: string[]
 }
 
 // ---------------------------------------------------------------------------
@@ -197,6 +209,8 @@ export interface BindAndAuditResult {
   audit: AuditEvent
   /** The sources with each cited resource's card passage re-chosen for the claims bound to it. */
   sources: ScoredResource[]
+  /** The figure gate removed every sentence: nothing verifiable is left to show. */
+  emptied: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -257,6 +271,11 @@ export function unheldStudyNote(
 const DESIGN_WORD =
   /\b(?:randomi[sz]ed|trial|cohort|case-control|case series|case report|cross-sectional|survey|model(?:ling)?|simulation|simulated|review|meta-analysis|pooled analysis|protocol|first-in-human|observational|retrospective|prospective)\b/i
 
+/** How many figures an answer states: the "Checking N figures" count the surface shows while the audit runs. */
+export function figureCount(text: string): number {
+  return extractNumbers(text.replace(/\s*\[\d{1,3}\]/g, '')).length
+}
+
 /** How many cited resources' texts are fetched for binding and audit. */
 const MAX_CITED_TEXTS = 8
 
@@ -288,23 +307,78 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
       .filter((c) => (byId.get(c.resourceId)?.relevance ?? 1) < input.floor)
       .map((c) => c.index),
   )
+  // The names the question uses (a cohort, a drug, a study) bind a sentence
+  // only to a text that carries them; a study the question names by
+  // acronym must be in every cited text (or its title) for it to be bound.
+  const questionEntities = namedEntities(query, lexicon)
+  const study = namedStudy(query)
   const bound = bindSentences({
     text: input.text,
     citations: input.citations,
     texts,
     lexicon,
     belowFloor,
+    questionEntities,
+    ...(study ? { requiredName: study.split(' ')[0]! } : {}),
+    // The gate renumbers once it has decided what stays.
+    keepNumbering: true,
   })
-  // Texts keyed by the new numbering, for the checks that name a marker.
-  const oldIndexByResource = new Map(input.citations.map((c) => [c.resourceId, c.index]))
-  const textsByNew = new Map<number, string>()
-  for (const citation of bound.citations) {
-    const old = oldIndexByResource.get(citation.resourceId)
-    const text = old === undefined ? undefined : texts.get(old)
-    if (text !== undefined) textsByNew.set(citation.index, text)
+  // Every cited text that carries the study the question names, in the
+  // provider's numbering: what the gate checks an unbound sentence against,
+  // and what it may lend a marker from. The display floor does not apply
+  // here: a paper the platform cited that verifiably carries every figure
+  // of a sentence beside its claim is that sentence's source whatever its
+  // search score.
+  const usableTexts = new Map<number, string>()
+  for (const index of bound.named) {
+    const t = texts.get(index)
+    if (t !== undefined) usableTexts.set(index, t)
   }
-  const allTexts = [...textsByNew.values()]
-  let text = bound.text
+  const oldIndexByResource = new Map(input.citations.map((c) => [c.resourceId, c.index]))
+  const allTexts = [...usableTexts.values()]
+  // Figures beside their own terms, in the texts each sentence is bound to,
+  // then the gate: a sentence whose figures fail is removed, a figure
+  // sentence with no marker inherits the one text that carries all of them
+  // or is removed too. What remains has passed.
+  const markerOfText = [...usableTexts.keys()]
+  const textsByNew = new Map<number, string>()
+  const withTexts = (sentences: readonly typeof bound.sentences[number][]) =>
+    sentences.map((s) => ({
+      text: s.text,
+      texts: s.bound
+        .map((n) => ({ index: n, text: textsByNew.get(n) }))
+        .filter((t): t is { index: number; text: string } => t.text !== undefined),
+    }))
+  const checks = verifyFigures(
+    bound.sentences.map((s) => ({
+      text: s.text,
+      texts: s.bound.map((n) => usableTexts.get(n)).filter((t): t is string => t !== undefined),
+    })),
+    allTexts,
+    lexicon,
+    questionEntities,
+  )
+  const gated = allTexts.length > 0 ? gateFigures(bound, checks, markerOfText, input.citations) : {
+    text: bound.text,
+    sentences: bound.sentences,
+    citations: bound.citations,
+    renumber: new Map<number, number>(),
+    removed: [],
+    inherited: 0,
+  }
+  const figuresUnsupported = allTexts.length > 0
+    ? []
+    : [...new Set(checks.filter((c) => !c.supported).map((c) => c.figure))]
+  const figuresRemoved = [...new Set(gated.removed.flatMap((r) => r.figures))]
+  // The gate renumbered what it kept: the texts follow the new numbering.
+  const citations = gated.citations
+  for (const citation of citations) {
+    const old = oldIndexByResource.get(citation.resourceId)
+    const t = old === undefined ? undefined : texts.get(old)
+    if (t !== undefined) textsByNew.set(citation.index, t)
+  }
+  const sentenceTexts = withTexts(gated.sentences)
+  let text = gated.text
   // The drug checks read the medication entries of the lexicon only: a
   // syndrome name in the same list is never "contraindicated".
   const medications = lexicon.filter(isMedicationTerm)
@@ -321,26 +395,20 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
   // "X and colleagues" over a paper X did not write is rewritten to the
   // paper's own first author.
   const authorsOf = (id: string) => byId.get(id)?.authors ?? catalogueById.get(id)?.authors
-  const attributed = correctAttributions(text, input.authors ?? [], bound.citations, authorsOf)
+  const attributed = correctAttributions(text, input.authors ?? [], citations, authorsOf)
   text = attributed.text
   const attributionsCorrected = [...new Set(attributed.fixes.map((f) => f.surname))]
 
-  // Figures beside their own terms, in the texts each sentence is bound to.
-  const sentenceTexts = bound.sentences.map((s) => ({
-    text: s.text,
-    texts: s.bound
-      .map((n) => ({ index: n, text: textsByNew.get(n) }))
-      .filter((t): t is { index: number; text: string } => t.text !== undefined),
-  }))
-  const checks = verifyFigures(
-    sentenceTexts.map((s) => ({ text: s.text, texts: s.texts.map((t) => t.text) })),
-    allTexts,
-    lexicon,
-  )
-  const figuresUnsupported = [...new Set(checks.filter((c) => !c.supported).map((c) => c.figure))]
-
   // Proportions stated without their n, and the n the cited passage gives.
   const denominators = denominatorsMissing(sentenceTexts)
+
+  // The effect size the passage carries when the answer paraphrased it away.
+  const effectSizes = effectSizesFor(
+    query,
+    text,
+    [...textsByNew.entries()].map(([index, t]) => ({ index, text: t })),
+    lexicon,
+  )
 
   // Years from resource metadata, then the texts. Every retrieved source
   // counts, not only the cited ones: a recency answer names the newest
@@ -365,18 +433,31 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
   // named where the first sentence citing it did not.
   const designs: { index: number; design: string }[] = []
   if (variant === 'safety') {
-    for (const citation of bound.citations) {
+    for (const citation of citations) {
       const source = textsByNew.get(citation.index)
       if (!source) continue
-      const first = bound.sentences.find((s) => s.bound.includes(citation.index))
+      const first = gated.sentences.find((s) => s.bound.includes(citation.index))
       if (!first || DESIGN_WORD.test(first.text)) continue
       const design = studyDesignOf(source)
       if (design) designs.push({ index: citation.index, design })
     }
   }
+  // Study design first, on every intent: a modelling, simulation or
+  // preclinical paper is named as such before its findings are read.
+  const kindOf = (id: string) => byId.get(id)?.kind ?? catalogueById.get(id)?.kind
+  const lead = designLead(
+    citations.map((c) => ({
+      index: c.index,
+      title: c.title,
+      ...(kindOf(c.resourceId) ? { kind: kindOf(c.resourceId) } : {}),
+      ...(textsByNew.has(c.index) ? { text: textsByNew.get(c.index) } : {}),
+    })),
+    gated.sentences,
+  )
+  if (lead && text.trim()) text = `${lead}\n\n${text}`
 
   // The corpus boundary for a study the question names.
-  const citedTitles = bound.citations.map((c) => c.title)
+  const citedTitles = citations.map((c) => c.title)
   const boundary = unheldStudyNote(
     query,
     citedTitles,
@@ -391,22 +472,26 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
     } in this collection.*`
     : undefined
 
-  text += auditAddendum({
-    missingDrugs,
-    missingNumbers: figuresUnsupported,
-    missingYears,
-    denominators,
-    designs,
-    attributions: attributed.fixes,
-    notes: [boundary, scoped].filter((n): n is string => n !== undefined),
-  })
+  if (text.trim()) {
+    text += auditAddendum({
+      missingDrugs,
+      missingNumbers: figuresUnsupported,
+      missingYears,
+      denominators,
+      designs,
+      attributions: attributed.fixes,
+      notes: [removalNote(gated.removed), effectSizeNote(effectSizes), boundary, scoped].filter((
+        n,
+      ): n is string => n !== undefined),
+    })
+  }
 
   // Each cited resource's card passage: the paragraph that carries the
   // claims bound to it, from retrieval's paragraphs (paged) or the text.
   const sources = input.sources.map((source) => {
-    const citation = bound.citations.find((c) => c.resourceId === source.id)
+    const citation = citations.find((c) => c.resourceId === source.id)
     if (!citation) return source
-    const sentences = bound.sentences.filter((s) => s.bound.includes(citation.index)).map((s) =>
+    const sentences = gated.sentences.filter((s) => s.bound.includes(citation.index)).map((s) =>
       s.text
     )
     const extracted = textsByNew.get(citation.index)
@@ -428,8 +513,9 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
 
   return {
     text,
-    citations: bound.citations,
+    citations,
     sources,
+    emptied: gated.removed.length > 0 && gated.sentences.length === 0,
     audit: {
       type: 'audit',
       figuresChecked: checks.length,
@@ -437,9 +523,11 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
       yearsUnsupported: missingYears,
       contraindicationsUnsupported,
       sentencesChecked: bound.sentences.length,
-      sentencesCited: bound.sentences.filter((s) => s.bound.length > 0).length,
+      sentencesCited: gated.sentences.filter((s) => s.bound.length > 0).length,
       denominatorsMissing: denominators.map((d) => d.figure),
       attributionsCorrected,
+      sentencesRemoved: gated.removed.length,
+      figuresRemoved,
     },
   }
 }

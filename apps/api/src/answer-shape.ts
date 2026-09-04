@@ -265,7 +265,11 @@ export class SentinelStream {
     const re = /[.!?:](?=["'”)]?\s)|\n/g
     let m: RegExpExecArray | null
     while ((m = re.exec(this.pending)) !== null) {
-      const end = m.index + m[0].length + 1
+      // A sentence end releases through the space after it; a newline is
+      // its own boundary and releases nothing past it, or the first letter
+      // of a sentinel that opens the next line ("\n\nThe context does not")
+      // would go out before the rewriter could see the phrase.
+      const end = m.index + m[0].length + (m[0] === '\n' ? 0 : 1)
       if (end < this.pending.length) cut = end
     }
     if (cut <= 0) return ''
@@ -303,6 +307,31 @@ function rewriteChunk(chunk: string): string {
 export function looksLikeProviderDecline(text: string): boolean {
   return /^\s*(this portal's content does not hold enough relevant material|the help documentation does not cover this yet)/i
     .test(text)
+}
+
+/**
+ * The decline for an answer the figure gate emptied: the generator stated
+ * figures no cited passage carries beside their claim, so the answer is
+ * withheld and the reader told which figures failed and what to ask next.
+ */
+export function withheldDecline(
+  nearestTitles: readonly string[],
+  figures: readonly string[],
+): string {
+  const titles = nearestTitles.map((t) => t.trim()).filter((t) => t.length > 0).slice(0, 3)
+  const listed = figures.map((f) => f.replace(/(\d)((?:month|week|year|day|hour)s)$/, '$1 $2'))
+    .slice(0, 8)
+  const stated = listed.length > 0 ? ` (${listed.join(', ')})` : ''
+  const nearest = titles.length > 0
+    ? ` The closest matches in the corpus are ${
+      titles.map((t) => `*${t}*`).join(', ')
+    } - listed below but not used.`
+    : ''
+  return 'The generated answer stated figures' + stated +
+    ' that no cited passage carries beside their claim, so it has been withheld rather than ' +
+    'shown.' + nearest +
+    ' Ask about one paper directly to see the figures it reports, or narrow the question to ' +
+    'one cohort, drug or study.'
 }
 
 /**

@@ -17,7 +17,15 @@
  * binding is itself grounded.
  */
 import type { Citation } from '@research-portal/core'
-import { extractNumbers, figurePresent, normaliseFigures } from './answer-audit.ts'
+import {
+  type ClaimFeatures,
+  claimFeatures,
+  extractNumbers,
+  figureSupportedBy,
+  normaliseFigures,
+  type PreparedSource,
+  prepareSource,
+} from './answer-audit.ts'
 
 const STOPWORDS = new Set([
   'about',
@@ -188,20 +196,19 @@ export function contentWords(text: string): string[] {
   return out
 }
 
-/** A cited text prepared once for many sentence checks. */
-export interface PreparedText {
-  lower: string
+/** A cited text prepared once for many sentence checks: the audit's normalised source plus its vocabulary. */
+export interface PreparedText extends PreparedSource {
   vocab: Set<string>
   bigrams: Set<string>
 }
 
 export function prepareText(text: string): PreparedText {
-  const lower = normaliseFigures(text).replace(/\s+/g, ' ').toLowerCase()
-  const words = contentWords(lower)
+  const source = prepareSource(text)
+  const words = contentWords(source.lower)
   const vocab = new Set(words)
   const bigrams = new Set<string>()
   for (let i = 1; i < words.length; i++) bigrams.add(`${words[i - 1]} ${words[i]}`)
-  return { lower, vocab, bigrams }
+  return { ...source, vocab, bigrams }
 }
 
 export interface SentenceFeatures {
@@ -209,6 +216,8 @@ export interface SentenceFeatures {
   bigrams: string[]
   numbers: string[]
   entities: string[]
+  /** What the audit's figure check needs: the claim's terms, outcome, timepoint and question-named entities. */
+  claim: ClaimFeatures
 }
 
 /** Named entities a claim hangs on: lexicon terms, gene symbols and capitalised names mid-sentence. */
@@ -233,7 +242,11 @@ export function namedEntities(sentence: string, lexicon: readonly string[]): str
   return [...found]
 }
 
-export function sentenceFeatures(sentence: string, lexicon: readonly string[]): SentenceFeatures {
+export function sentenceFeatures(
+  sentence: string,
+  lexicon: readonly string[],
+  questionEntities: readonly string[] = [],
+): SentenceFeatures {
   const plain = sentence.replace(/\[\d{1,3}\]/g, ' ')
   const words = contentWords(plain)
   const bigrams: string[] = []
@@ -243,6 +256,7 @@ export function sentenceFeatures(sentence: string, lexicon: readonly string[]): 
     bigrams,
     numbers: extractNumbers(normaliseFigures(plain)),
     entities: namedEntities(plain, lexicon),
+    claim: claimFeatures(plain, lexicon, questionEntities),
   }
 }
 
@@ -273,10 +287,19 @@ export function supportScore(
   if (entities.length > 0 && entityHits === 0) return 0
   if (entities.length <= 2 && entityHits < entities.length) return 0
   if (entities.length > 2 && entityHits / entities.length < 0.6) return 0
-  // Every figure the sentence states must be in the text: "21% to 45%"
-  // bound to a paper that carries only the 45% is the misattribution
-  // reviewers scored as a P0.
-  const numberHits = numbers.filter((n) => figurePresent(n, text.lower)).length
+  // A name the question also uses - the cohort, drug or study the sentence
+  // attributes its figures to - must be in the text whatever the others do:
+  // a fenfluramine trial never mentions the Melbourne cohort.
+  for (const name of features.claim.mandatory) {
+    if (!text.lower.includes(name)) return 0
+  }
+  // Every figure the sentence states must be in the text beside the claim's
+  // own terms, not merely somewhere in it: "21% to 45%" bound to a paper
+  // that carries only the 45% is the misattribution reviewers scored as a
+  // P0, and a "79.8%" that a brivaracetam paper carries for brivaracetam
+  // does not let it vouch for a perampanel sentence.
+  const numberHits = numbers.filter((n) => figureSupportedBy(n, features.claim, text).supported)
+    .length
   if (numbers.length > 0 && numberHits < numbers.length) return 0
   const wordHits = words.filter((w) => text.vocab.has(w)).length
   const wordRate = words.length > 0 ? wordHits / words.length : 0
@@ -425,6 +448,16 @@ export interface BoundSentence {
   text: string
   /** Citation indices (after renumbering) the sentence is bound to. */
   bound: number[]
+  /** Which line of the answer the sentence sits on (an index into `layout`). */
+  line: number
+}
+
+/** One line of the bound answer: a run of sentences with its list prefix, or a line kept as is. */
+export type BoundLine = { kind: 'raw'; text: string } | {
+  kind: 'sentences'
+  prefix: string
+  /** Indices into `sentences`. */
+  sentences: number[]
 }
 
 export interface BindInput {
@@ -435,6 +468,20 @@ export interface BindInput {
   lexicon?: readonly string[]
   /** Citation indices that failed the display floor: their markers are dropped outright. */
   belowFloor?: ReadonlySet<number>
+  /** Names the question uses (lower-cased): a sentence naming one binds only to a text that carries it. */
+  questionEntities?: readonly string[]
+  /**
+   * A name every cited text must carry to be bound at all (the study the
+   * question names, "SANAD"): a citation whose text and title both lack it
+   * is dropped, so a tau-pathology paper never carries a SANAD sentence.
+   */
+  requiredName?: string
+  /**
+   * Keep the provider's citation numbers rather than renumbering by first
+   * appearance, for a caller that renumbers once more after its own pass
+   * (the figure gate) and needs one numbering throughout.
+   */
+  keepNumbering?: boolean
 }
 
 export interface BindResult {
@@ -442,6 +489,16 @@ export interface BindResult {
   /** The citations that kept at least one marker, renumbered in order of first appearance. */
   citations: Citation[]
   sentences: BoundSentence[]
+  /** The answer's lines, so a caller can drop or re-mark sentences and render the text again. */
+  layout: BoundLine[]
+  /** Citation indices (the provider's numbering) that passed the floor and the name check, bound or not. */
+  usable: number[]
+  /**
+   * Citation indices that passed the name check whatever their score: a
+   * text the platform cited that verifiably carries a sentence's figures
+   * beside the claim may still lend it a marker.
+   */
+  named: number[]
   /** Markers removed because nothing supported them. */
   dropped: number
   /** Markers moved to a different citation than the model or platform placed. */
@@ -454,37 +511,51 @@ export function bindSentences(input: BindInput): BindResult {
   for (const [index, text] of input.texts) prepared.set(index, prepareText(text))
   const allPrepared = [...prepared.values()]
   const known = new Set(input.citations.map((c) => c.index))
-  const usable = (index: number) => known.has(index) && !(input.belowFloor?.has(index) ?? false)
+  const required = input.requiredName?.toLowerCase()
+  const carriesName = (index: number): boolean => {
+    if (!required) return true
+    const text = prepared.get(index)
+    if (
+      text &&
+      new RegExp(`\\b${required.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(text.lower)
+    ) {
+      return true
+    }
+    const title = input.citations.find((c) => c.index === index)?.title ?? ''
+    return new RegExp(`\\b${required.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(title)
+  }
+  const usable = (index: number) =>
+    known.has(index) && !(input.belowFloor?.has(index) ?? false) && carriesName(index)
 
   let dropped = 0
   let rebound = 0
-  const sentencesOut: { text: string; bound: number[] }[] = []
+  const sentencesOut: { text: string; bound: number[]; line: number }[] = []
   const lines = input.text.split('\n')
-  const rewritten: string[] = []
+  const layout: BoundLine[] = []
 
   for (const line of lines) {
     if (!line.trim()) {
-      rewritten.push(line)
+      layout.push({ kind: 'raw', text: line })
       continue
     }
     if (isHeading(line)) {
       const own = markersIn(line)
       dropped += own.length
-      rewritten.push(line.replace(/\s*\[\d{1,3}\]/g, '').trimEnd())
+      layout.push({ kind: 'raw', text: line.replace(/\s*\[\d{1,3}\]/g, '').trimEnd() })
       continue
     }
     const prefix = LIST_PREFIX.exec(line)?.[1] ?? ''
     const body = line.slice(prefix.length)
     const sentences = splitSentences(body)
     if (sentences.length === 0) {
-      rewritten.push(line)
+      layout.push({ kind: 'raw', text: line })
       continue
     }
     // Markers at the end of the paragraph are the platform's block-level
     // spray: candidates for every sentence in the block, owned by none.
     const last = sentences[sentences.length - 1]!
     const tailMarkers = markersIn(/((?:\s*\[\d{1,3}\])+)\s*$/.exec(last)?.[1] ?? '')
-    const outSentences: string[] = []
+    const outSentences: number[] = []
     for (let i = 0; i < sentences.length; i++) {
       const sentence = sentences[i]!
       const isLast = i === sentences.length - 1
@@ -493,7 +564,7 @@ export function bindSentences(input: BindInput): BindResult {
         ? ownAll.slice(0, ownAll.length - tailMarkers.length)
         : ownAll
       const plain = sentence.replace(/\s*\[\d{1,3}\]/g, '').trim()
-      const features = sentenceFeatures(plain, lexicon)
+      const features = sentenceFeatures(plain, lexicon, input.questionEntities ?? [])
       const rare = rareWords(features.words, allPrepared)
       const candidates = BOILERPLATE.test(plain)
         ? []
@@ -526,34 +597,66 @@ export function bindSentences(input: BindInput): BindResult {
         [...own, ...(isLast ? tailMarkers : [])].filter((n) => !bound.includes(n)),
       )
       dropped += lost.size
-      outSentences.push(bound.length > 0 ? `${plain}${bound.map((n) => `[${n}]`).join('')}` : plain)
-      sentencesOut.push({ text: plain, bound })
+      outSentences.push(sentencesOut.length)
+      sentencesOut.push({ text: plain, bound, line: layout.length })
     }
-    rewritten.push(prefix + outSentences.join(' '))
+    layout.push({ kind: 'sentences', prefix, sentences: outSentences })
   }
 
   // Renumber by first appearance in the bound text.
-  const text = rewritten.join('\n')
   const order: number[] = []
-  for (const n of markersIn(text)) if (!order.includes(n)) order.push(n)
-  const renumber = new Map(order.map((old, i) => [old, i + 1]))
-  const finalText = text
-    .replace(MARKER, (_m, n: string) => {
-      const next = renumber.get(Number(n))
-      return next ? `[${next}]` : ''
-    })
-    // A run of markers reads in ascending order whatever order it was bound in.
-    .replace(
-      /(?:\[\d{1,3}\]){2,}/g,
-      (run) => [...new Set(markersIn(run))].sort((a, b) => a - b).map((n) => `[${n}]`).join(''),
-    )
+  for (const s of sentencesOut) for (const n of s.bound) if (!order.includes(n)) order.push(n)
+  const renumber = new Map(
+    order.map((old, i) => [old, input.keepNumbering ? old : i + 1]),
+  )
   const citations = order.map((old) => {
     const source = input.citations.find((c) => c.index === old)!
     return { ...source, index: renumber.get(old)! }
   })
   const sentences = sentencesOut.map((s) => ({
     text: s.text,
-    bound: s.bound.map((n) => renumber.get(n)!).filter((n) => n !== undefined),
+    bound: s.bound.map((n) => renumber.get(n)!).filter((n) => n !== undefined).sort((a, b) =>
+      a - b
+    ),
+    line: s.line,
   }))
-  return { text: finalText, citations, sentences, dropped, rebound }
+  return {
+    text: renderBound(layout, sentences),
+    citations,
+    sentences,
+    layout,
+    usable: input.citations.map((c) => c.index).filter(usable),
+    named: input.citations.map((c) => c.index).filter((i) => known.has(i) && carriesName(i)),
+    dropped,
+    rebound,
+  }
+}
+
+/**
+ * The answer text from its layout: each sentence followed by its markers in
+ * ascending order, a line whose every sentence was removed dropped with it.
+ */
+export function renderBound(
+  layout: readonly BoundLine[],
+  sentences: readonly BoundSentence[],
+  removed: ReadonlySet<number> = new Set(),
+): string {
+  const lines: string[] = []
+  for (const line of layout) {
+    if (line.kind === 'raw') {
+      lines.push(line.text)
+      continue
+    }
+    const kept = line.sentences.filter((i) => !removed.has(i))
+    if (kept.length === 0) continue
+    lines.push(
+      line.prefix +
+        kept.map((i) => {
+          const s = sentences[i]!
+          return s.bound.length > 0 ? `${s.text}${s.bound.map((n) => `[${n}]`).join('')}` : s.text
+        }).join(' '),
+    )
+  }
+  // A removed list item or paragraph never leaves a double blank line behind.
+  return lines.join('\n').replace(/\n{3,}/g, '\n\n')
 }

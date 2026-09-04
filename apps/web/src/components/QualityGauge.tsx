@@ -204,7 +204,7 @@ const CONFIDENCE_DETAIL: Record<ConfidenceState, string> = {
     'The automatic quality checks did not run for this answer, so there is no score to report. Judge it on its citations.',
   high: 'The retrieved sources support this answer well.',
   moderate:
-    'The retrieved sources only partly support this answer - check the citations before relying on it.',
+    'The platform scores this answer as well grounded, but the portal could not check its figures against the cited texts - read the citations before relying on it.',
   low:
     'The retrieved sources only weakly support this answer. Treat it as a lead and verify against the cited sources below.',
 }
@@ -452,6 +452,17 @@ export function auditSummary(audit: AnswerAudit | undefined): string | null {
         } figures not found beside their claim: ${
           [...audit.figuresUnsupported, ...audit.yearsUnsupported].map(figureLabel).join(', ')
         }`,
+    )
+  }
+  if ((audit.sentencesRemoved ?? 0) > 0) {
+    const removed = audit.sentencesRemoved!
+    const figures = (audit.figuresRemoved ?? []).map(figureLabel).join(', ')
+    parts.push(
+      `${
+        removed === 1 ? '1 sentence' : `${removed} sentences`
+      } removed because no cited passage carries ${
+        removed === 1 ? 'its' : 'their'
+      } figures beside the claim${figures ? ` (${figures})` : ''}`,
     )
   }
   if (typeof audit.sentencesChecked === 'number' && audit.sentencesChecked > 0) {

@@ -37,6 +37,22 @@ describe('auditBadge', () => {
     expect(badge?.title).toContain('vigabatrin')
   })
 
+  it('says what the gate removed, and that what remains passed', () => {
+    const badge = auditBadge({
+      ...clean,
+      figuresChecked: 10,
+      sentencesRemoved: 2,
+      figuresRemoved: ['80%', '82.7%'],
+      sentencesChecked: 5,
+      sentencesCited: 3,
+    })
+    expect(badge?.tone).toBe('warn')
+    expect(badge?.label).toBe('10 figures checked · 2 sentences removed')
+    expect(badge?.title).toContain('2 sentences were removed')
+    expect(badge?.title).toContain('(80%, 82.7%)')
+    expect(badge?.title).toContain('Every figure still in the answer was found beside its claim.')
+  })
+
   it('is silent when there was nothing to check', () => {
     expect(auditBadge({ ...clean, figuresChecked: 0 })).toBeNull()
     expect(auditBadge(undefined)).toBeNull()

@@ -4,8 +4,10 @@ import {
   bindSentences,
   looksLikeBibliographyEntry,
   looksLikeReferencePassage,
+  namedEntities,
   prepareText,
   rareWords,
+  renderBound,
   sentenceFeatures,
   splitSentences,
   stripReferenceSection,
@@ -326,5 +328,95 @@ describe('boilerplate', () => {
     expect(result.text).toBe(
       'Retention at 12 months was 64.2%.[1] Verify against current prescribing information before acting.',
     )
+  })
+})
+
+describe('bindSentences - names the question uses', () => {
+  const FENFLURAMINE =
+    'Long-term safety of fenfluramine in Dravet syndrome. The SUDEP rate was 3.9 per 1000 ' +
+    'patient-years, judged unrelated to FFA.'
+  const SUDEP_MELBOURNE =
+    'Risk of SUDEP with lamotrigine: a nested case-control study of the Melbourne video-EEG ' +
+    'monitoring cohort. SUDEP occurred at 3.9 per 1000 patient-years in the cohort.'
+
+  it("binds a sentence naming the question's cohort only to a text that names it (D2-01)", () => {
+    const query = 'What was the SUDEP incidence in the Melbourne video-EEG monitoring cohort?'
+    const text =
+      'The SUDEP incidence in the Melbourne video-EEG cohort was 3.9 per 1000 patient-years.[1]'
+    const citations = [
+      { index: 1, resourceId: 'ffa', title: 'Fenfluramine' },
+      { index: 2, resourceId: 'sudep', title: 'SUDEP with lamotrigine' },
+    ]
+    const wrong = bindSentences({
+      text,
+      citations: citations.slice(0, 1),
+      texts: new Map([[1, FENFLURAMINE]]),
+      lexicon: ['fenfluramine', 'lamotrigine'],
+      questionEntities: namedEntities(query, []),
+    })
+    expect(wrong.citations).toEqual([])
+    expect(wrong.sentences[0]!.bound).toEqual([])
+    const right = bindSentences({
+      text,
+      citations,
+      texts: new Map([[1, FENFLURAMINE], [2, SUDEP_MELBOURNE]]),
+      lexicon: ['fenfluramine', 'lamotrigine'],
+      questionEntities: namedEntities(query, []),
+    })
+    expect(right.citations.map((c) => c.resourceId)).toEqual(['sudep'])
+  })
+
+  it('binds a sentence only to a text that carries its figure beside its drug (D2-13)', () => {
+    const EXPERIENCE = 'Brivaracetam retention was 89.4%, 79.8%, and 71.1% at 3, 6, and 12 ' +
+      'months. Perampanel and PERMIT are discussed elsewhere.'
+    const PERMIT = 'PERMIT pooled analysis: perampanel retention was 79.8% at 6 months.'
+    const bound = bindSentences({
+      text: 'At 6 months, the PERMIT pooled analysis reported a retention rate of 79.8% for ' +
+        'perampanel treatment.[1][2]',
+      citations: [{ index: 1, resourceId: 'permit', title: 'PERMIT' }, {
+        index: 2,
+        resourceId: 'experience',
+        title: 'EXPERIENCE',
+      }],
+      texts: new Map([[1, PERMIT], [2, EXPERIENCE]]),
+      lexicon: ['perampanel', 'brivaracetam'],
+    })
+    expect(bound.citations.map((c) => c.resourceId)).toEqual(['permit'])
+    expect(bound.text).toBe(
+      'At 6 months, the PERMIT pooled analysis reported a retention rate of 79.8% for perampanel treatment.[1]',
+    )
+  })
+
+  it('drops every marker to a text that never mentions the study the question names (D1-16)', () => {
+    const REVIEW = 'Prognosis of focal epilepsy: SANAD II recruited 990 patients; levetiracetam ' +
+      'was less likely to achieve remission than lamotrigine.'
+    const TAU = 'Tau pathology in epilepsy. Levetiracetam and lamotrigine are common ' +
+      'antiseizure medications; remission is rarely discussed.'
+    const bound = bindSentences({
+      text: 'Levetiracetam was less likely to achieve remission than lamotrigine.[1][2]',
+      citations: [{ index: 1, resourceId: 'review', title: 'Prognosis of focal epilepsy' }, {
+        index: 2,
+        resourceId: 'tau',
+        title: 'Tau pathology in epilepsy',
+      }],
+      texts: new Map([[1, REVIEW], [2, TAU]]),
+      lexicon: ['levetiracetam', 'lamotrigine'],
+      requiredName: 'SANAD',
+    })
+    expect(bound.citations.map((c) => c.resourceId)).toEqual(['review'])
+    expect(bound.text.endsWith('lamotrigine.[1]')).toBe(true)
+  })
+
+  it('renders the layout again without the removed sentences and empty list items', () => {
+    const bound = bindSentences({
+      text: 'Intro line.\n\n- First 45% here.[1] Second.\n- Third 21% there.[1]',
+      citations: [{ index: 1, resourceId: 'a', title: 'A' }],
+      texts: new Map([[1, 'The rate was 45% here and 21% there.']]),
+    })
+    expect(bound.layout.length).toBe(4)
+    expect(renderBound(bound.layout, bound.sentences, new Set([3]))).toBe(
+      'Intro line.\n\n- First 45% here.[1] Second.',
+    )
+    expect(renderBound(bound.layout, bound.sentences)).toBe(bound.text)
   })
 })
