@@ -1,0 +1,223 @@
+import { describe, it } from '@std/testing/bdd'
+import { expect } from '@std/expect'
+import { classifyStudyDesign, isStudyDesignId, studyDesignLabel } from './study-design.ts'
+
+/**
+ * The persona corpus (D'Souza loop 1, finding D1-06): the kinds the labeller
+ * got wrong, each with the design the paper states about itself.
+ */
+const kindOf = (input: Parameters<typeof classifyStudyDesign>[0]) => classifyStudyDesign(input)?.id
+
+describe('classifyStudyDesign - the persona corpus', () => {
+  it('reads a pooled analysis as a pooled analysis, not a systematic review (EXPERIENCE)', () => {
+    expect(kindOf({
+      title:
+        'Effectiveness and Tolerability of 12-Month Brivaracetam in the Real World: EXPERIENCE, an International Pooled Analysis',
+      abstract:
+        'EXPERIENCE was an international pooled analysis of retrospective studies of brivaracetam in clinical practice.',
+      label: 'systematic-review',
+    })).toBe('pooled-analysis')
+  })
+
+  it('PERMIT is a pooled analysis', () => {
+    expect(kindOf({
+      title:
+        'PERMIT study: a global pooled analysis study of the effectiveness and tolerability of perampanel in routine clinical practice',
+      abstract:
+        'The PERaMpanel pooled analysIs of effecTiveness and tolerability (PERMIT) study was a pooled analysis of data from 44 real-world studies from 17 countries.',
+      label: 'systematic-review',
+    })).toBe('pooled-analysis')
+  })
+
+  it('an animal study is preclinical even when the labeller said trial (rat MRI harmonisation)', () => {
+    expect(kindOf({
+      title:
+        'Harmonization of pipeline for preclinical multicenter MRI biomarker discovery in a rat model of post-traumatic epileptogenesis',
+      abstract:
+        'EpiBioS4Rx is a pioneering multicenter trial investigating preclinical imaging biomarkers. Adult, male rats underwent a lateral fluid percussion injury.',
+      keywords: ['Animals', 'Rats', 'Disease Models, Animal'],
+      label: 'randomised-controlled-trial',
+    })).toBe('preclinical')
+  })
+
+  it('a nested case-control study is a case-control study (SUDEP with lamotrigine)', () => {
+    expect(kindOf({
+      title:
+        'Risk of sudden unexpected death in epilepsy (SUDEP) with lamotrigine and other sodium channel-modulating antiseizure medications',
+      abstract:
+        'Methods This retrospective, nested case-control study identified 101 SUDEP cases and 199 living epilepsy controls.',
+      keywords: ['Case-Control Studies', 'Retrospective Studies'],
+      label: 'randomised-controlled-trial',
+    })).toBe('case-control-study')
+  })
+
+  it('an observational cohort study is a cohort study (multiday heart-rate cycles)', () => {
+    expect(kindOf({
+      title:
+        'Multiday cycles of heart rate are associated with seizure likelihood: An observational cohort study',
+      abstract:
+        'Methods We report the results from a non-interventional, observational cohort study.',
+      label: 'randomised-controlled-trial',
+    })).toBe('cohort-study')
+  })
+
+  it('a multicentre cohort is a cohort study (rituximab in anti-NMDAR)', () => {
+    expect(kindOf({
+      title:
+        'Rituximab Use for Relapse Prevention in Anti-NMDAR Antibody-Mediated Encephalitis: A Multicenter Cohort Study',
+      keywords: ['Cohort Studies', 'Humans'],
+      label: 'randomised-controlled-trial',
+    })).toBe('cohort-study')
+  })
+
+  it('a first-in-human device trial is a non-randomised clinical trial (UMPIRE)', () => {
+    expect(kindOf({
+      title:
+        'The UMPIRE study: A first-in-human multicenter trial of bilateral subscalp monitoring for epileptic seizures',
+      abstract:
+        'Methods This prospective, multicenter first-in-human study enrolled adult patients with focal or generalized epilepsy.',
+      keywords: ['Prospective Studies', 'Humans'],
+      label: 'randomised-controlled-trial',
+    })).toBe('clinical-trial')
+  })
+
+  it('a randomised trial protocol is a protocol (BREATHS)', () => {
+    expect(kindOf({
+      title:
+        'Breathing control training as a treatment for functional seizures (BREATHS trial): a multicentre randomised controlled trial protocol',
+      abstract: 'Methods and analysis A total of 220 participants (110 per group) are required.',
+    })).toBe('protocol')
+  })
+
+  it('a commentary is a narrative review (six misconceptions)', () => {
+    expect(kindOf({
+      title: 'Epileptic Seizure Cycles: Six Common Clinical Misconceptions',
+      label: 'systematic-review',
+    })).toBe('narrative-review')
+  })
+
+  it('a nationwide survey is a survey (SEEG practice)', () => {
+    expect(kindOf({
+      title:
+        'Stereoelectroencephalography for Epilepsy Presurgical Assessment: A Nationwide Survey of Evolution and Practice',
+      abstract: 'We surveyed every Australian epilepsy surgery centre.',
+    })).toBe('survey')
+  })
+
+  it('a genome-wide meta-analysis is a genetic association study, not a review', () => {
+    expect(kindOf({
+      title:
+        'Genome-wide association study in a Chinese population identifies a susceptibility locus for type 2 diabetes at 7q32',
+      abstract:
+        'Methods We performed a meta-analysis of three GWAS comprising 684 patients and 955 controls.',
+      label: 'randomised-controlled-trial',
+    })).toBe('genetic-association-study')
+  })
+
+  it('a paper about placebo response across trials is a pooled analysis of trials', () => {
+    expect(kindOf({
+      title:
+        'Factors associated with placebo response rate in randomized controlled trials of antiseizure medications',
+      abstract:
+        'Using individual-level data from 20 focal-onset seizure trials we evaluated participants randomized to placebo.',
+      label: 'randomised-controlled-trial',
+    })).toBe('pooled-analysis')
+  })
+
+  it('an open-label extension is not the randomised trial it extended', () => {
+    expect(kindOf({
+      title:
+        'Long-term open-label perampanel: Generalized tonic-clonic seizures in idiopathic generalized epilepsy',
+      abstract:
+        'Methods Patients previously enrolled in a randomized placebo-controlled trial of perampanel could enter an open-label extension phase.',
+      label: 'randomised-controlled-trial',
+    })).toBe('clinical-trial')
+  })
+})
+
+describe('classifyStudyDesign - randomised controlled trials', () => {
+  it('needs randomisation plus an arm to compare against', () => {
+    expect(kindOf({
+      title:
+        'Adjunctive Transdermal Cannabidiol for Adults With Focal Epilepsy: A Randomized Clinical Trial',
+    })).toBe('randomised-controlled-trial')
+    expect(kindOf({
+      title: 'Triheptanoin in glucose transporter deficiency',
+      abstract: 'Patients were randomised 1:1 to triheptanoin or placebo in a double-blind design.',
+    })).toBe('randomised-controlled-trial')
+  })
+
+  it('accepts the stored trial label only when the text mentions randomisation', () => {
+    expect(classifyStudyDesign({
+      title: 'Add-on therapy in refractory focal seizures',
+      abstract: 'Participants were randomised to one of two doses.',
+      label: 'randomised-controlled-trial',
+    })).toEqual({ id: 'randomised-controlled-trial', stage: 'label' })
+    expect(kindOf({
+      title: 'Intracranial EEG fluctuates over months after implanting electrodes in human brain',
+      abstract: 'Intracranial EEG from 15 patients was included in this study.',
+      label: 'randomised-controlled-trial',
+    })).toBeUndefined()
+  })
+})
+
+describe('classifyStudyDesign - what never carries a design', () => {
+  it('supplements and media', () => {
+    expect(kindOf({ title: 'Supplementary material 1: A randomised trial', format: 'supplement' }))
+      .toBeUndefined()
+    expect(kindOf({ title: 'Video 1: A randomised trial', type: 'video' })).toBeUndefined()
+    expect(kindOf({ title: 'Peer review history (2): A randomised trial protocol' }))
+      .toBeUndefined()
+  })
+
+  it('a record that states no design, whatever the labeller said', () => {
+    expect(kindOf({ title: 'Plasma proteome in LGI-1 autoimmune encephalitis' })).toBeUndefined()
+    expect(kindOf({
+      title: 'Seizure Forecasting Using a Novel Sub-Scalp Ultra-Long Term EEG Monitoring System',
+      abstract: 'Five participants with refractory epilepsy used a sub-scalp device.',
+      label: 'case-study',
+    })).toBeUndefined()
+  })
+})
+
+describe('classifyStudyDesign - other designs', () => {
+  it('case reports and series', () => {
+    expect(kindOf({ title: 'Impaired Color Recognition in HCN1 Epilepsy: A Single Case Report' }))
+      .toBe('case-report')
+    expect(kindOf({
+      title: 'Hiding in Plain Sight: A case of post ictal psychosis with suicidal behavior',
+    })).toBe('case-report')
+    expect(kindOf({
+      title: 'Neuronal ceroid lipofuscinosis type 2 in Australia',
+      abstract: 'We describe a retrospective case series of eleven children.',
+    })).toBe('case-report')
+  })
+
+  it('cross-sectional studies and systematic reviews', () => {
+    expect(kindOf({
+      title: 'Quality of life in adults with epilepsy',
+      abstract: 'A cross-sectional study of 300 adults attending a tertiary clinic.',
+    })).toBe('cross-sectional-study')
+    expect(kindOf({
+      title:
+        'Second-line immunotherapy and functional outcomes in autoimmune encephalitis: A systematic review and meta-analysis',
+    })).toBe('systematic-review')
+  })
+
+  it('a retrospective chart review is a cohort, not a narrative review', () => {
+    expect(kindOf({
+      title: 'Outcomes after temporal lobectomy: a retrospective review',
+      abstract: 'A retrospective study of 120 consecutive patients.',
+    })).toBe('cohort-study')
+  })
+})
+
+describe('studyDesignLabel', () => {
+  it('names every known design and title-cases the rest', () => {
+    expect(studyDesignLabel('randomised-controlled-trial')).toBe('Randomised controlled trial')
+    expect(studyDesignLabel('pooled-analysis')).toBe('Pooled analysis')
+    expect(studyDesignLabel('report')).toBe('Report')
+    expect(isStudyDesignId('cohort-study')).toBe(true)
+    expect(isStudyDesignId('case-study')).toBe(false)
+  })
+})

@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import type { ResourceType } from '@research-portal/core'
+import { isStudyDesignId, type ResourceType, studyDesignLabel } from '@research-portal/core'
 
 /**
  * A placeholder block used across loading states. A travelling shimmer rather
@@ -111,6 +111,8 @@ export function LiveStatus({ message }: { message: string }) {
  * untouched; the organisation name supplies the acronym to uppercase.
  */
 export function prettyLabel(label: string, organisation?: string): string {
+  // A study design (the kind a research article carries) has its own wording.
+  if (isStudyDesignId(label)) return studyDesignLabel(label)
   if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(label)) return label
   const acronym = (organisation ?? '')
     .split(/\s+/)

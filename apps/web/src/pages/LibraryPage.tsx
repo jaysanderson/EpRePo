@@ -562,7 +562,7 @@ export function LibraryBrowser(
                 className='rp-chip text-xs'
                 title='Remove this filter'
               >
-                {kind.split('-').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}
+                {kindLabel(kind)}
                 <span aria-hidden='true'>×</span>
               </button>
             ))}
