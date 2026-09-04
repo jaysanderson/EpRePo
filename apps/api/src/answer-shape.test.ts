@@ -10,6 +10,7 @@ import {
   SentinelStream,
   stripModelReferences,
   trimTruncatedTail,
+  withheldDecline,
 } from './answer-shape.ts'
 
 describe('stripModelReferences', () => {
@@ -199,5 +200,35 @@ describe('trimTruncatedTail', () => {
   it('leaves a complete text alone', () => {
     const text = 'One.[1] Two.[2]'
     expect(trimTruncatedTail(text)).toEqual({ text, truncated: false })
+  })
+})
+
+describe('SentinelStream across line breaks', () => {
+  it('holds the first letter of a sentinel that opens a new line until the phrase is complete', () => {
+    const stream = new SentinelStream()
+    let out = stream.push('Yes, lamotrigine is safe.\n\nThe')
+    out += stream.push(' context does not provide information on dosing. More follows.')
+    out += stream.flush()
+    // Nothing of the sentinel leaks as a stray "T" ahead of the rewrite.
+    expect(out).not.toMatch(/\nT\b/)
+    expect(out).not.toContain('The context does not')
+    expect(out).toContain('Yes, lamotrigine is safe.')
+    expect(out).toContain('More follows.')
+  })
+
+  it('still releases a completed sentence through the space after it', () => {
+    const stream = new SentinelStream()
+    expect(stream.push('First sentence. Second')).toBe('First sentence. ')
+    expect(stream.flush()).toBe('Second')
+  })
+})
+
+describe('withheldDecline', () => {
+  it("names the figures that failed and the closest matches, in the portal's voice", () => {
+    const text = withheldDecline(['Paper A', 'Paper B'], ['80%', '231', '12months'])
+    expect(text).toContain('stated figures (80%, 231, 12 months) that no cited passage carries')
+    expect(text).toContain('*Paper A*, *Paper B* - listed below but not used')
+    expect(text).toContain('Ask about one paper directly')
+    expect(withheldDecline([], [])).not.toContain('closest matches')
   })
 })
