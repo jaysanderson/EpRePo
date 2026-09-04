@@ -3,17 +3,27 @@ import { expect } from '@std/expect'
 import {
   abbreviationPairs,
   auditAddendum,
+  claimFeatures,
+  denominatorBeside,
   denominatorsMissing,
   drugsFlaggedInSources,
   drugsMissingFromAnswer,
   extractNumbers,
+  figurePresent,
+  figureSupportedBy,
   normaliseFigures,
+  normaliseSource,
   numbersMissing,
+  numberWordsToDigits,
+  outcomeConflict,
+  prepareSource,
   proportions,
   statesDenominator,
   stripUnsupportedContraindications,
   studyDesignOf,
   termForms,
+  timepointConflict,
+  timepointsInMonths,
   verifyFigures,
   yearsInAnswer,
   yearsUnsupported,
@@ -204,10 +214,11 @@ describe('answer audit - abbreviations, denominators and designs', () => {
   })
 
   it('finds proportions stated without a denominator and the n the passage gives', () => {
+    // A hazard ratio has no n of its own: only the share takes a denominator (D2-07).
     expect(proportions('HR 1.41 (95% CI 1.02 to 1.97) and 23.2% seizure freedom')).toEqual([
       '23.2%',
-      '1.41',
     ])
+    expect(proportions('SMR 2.5 (95% CI 1.9-3.2); p = 0.05')).toEqual([])
     expect(proportions('up to a 20% greater reduction in discharges; risk fell by 14%')).toEqual([])
     expect(statesDenominator('Retention was 71.1% (n = 1644).')).toBe(true)
     expect(statesDenominator('Retention was 71.1% in 1644 patients.')).toBe(true)
@@ -256,5 +267,135 @@ describe('answer audit - abbreviations, denominators and designs', () => {
     expect(studyDesignOf('This protocol for a randomised trial of befriending')).toBe(
       'a trial protocol',
     )
+  })
+})
+
+describe('answer audit - matcher accuracy (D2-07)', () => {
+  it('reads number words, PDF hyphenation and table cells in the source', () => {
+    expect(numberWordsToDigits('Thirteen participants and thirty-one subjects, Thirty- one too'))
+      .toBe('13 participants and 31 subjects, 31 too')
+    const source = normaliseSource(
+      'Any psychiatric disorder 937 (52) 231 (13)\n \nThe pri- mary outcome',
+    )
+    expect(source).toContain('937 (52%) 231 (13%)')
+    expect(source).toContain('primary outcome')
+    expect(source).toContain('¶')
+    expect(
+      numbersMissing('The study involved 13 participants.', [
+        'Thirteen participants with focal epilepsy',
+      ]),
+    )
+      .toEqual([])
+    expect(numbersMissing('52% had a diagnosis.', ['Any psychiatric disorder 937 (52)'])).toEqual(
+      [],
+    )
+  })
+
+  it('does not extract clock times, and matches abbreviated time units', () => {
+    expect(
+      extractNumbers('Peaks from 11 p.m. to 7 a.m. and from 12 p.m. to 2 p.m.; troughs at 08:30.'),
+    )
+      .toEqual([])
+    expect(extractNumbers('An increase of 1.66 hours cut risk over the next 48 hours.'))
+      .toEqual(['1.66hours', '48hours'])
+    expect(figurePresent('1.66hours', 'sleep increased by 1.66 h')).toBe(true)
+    expect(figurePresent('48hours', 'in the following 48 h (p < 0.01)')).toBe(true)
+    expect(figurePresent('6months', 'the 6-mo follow-up')).toBe(true)
+    expect(figurePresent('5hours', 'less than 5 h')).toBe(true)
+  })
+
+  it('normalises a range whose first bound carries the percent sign', () => {
+    expect(normaliseFigures('14%–35% of patients')).toBe('14%-35% of patients')
+    expect(
+      numbersMissing('Relapses occur in 14% to 35%.', ['Relapses occur in 14%–35% of patients']),
+    )
+      .toEqual([])
+  })
+
+  it('reads follow-up timepoints in months and spots a conflicting one', () => {
+    expect(timepointsInMonths('at 12 months, 1-year, 52 weeks and 700 days').map(Math.round))
+      .toEqual([12, 12, 12, 23])
+    expect(
+      timepointConflict(
+        [12],
+        '82.7% had good functional outcome after a median follow-up of 700 days',
+      ),
+    )
+      .toBe(true)
+    expect(timepointConflict([12], 'retention was 89.4%, 79.8%, and 71.1% at 3, 6, and 12 months'))
+      .toBe(false)
+    expect(timepointConflict([12], 'a favourable mRS occurred in 154 (67%) patients')).toBe(false)
+  })
+
+  it('spots a figure the passage gives for a different outcome', () => {
+    expect(outcomeConflict(['relapse'], 'Notably, DRE occurred in 31% and contrasts with')).toBe(
+      true,
+    )
+    expect(outcomeConflict(['relapse'], '16 (30%) patients experienced at least 1 relapse')).toBe(
+      false,
+    )
+    expect(outcomeConflict(['relapse'], '31% of the cohort were women')).toBe(false)
+  })
+
+  it('places a figure by its noun, by a companion figure, or by most of a generic sentence', () => {
+    const breaths = prepareSource(
+      'Sample size calculation and recruitment target. A total of 220 participants (110 per ' +
+        'group) are required to detect a difference of 20%.',
+    )
+    const claim = claimFeatures(
+      'The sample size is set at 220 participants, with 110 allocated to each group.',
+      [],
+    )
+    expect(figureSupportedBy('220', claim, breaths).supported).toBe(true)
+    expect(figureSupportedBy('110', claim, breaths).supported).toBe(true)
+    const table = prepareSource('Table 1 Any psychiatric disorder, n (%) 937 (52)')
+    const cell = claimFeatures(
+      '937 patients had a psychiatric diagnosis, which is 52% of the cohort.',
+      [],
+    )
+    expect(figureSupportedBy('52%', cell, table).supported).toBe(true)
+    expect(figureSupportedBy('937', cell, table).supported).toBe(true)
+  })
+
+  it('refuses a figure for a cohort, drug or study the text never names (D2-01, D2-13)', () => {
+    const fenfluramine = prepareSource(
+      'Long-term safety of fenfluramine in Dravet syndrome. The SUDEP rate was 3.9 per 1000 ' +
+        'patient-years, unrelated to FFA.',
+    )
+    const claim = claimFeatures(
+      'The SUDEP incidence in the Melbourne video-EEG cohort was 3.9 per 1000 patient-years.',
+      ['fenfluramine'],
+      ['sudep', 'melbourne'],
+    )
+    expect(figureSupportedBy('3.9', claim, fenfluramine)).toEqual({
+      supported: false,
+      reason: 'entity',
+    })
+    const experience = prepareSource(
+      'Brivaracetam in the real world. BRV retention was 89.4%, 79.8%, and 71.1% at 3, 6, and ' +
+        '12 months. Perampanel was a concomitant drug in some patients.',
+    )
+    const permit = claimFeatures(
+      'At 6 months, the PERMIT pooled analysis reported a retention rate of 79.8% for perampanel.',
+      ['perampanel', 'brivaracetam'],
+    )
+    expect(figureSupportedBy('79.8%', permit, experience).supported).toBe(false)
+  })
+
+  it("pairs a denominator only within the figure's own sentence, never with a ratio", () => {
+    const passage = 'The cohort held 48 non-relapsing patients. Rituximab was associated with ' +
+      'longer time to relapse (HR 0.05, 95% CI 0.01-0.4). Among 60 patients, 29 (48%) met ' +
+      'the criteria.'
+    expect(denominatorBeside('48%', [passage])).toBe('29 of 60')
+    expect(denominatorBeside('48%', ['Overall 29 (48%) patients met the criteria.'])).toBe(
+      '29 (48%)',
+    )
+    expect(
+      denominatorsMissing([{
+        text: 'The hazard ratio was 0.05 and the SMR was 2.5.',
+        texts: [{ index: 1, text: passage }],
+      }]),
+    ).toEqual([])
+    expect(statesDenominator('Only 29 (48%) of patients met the criteria.')).toBe(true)
   })
 })
