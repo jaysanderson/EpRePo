@@ -33,6 +33,7 @@ import type {
   TextScaleId,
   TypographyChoice,
 } from '@research-portal/core'
+import { noteAskBudget } from '../lib/ask-budget.ts'
 
 /**
  * Typed error thrown by every helper below. Carries the HTTP status so callers
@@ -40,12 +41,38 @@ import type {
  */
 export class ApiError extends Error {
   status: number
+  /** Seconds the server asked us to wait (a 429's Retry-After), when it said. */
+  retryAfterSec?: number
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, retryAfterSec?: number) {
     super(message)
     this.name = 'ApiError'
     this.status = status
+    if (retryAfterSec !== undefined) this.retryAfterSec = retryAfterSec
   }
+}
+
+/**
+ * Copy for an HTTP 429 from the ask and route endpoints. Matches
+ * `RATE_LIMIT_MESSAGE` in apps/api/src/rate-limit.ts word for word.
+ */
+export const RATE_LIMIT_MESSAGE =
+  'You are asking faster than the portal can answer - please wait a moment and try again.'
+
+/** The 429's Retry-After in whole seconds, or undefined when the header is absent or unreadable. */
+export function retryAfterOf(res: Response): number | undefined {
+  const raw = res.headers.get('retry-after')
+  if (!raw) return undefined
+  const seconds = Number(raw)
+  if (Number.isFinite(seconds)) return Math.max(1, Math.ceil(seconds))
+  const at = Date.parse(raw)
+  return Number.isFinite(at) ? Math.max(1, Math.ceil((at - Date.now()) / 1000)) : undefined
+}
+
+/** An ApiError for a failed ask-class response: a 429 carries the shared copy and its Retry-After. */
+export function askError(res: Response, fallback: string): ApiError {
+  if (res.status === 429) return new ApiError(429, RATE_LIMIT_MESSAGE, retryAfterOf(res))
+  return new ApiError(res.status, res.statusText || fallback)
 }
 
 /** Human-readable fallbacks for the API's machine error codes. */
@@ -292,13 +319,12 @@ export async function streamAsk(
 ): Promise<void> {
   const res = await fetch(`/api/t/${encodeURIComponent(slug)}/ask`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', 'x-rp-client': clientId() },
     body: JSON.stringify(body),
     signal,
   })
-  if (!res.ok || !res.body) {
-    throw new ApiError(res.status, res.statusText || 'The answer service is unavailable')
-  }
+  noteAskBudget(res)
+  if (!res.ok || !res.body) throw askError(res, 'The answer service is unavailable')
   const reader = res.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
@@ -616,10 +642,18 @@ export function getResourceContent(slug: string, id: string): Promise<ResourceCo
 }
 
 /** Openers written from this one document; [] when none could be grounded. */
-export function getResourceQuestions(slug: string, id: string): Promise<string[]> {
-  return request<{ questions: string[] }>(
+/**
+ * Openers for one document. `pending` means the server is writing them in the
+ * background right now (a document the enrichment pass has not reached), so
+ * the page can ask again shortly rather than settle for the generic three.
+ */
+export function getResourceQuestions(
+  slug: string,
+  id: string,
+): Promise<{ questions: string[]; pending: boolean }> {
+  return request<{ questions: string[]; pending?: boolean }>(
     `/api/t/${encodeURIComponent(slug)}/resources/${encodeURIComponent(id)}/questions`,
-  ).then((r) => r.questions ?? [])
+  ).then((r) => ({ questions: r.questions ?? [], pending: r.pending === true }))
 }
 
 /** URL for streaming a stored file field (PDF/video/audio) inline. */
@@ -1659,11 +1693,12 @@ export async function routeIntent(
 ): Promise<RouteDecision> {
   const res = await fetch(`/api/t/${encodeURIComponent(slug)}/route`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', 'x-rp-client': clientId() },
     body: JSON.stringify({ query, surface }),
     signal,
   })
-  if (!res.ok) throw new ApiError(res.status, 'Routing is unavailable')
+  noteAskBudget(res)
+  if (!res.ok) throw askError(res, 'Routing is unavailable')
   return (await res.json()) as RouteDecision
 }
 

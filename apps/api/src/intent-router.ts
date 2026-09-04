@@ -13,7 +13,180 @@ export function configurationFor(intentId: string, defaultIntent: string): strin
   return intentId === defaultIntent ? 'portal-ask' : `portal-intent-${intentId}`
 }
 
-/** Gene symbols (SCN1A, KCNQ2, DEPDC5) and any term in the tenant's lexicon. */
+/**
+ * Upper-case tokens that look like gene symbols but are not: study acronyms,
+ * statistics, modalities, mouse strains. Kept short and explicit - the gene
+ * shape below also demands a digit, which already rules out most acronyms.
+ */
+const NOT_A_GENE = new Set([
+  'PMC',
+  'DOI',
+  'PMID',
+  'EEG',
+  'MRI',
+  'FMRI',
+  'MEG',
+  'PET',
+  'SPECT',
+  'CT',
+  'ASM',
+  'ASMS',
+  'AED',
+  'AEDS',
+  'RCT',
+  'RCTS',
+  'ILAE',
+  'HR',
+  'CI',
+  'OR',
+  'RR',
+  'SD',
+  'SE',
+  'AUC',
+  'ROC',
+  'URL',
+  'DNA',
+  'RNA',
+  'MRNA',
+  'CSF',
+  'ICU',
+  'SUDEP',
+  'PNES',
+  'FDA',
+  'TGA',
+  'PBS',
+  'DBS',
+  'VNS',
+  'RNS',
+  'LITT',
+  'SEEG',
+  'ECOG',
+  'TLE',
+  'MTLE',
+  'JME',
+  'GGE',
+  'DEE',
+  'DEES',
+  'GTCS',
+  'EMU',
+  'QOL',
+  'NMDA',
+  'NMDAR',
+  'GABA',
+  'AMPA',
+  'HIV',
+  'COVID',
+  'COVID19',
+  'ROI',
+  'CDE',
+  'GWAS',
+  'WES',
+  'WGS',
+  'CNV',
+  'CNVS',
+  'SNP',
+  'SNPS',
+  'SNV',
+  'VUS',
+  'ACMG',
+  'HGNC',
+  'OMIM',
+  'PCR',
+  'ELISA',
+  'LGS',
+  'ADHD',
+  'ASD',
+  'IQ',
+  'PTE',
+  'TBI',
+  'LOF',
+  'GOF',
+  'USA',
+  'UK',
+  'MDT',
+  'ENIGMA',
+  'C57BL',
+  'C57BL6',
+  'C57BL6J',
+  'DBA',
+  'FVB',
+  'BALB',
+  'H1',
+  'H2',
+  'T1',
+  'T2',
+  'P1',
+  'P2',
+  'A1',
+  'A2',
+  'B1',
+  'B2',
+  'S1',
+  'S2',
+  'S3',
+  'D1',
+  'D2',
+  'E1',
+  'E2',
+])
+
+/**
+ * Human gene symbols that carry no digit (the shape below wants one, because a
+ * digit is what separates "SCN1A" from "AUC" without a lexicon). Epilepsy
+ * genes only - extend as the corpus does.
+ */
+const DIGITLESS_GENES = new Set([
+  'ARX',
+  'PTEN',
+  'MTOR',
+  'WWOX',
+  'PIGA',
+  'PIGN',
+  'PIGO',
+  'PIGQ',
+  'PIGT',
+  'CASK',
+  'ATRX',
+  'AARS',
+  'QARS',
+  'ROGDI',
+  'PURA',
+  'NEXMIF',
+  'TBCK',
+  'DHDDS',
+  'ITPA',
+])
+
+/**
+ * Does this token read as a gene symbol? Human: upper case with a digit
+ * (SCN1A, KCNQ2, DEPDC5, SLC2A1) or a digitless symbol we know; mouse or
+ * rat: capitalised with a digit (Scn1a, Kcnq2). Never a listed acronym.
+ */
+export function looksLikeGeneSymbol(token: string): boolean {
+  const t = token.trim()
+  if (!t || NOT_A_GENE.has(t.toUpperCase()) || /^(PMC|PMID)\d+$/i.test(t)) return false
+  if (/^[A-Z][A-Z0-9]{1,7}$/.test(t)) return /\d/.test(t) || DIGITLESS_GENES.has(t)
+  if (/^[A-Z][a-z]{1,6}\d[a-z0-9]{0,3}$/.test(t)) return true
+  return false
+}
+
+/** Terms from the tenant's lexicon (medications, syndromes) that the question names. */
+export function lexiconEntities(query: string, lexicon: readonly string[] = []): string[] {
+  const lower = query.toLowerCase()
+  const found: string[] = []
+  const seen = new Set<string>()
+  for (const term of lexicon) {
+    const t = term.toLowerCase()
+    if (t.length < 4 || seen.has(t)) continue
+    if (new RegExp(`\\b${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(lower)) {
+      seen.add(t)
+      found.push(term)
+    }
+  }
+  return found
+}
+
+/** Gene symbols (SCN1A, KCNQ2, DEPDC5, Scn1a) and any term in the tenant's lexicon. */
 export function extractEntities(query: string, lexicon: readonly string[] = []): string[] {
   const found: string[] = []
   const seen = new Set<string>()
@@ -24,19 +197,44 @@ export function extractEntities(query: string, lexicon: readonly string[] = []):
       found.push(term)
     }
   }
-  for (const m of query.match(/\b[A-Z][A-Z0-9]{2,7}\b/g) ?? []) {
-    if (!/^(PMC|DOI|EEG|MRI|PET|ASM|ASMS|RCT|ILAE|HR|CI|OR|RR)\d*$/.test(m)) add(m)
+  for (const m of query.match(/[A-Za-z][A-Za-z0-9]{1,7}/g) ?? []) {
+    if (looksLikeGeneSymbol(m)) add(m)
   }
-  const lower = query.toLowerCase()
-  for (const term of lexicon) {
-    const t = term.toLowerCase()
-    if (
-      t.length >= 4 && new RegExp(`\\b${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(lower)
-    ) {
-      add(term)
-    }
-  }
+  for (const term of lexiconEntities(query, lexicon)) add(term)
   return found
+}
+
+export type IdentifierKind = 'doi' | 'pmcid' | 'pmid'
+
+/**
+ * A bare identifier: a DOI (with or without a doi: or doi.org prefix), a
+ * PubMed Central id, or a PubMed id ("PMID: 12345678" or seven to eight bare
+ * digits). Resolved against catalogue metadata before any retrieval - an
+ * identifier either names one resource or nothing, never a list of papers
+ * whose reference lists share a DOI prefix.
+ */
+export function parseIdentifier(query: string): { kind: IdentifierKind; value: string } | null {
+  const q = query.trim()
+  const doi = /^(?:doi:?\s*|https?:\/\/(?:dx\.)?doi\.org\/)?(10\.\d{4,9}\/[^\s]+?)[.,;)]?$/i.exec(q)
+  if (doi?.[1]) return { kind: 'doi', value: doi[1] }
+  const pmc = /^(?:pmcid:?\s*)?(PMC\d{4,9})$/i.exec(q)
+  if (pmc?.[1]) return { kind: 'pmcid', value: pmc[1].toUpperCase() }
+  const pmid = /^(?:pmid:?\s*(\d{1,9})|(\d{7,8}))$/i.exec(q)
+  const digits = pmid?.[1] ?? pmid?.[2]
+  if (digits) return { kind: 'pmid', value: digits }
+  return null
+}
+
+/**
+ * "Seery 2025 rituximab", "Vajda 2004": a surname and a year is a citation the
+ * reader is chasing, not a request for what is newest. The year must not be
+ * read as recency by the classifier either, so the router settles it.
+ */
+export function parseAuthorYear(query: string): { surname: string; year: string } | null {
+  const m = /^([A-Z][A-Za-z'’-]{2,})\s+((?:19|20)\d\d)\b/.exec(query.trim())
+  if (!m?.[1] || !m[2]) return null
+  if (looksLikeGeneSymbol(m[1])) return null
+  return { surname: m[1], year: m[2] }
 }
 
 /** Replace `{entities}` and `{query}` in an intent's prequery templates. */
@@ -67,11 +265,55 @@ export function eligibleIntents(ctx: RouteContext): Intent[] {
   )
 }
 
+/** Intents the classifier may choose: eligible for the surface and not rules-only. */
+export function classifierIntents(ctx: RouteContext): Intent[] {
+  return eligibleIntents(ctx).filter((i) => !i.rulesOnly)
+}
+
+/** The listing intent an identifier resolves to: no generation, results only. */
+function listingIntent(ctx: RouteContext): Intent | undefined {
+  return eligibleIntents(ctx).find((i) => i.answer.strategy === 'none')
+}
+
 /** First intent whose rule matches; null when no rule fires. */
 export function routeByRules(query: string, ctx: RouteContext): RouteDecision | null {
   const q = query.trim()
   if (!q) return null
-  const entities = extractEntities(q, ctx.lexicon ?? [])
+  const lexicon = ctx.lexicon ?? []
+  const entities = extractEntities(q, lexicon)
+  // An identifier is the strongest signal there is: it names one document.
+  const identifier = parseIdentifier(q)
+  const listing = identifier ? listingIntent(ctx) : undefined
+  if (identifier && listing) {
+    return {
+      intent: listing.id,
+      confidence: 1,
+      stage: 'rule',
+      rationale: `${listing.label}: ${identifier.kind.toUpperCase()} ${identifier.value}`,
+      configuration: configurationFor(listing.id, ctx.defaultIntent),
+      entities: [identifier.value],
+      rule: `identifier:${identifier.kind}`,
+    }
+  }
+  // An author-year citation names a paper: on a listing surface it is a
+  // lookup, and on the ask surface it runs on the default configuration
+  // rather than letting the year read as "recent".
+  const citation = parseAuthorYear(q)
+  if (citation) {
+    const target = listingIntent(ctx) ??
+      eligibleIntents(ctx).find((i) => i.id === ctx.defaultIntent)
+    if (target) {
+      return {
+        intent: target.id,
+        confidence: 1,
+        stage: 'rule',
+        rationale: `${target.label}: ${citation.surname} ${citation.year} reads as a citation`,
+        configuration: configurationFor(target.id, ctx.defaultIntent),
+        entities,
+        rule: 'author-year',
+      }
+    }
+  }
   for (const intent of eligibleIntents(ctx)) {
     for (const rule of intent.rules) {
       let re: RegExp
@@ -82,6 +324,7 @@ export function routeByRules(query: string, ctx: RouteContext): RouteDecision | 
       }
       if (!re.test(q)) continue
       if (intent.requireEntity && entities.length === 0) continue
+      if (intent.requireLexiconEntity && lexiconEntities(q, lexicon).length === 0) continue
       return {
         intent: intent.id,
         confidence: 1,
@@ -128,7 +371,7 @@ export function decideFromClassifier(
   const confidence = typeof raw.confidence === 'number'
     ? Math.max(0, Math.min(1, raw.confidence))
     : 0
-  const known = eligibleIntents(ctx).find((i) => i.id === intent)
+  const known = classifierIntents(ctx).find((i) => i.id === intent)
   if (!known || confidence < threshold) {
     return defaultDecision(ctx, 'No confident match, using the default configuration', entities)
   }

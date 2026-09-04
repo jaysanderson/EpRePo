@@ -1044,14 +1044,16 @@ function DocumentChat(
     setQuery(text)
   }
 
-  // Openers written from this document. Generation takes a few seconds the first
-  // time a document is opened (cached thereafter), so the generic three show
-  // until they land rather than leaving the reader looking at an empty row.
+  // Openers written from this document at enrichment time. A document the
+  // pass has not reached answers `pending` at once while the server writes
+  // them in the background, so the generic three show and the page asks
+  // again every few seconds until they land - it never waits on generation.
   const { data: generated } = useQuery({
     queryKey: ['resource-questions', slug, resource.id],
     queryFn: () => getResourceQuestions(slug, resource.id),
     staleTime: Infinity,
     retry: false,
+    refetchInterval: (query) => (query.state.data?.pending ? 4000 : false),
   })
 
   const GENERIC_STARTERS = [
@@ -1059,7 +1061,9 @@ function DocumentChat(
     'What are the main recommendations?',
     'What methods were used?',
   ]
-  const starters = generated && generated.length > 0 ? generated : GENERIC_STARTERS
+  const starters = generated && generated.questions.length > 0
+    ? generated.questions
+    : GENERIC_STARTERS
 
   return (
     <section className='rp-card p-5 sm:p-6' aria-labelledby='chat-heading'>

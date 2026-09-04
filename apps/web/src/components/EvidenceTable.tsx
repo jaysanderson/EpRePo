@@ -57,7 +57,7 @@ export interface EvidenceSource {
   /** What the source is (a PDF, a page, a video) - drives the document cue and the open link. */
   type?: ResourceType
   /** Where the matched passage came from; a generated summary cannot be highlighted in the PDF. */
-  matchedField?: 'body' | 'summary'
+  matchedField?: 'body' | 'summary' | 'metadata'
 }
 
 /** A small document glyph so a PDF reads as something you can open, not just a title. */
