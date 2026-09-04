@@ -185,6 +185,7 @@ function migrateMessage(raw: unknown): ChatMessage {
     deepBadge: typeof message?.deepBadge === 'boolean' ? message.deepBadge : undefined,
     wasDeep: typeof message?.wasDeep === 'boolean' ? message.wasDeep : undefined,
     refused: typeof message?.refused === 'boolean' ? message.refused : undefined,
+    truncated: typeof message?.truncated === 'boolean' ? message.truncated : undefined,
     audit: migrateAudit(message?.audit),
     verdicts: message?.verdicts && typeof message.verdicts === 'object'
       ? message.verdicts as Record<string, EvidenceVerdictInfo>
