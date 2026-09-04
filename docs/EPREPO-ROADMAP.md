@@ -361,6 +361,12 @@ branches without collisions.
 | Enrichment agents and tenant config | R4 (labelling reference paragraphs at ingestion), R11, R12, R13, R14, R19 (placeholders) | Kind and topic re-runs with MeSH priors; media and supplement summaries from the parent article; graph slice; tenant-config placeholders |
 | Knowledge-box content (out of scope) | Coverage gaps | LITT primary data, RNS and DBS trials, hemispherotomy, Austroads and PBS material, a 2005 paper's own CI typo. The portal's job is to say so cleanly, which is R1 and R8 |
 
+**Generic product versus EpRePo-specific.** R1, R2, R3, R5, R7 to R10, R15 to R27 and the
+supplement-fallback half of R6 are corpuskit product fixes that would show up identically on
+the FRDC portal or any other knowledge box, and belong upstream. R11 to R14, the `data`
+intent's keyword list, the safety-prequery drug lexicon and the media re-summarising are
+enrichment or domain configuration for this tenant.
+
 **Suggested order for the pilot gate:** R6 (data-intent routing and its configuration) and R1
 plus R3 (grounding gate, claim validator) remove every P0 seen; then R2 (citation binding),
 R15 (page off-by-one) and R23 (synthesis notes) make the checking loop trustworthy; then R11
