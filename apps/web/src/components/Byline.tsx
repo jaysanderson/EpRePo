@@ -37,7 +37,7 @@ export function Byline(
             href={`https://doi.org/${doi}`}
             target='_blank'
             rel='noopener noreferrer'
-            className='rp-focus min-w-0 truncate rounded-[var(--rp-radius-btn)] underline decoration-dotted underline-offset-2'
+            className='rp-focus -my-1 min-w-0 truncate rounded-[var(--rp-radius-btn)] py-1 underline decoration-dotted underline-offset-2'
             style={{ color: 'var(--rp-accent-fg)' }}
             onClick={(event) => event.stopPropagation()}
           >

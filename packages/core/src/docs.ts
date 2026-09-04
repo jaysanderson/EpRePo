@@ -128,6 +128,21 @@ export const DOC_PAGES: DocPage[] = [
           'search or a question. Use the theme toggle in the header to switch between light and ' +
           'dark.',
       },
+      {
+        heading: 'Exporting your work',
+        body: 'Everything you produce can leave the portal as a file, and each export confirms ' +
+          'itself with a short status line naming the file it saved:\n\n' +
+          '- **Ask** - **Export** on a session saves the whole research trail (questions, ' +
+          'answers, sources and quality scores) as a Word document.\n' +
+          '- **Investigations** - **Export to Word** saves the case with its evidence and ' +
+          'synthesis as a Word document.\n' +
+          '- **Generate** - **Export to Word** saves a briefing, comparison, timeline, FAQ or ' +
+          'pros and cons with its references, and **Export to PDF** opens a print-ready copy in ' +
+          "a new tab so you can save it as a PDF from your browser's print dialog.\n\n" +
+          'Answers and investigations export to Word only; there is no PDF button on Ask. For a ' +
+          'PDF of an answer, make a briefing on the same question in Generate and use Export to ' +
+          'PDF, or print the Ask page from your browser and choose Save as PDF.',
+      },
     ],
   },
   {
@@ -233,7 +248,8 @@ export const DOC_PAGES: DocPage[] = [
         body: 'Each conversation is saved as a session in the sidebar. Start a **new session**, ' +
           '**rename** one, **reopen** an earlier one, or **delete** one you no longer need. You ' +
           'can **Export** a session as a Word-compatible document to keep the whole research ' +
-          'trail: questions, answers, sources and the quality scores.',
+          'trail: questions, answers, sources and the quality scores. Ask exports to Word only; ' +
+          'for a PDF, see Exporting your work under Getting started.',
       },
       {
         heading: 'Deep research',

@@ -94,6 +94,7 @@ import {
   trimTruncatedTail,
 } from './answer-shape.ts'
 import { applicablePrequeries } from './ask-prequeries.ts'
+import { DOCS_DECLINE, DocsSentinelStream, rewriteDocsSentinels } from './docs-answer.ts'
 import { authorsNamed } from './ask-author.ts'
 import {
   type AuditEvent,
@@ -3880,11 +3881,39 @@ export function buildApp(opts: BuildAppOptions): Hono {
     if (!parsed.success) return c.json({ error: 'invalid_query' }, 400)
     return streamSSE(c, async (stream) => {
       const { query, context } = parsed.data
+      // The platform's guardrail sentence and the prompt's "provided context"
+      // leak into Help answers as they do into research answers (D2-18): the
+      // deltas and the finished text pass through the Help voice rewrite, and
+      // an answer that was nothing but the template becomes the decline.
+      const sentinels = new DocsSentinelStream()
+      const send = (event: unknown) => stream.writeSSE({ data: JSON.stringify(event) })
       try {
         for await (
           const event of provider.ask(config, query, { context, docScope: true })
         ) {
-          await stream.writeSSE({ data: JSON.stringify(event) })
+          if (event.type === 'delta') {
+            const text = sentinels.push(event.text)
+            if (text) await send({ type: 'delta', text })
+            continue
+          }
+          if (event.type === 'done') {
+            const tail = sentinels.flush()
+            if (tail) await send({ type: 'delta', text: tail })
+            if (event.refused) {
+              await send(event)
+              continue
+            }
+            const text = rewriteDocsSentinels(event.text ?? '')
+            if (!text) {
+              await send({ type: 'sources', resources: [] })
+              await send({ type: 'delta', text: DOCS_DECLINE })
+              await send({ type: 'done', refused: true, text: DOCS_DECLINE })
+              continue
+            }
+            await send({ ...event, text })
+            continue
+          }
+          await send(event)
         }
       } catch (err) {
         await stream.writeSSE({

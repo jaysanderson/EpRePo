@@ -2290,9 +2290,13 @@ export function AskPage() {
               // The answer is complete here; the quality scores follow on
               // the same stream a few seconds later. The composer is
               // released now rather than at stream close so the reader is
-              // never made to wait on the judge.
+              // never made to wait on the judge - and the trail entry is
+              // saved now too, so the sessions rail lists it with the answer
+              // rather than when the tail closes the stream (D2-19). The
+              // close-time save below carries the scores in.
               setIsStreaming(false)
               setActiveStage(null)
+              if (hasAnsweredTurn(working)) persist(working, sessionId)
               break
             case 'error':
               update((message) => ({

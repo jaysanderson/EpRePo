@@ -200,7 +200,7 @@ export function forwardableSlice(
 // ---------------------------------------------------------------------------
 
 /** The platform's guardrail sentence and the prompt's own coverage line, as whole sentences. */
-const TEMPLATE_SENTENCE =
+export const TEMPLATE_SENTENCE =
   /(?:^|(?<=\s))["'“(]?(?:not enough (?:data|information|context) to (?:answer|confirm|determine|say|assess|establish)[^.!?\n]*|if you need more information,? the portal'?s sources do not cover (?:it|this|that)[^.!?\n]*)[.!?]?["'”)]?/gi
 
 /** Verb agreement once "the context" (singular) becomes "the cited sources" (plural). */
