@@ -1324,7 +1324,9 @@ body {
 
 /* ---------------------------------------------------------------------------
  * Semantic theme layer. Components use ONLY these semantic classes (plus the
- * tenant hooks). The portal is light-only: there is no dark variant to flip.
+ * tenant hooks). Dark is a token swap, not a second stylesheet: a dark library
+ * palette, or the viewer's own dark toggle (lib/theme.ts maps a light suite
+ * onto the house dark grey suite), rewrites the greys and status colours.
  * Shape language: four dials, set by TenantLayout from branding.shape -
  * --rp-radius for surfaces (cards, panels, tiles), then buttons, chips/tags
  * and inputs each get their own so 'soft' can pill buttons and tags without
@@ -2459,10 +2461,10 @@ button:disabled,
   width: max(2.75rem, calc(2.75rem * var(--rp-density-ctl, 1)));
   height: max(2.75rem, calc(2.75rem * var(--rp-density-ctl, 1)));
   padding: 0;
-  border: 1px solid color-mix(in srgb, var(--rp-primary) 25%, transparent);
+  border: 1px solid color-mix(in srgb, var(--rp-brand-fg) 25%, transparent);
   border-radius: 9999px;
-  background-color: color-mix(in srgb, var(--rp-primary) 7%, transparent);
-  color: var(--rp-primary);
+  background-color: color-mix(in srgb, var(--rp-brand-fg) 7%, transparent);
+  color: var(--rp-brand-fg);
   cursor: pointer;
   transition: background-color 150ms var(--rp-ease), border-color 150ms var(--rp-ease);
 }

@@ -3,7 +3,13 @@ import { useQuery } from '@tanstack/react-query'
 import { Link, NavLink, Outlet, useLocation, useNavigate, useParams } from 'react-router-dom'
 import type { TenantConfig } from '@research-portal/core'
 import { ApiError, getKnowledgeBoxStatus, getTenantConfig } from '../api/client.ts'
-import { tenantThemeVars, useBodyTheme, useTenantFonts, useTextScale } from '../lib/theme.ts'
+import {
+  tenantThemeVars,
+  useBodyTheme,
+  useTenantFonts,
+  useTextScale,
+  useViewerScheme,
+} from '../lib/theme.ts'
 import { CommandPalette } from '../components/CommandPalette.tsx'
 import { AccountMenu } from '../components/AccountMenu.tsx'
 import { KbSwitcher } from '../components/KbSwitcher.tsx'
@@ -47,6 +53,29 @@ const MOBILE_NAV_ITEMS: { path: string; label: string; end: boolean }[] = [
 // icons and the phone sheet's rows so the two surfaces cannot drift apart. The
 const HELP_LABEL = 'Help'
 const ACCOUNT_LABEL = 'My account'
+
+/** Sun and moon, for the viewer's scheme toggle. */
+function SchemeIcon({ scheme, className }: { scheme: 'light' | 'dark'; className: string }) {
+  return (
+    <svg
+      viewBox='0 0 24 24'
+      fill='none'
+      stroke='currentColor'
+      strokeWidth='1.6'
+      strokeLinecap='round'
+      strokeLinejoin='round'
+      className={className}
+      aria-hidden='true'
+    >
+      {scheme === 'dark' ? <path d='M20 14.5A8.5 8.5 0 019.5 4a7 7 0 1010.5 10.5z' /> : (
+        <>
+          <circle cx='12' cy='12' r='4' />
+          <path d='M12 2.5v2.5M12 19v2.5M2.5 12H5M19 12h2.5M5.3 5.3l1.8 1.8M16.9 16.9l1.8 1.8M5.3 18.7l1.8-1.8M16.9 7.1l1.8-1.8' />
+        </>
+      )}
+    </svg>
+  )
+}
 
 function HelpIcon({ className }: { className: string }) {
   return (
@@ -295,7 +324,12 @@ export function TenantLayout() {
   // no-ops until the config loads).
   useTenantFonts(config?.branding)
   useTextScale(config?.branding)
-  useBodyTheme(config?.branding)
+  // The viewer's light/dark scheme: system preference by default, their own
+  // choice once they toggle it, persisted per browser.
+  const { scheme, setChoice } = useViewerScheme()
+  const schemeLabel = scheme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'
+  const toggleScheme = () => setChoice(scheme === 'dark' ? 'light' : 'dark')
+  useBodyTheme(config?.branding, scheme)
 
   if (isLoading) {
     return <FullPageSpinner />
@@ -332,7 +366,7 @@ export function TenantLayout() {
   return (
     <div
       className='rp-tenant min-h-screen bg-app'
-      style={tenantThemeVars(config.branding)}
+      style={tenantThemeVars(config.branding, scheme)}
     >
       {
         /* Two-tier header, after frdc.com.au: a white strip carrying the logo,
@@ -411,7 +445,7 @@ export function TenantLayout() {
                   className='rp-focus flex h-[calc(3rem*var(--rp-density-ctl,1))] w-[calc(3rem*var(--rp-density-ctl,1))] shrink-0 items-center justify-center rounded-e-[var(--rp-radius-input)] border border-l-0 transition-colors duration-150'
                   style={{
                     borderColor: 'var(--rp-line)',
-                    color: 'var(--rp-primary)',
+                    color: 'var(--rp-brand-fg)',
                   }}
                 >
                   <svg
@@ -453,14 +487,30 @@ export function TenantLayout() {
                 * display and would beat a utility on the element itself. */
               }
               <span className='hidden sm:inline-flex'>
+                <button
+                  type='button'
+                  onClick={toggleScheme}
+                  aria-label={schemeLabel}
+                  title={schemeLabel}
+                  aria-pressed={scheme === 'dark'}
+                  className='rp-focus flex h-[calc(2.75rem*var(--rp-density-ctl,1))] w-[calc(2.75rem*var(--rp-density-ctl,1))] shrink-0 items-center justify-center rounded-full border transition-colors duration-150'
+                  style={{
+                    borderColor: 'color-mix(in srgb, var(--rp-brand-fg) 25%, transparent)',
+                    color: 'var(--rp-brand-fg)',
+                  }}
+                >
+                  <SchemeIcon scheme={scheme} className='h-6 w-6' />
+                </button>
+              </span>
+              <span className='hidden sm:inline-flex'>
                 <Link
                   to={`/t/${config.slug}/help`}
                   aria-label={HELP_LABEL}
                   title={HELP_LABEL}
                   className='rp-focus flex h-[calc(2.75rem*var(--rp-density-ctl,1))] w-[calc(2.75rem*var(--rp-density-ctl,1))] shrink-0 items-center justify-center rounded-full border transition-colors duration-150'
                   style={{
-                    borderColor: 'color-mix(in srgb, var(--rp-primary) 25%, transparent)',
-                    color: 'var(--rp-primary)',
+                    borderColor: 'color-mix(in srgb, var(--rp-brand-fg) 25%, transparent)',
+                    color: 'var(--rp-brand-fg)',
                   }}
                 >
                   <HelpIcon className='h-6 w-6' />
@@ -612,6 +662,15 @@ export function TenantLayout() {
                 className='h-24 w-auto max-w-[38%] shrink-0 object-contain'
               />
               <div className='flex min-w-0 flex-1 flex-col gap-2.5'>
+                <button
+                  type='button'
+                  onClick={toggleScheme}
+                  aria-pressed={scheme === 'dark'}
+                  className='rp-navsheet-action rp-focus-inverse'
+                >
+                  <SchemeIcon scheme={scheme} className='h-5 w-5 shrink-0' />
+                  {scheme === 'dark' ? 'Light mode' : 'Dark mode'}
+                </button>
                 <NavLink
                   to={`/t/${config.slug}/help`}
                   className='rp-navsheet-action rp-focus-inverse'
