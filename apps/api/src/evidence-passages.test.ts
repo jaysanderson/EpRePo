@@ -1,6 +1,6 @@
 import { describe, it } from '@std/testing/bdd'
 import { expect } from '@std/expect'
-import { choosePassage, paragraphsOf } from './evidence-passages.ts'
+import { choosePassage, paragraphsOf, stripRunningHead } from './evidence-passages.ts'
 
 describe('choosePassage', () => {
   const masthead =
@@ -60,5 +60,16 @@ describe('paragraphsOf', () => {
       'A paragraph of prose that is long enough to be worth quoting in an evidence card.\n\nShort.\n\n12. Smith AB, Jones C. Title. J Neurol. 2019;45:1-9.',
     )
     expect(paragraphs).toHaveLength(1)
+  })
+})
+
+describe('stripRunningHead', () => {
+  it('drops a pipe-delimited running head from the start of a chunk', () => {
+    expect(
+      stripRunningHead('| 343NIGHTSCALES et al. 3.2 | Implications This study provides evidence.'),
+    ).toBe('Implications This study provides evidence.')
+    expect(stripRunningHead('Retention on PER treatment was 64.2%.')).toBe(
+      'Retention on PER treatment was 64.2%.',
+    )
   })
 })

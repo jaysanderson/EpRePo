@@ -35,6 +35,14 @@ export function paragraphsOf(text: string): string[] {
     .filter((p) => p.length >= 60 && p.length <= 2500 && !looksLikeReferencePassage(p))
 }
 
+/**
+ * A retrieved chunk that opens with the page's running head ("| 343 NIGHTSCALES
+ * et al. 3.2 | Implications This study...") starts at the heading instead.
+ */
+export function stripRunningHead(passage: string): string {
+  return passage.replace(/^\|?\s*(?:\d{1,4}\s*)?[^|]{0,80}\|\s*(?=\S)/, '').trim()
+}
+
 /** The sentences of a passage, in order. */
 function sentencesOf(passage: string): string[] {
   return passage.split(/(?<=[.!?])\s+(?=[A-Z0-9("])/).map((s) => s.trim()).filter(Boolean)
@@ -136,7 +144,7 @@ export function choosePassage(
   }
   if (!best) return null
   const passage = focus(
-    best.candidate.text.replace(/\s+/g, ' ').trim(),
+    stripRunningHead(best.candidate.text.replace(/\s+/g, ' ').trim()),
     figures,
     features.flatMap((f) => f.words),
   )
