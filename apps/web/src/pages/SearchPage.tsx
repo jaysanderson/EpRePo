@@ -444,7 +444,7 @@ function WatchStrip(
 
   return (
     <div className='mb-4 flex flex-wrap items-center gap-1.5'>
-      <span className='rp-eyebrow shrink-0 text-ink-3'>Saved</span>
+      <span className='rp-eyebrow shrink-0 text-ink-3'>Watches</span>
       {watches.map((watch) => (
         <div
           key={watch.id}
@@ -918,9 +918,9 @@ export function SearchPage() {
               ? (
                 <span
                   className='rp-badge rp-badge-quiet'
-                  title='This search is re-checked daily - a dot appears in the saved strip when new results arrive.'
+                  title='This search is in your Watches - it is re-checked daily and a dot appears in the strip when new results arrive.'
                 >
-                  Watching
+                  In your Watches
                 </span>
               )
               : (
@@ -931,7 +931,7 @@ export function SearchPage() {
                   title='Get notified here when new results appear for this search'
                   className='rp-chip h-9 sm:h-7'
                 >
-                  {addWatchMutation.isPending ? 'Saving…' : 'Watch this search'}
+                  {addWatchMutation.isPending ? 'Adding…' : 'Add to Watches'}
                 </button>
               )
           )
@@ -1118,7 +1118,7 @@ export function SearchPage() {
           {hasQuery
             ? (
               <p className='-mt-2 mb-4 text-xs text-ink-3'>
-                Watched searches are re-checked daily - a dot appears here when results change.
+                Watches are re-checked daily - a dot appears here when results change.
               </p>
             )
             : null}

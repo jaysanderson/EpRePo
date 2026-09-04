@@ -109,3 +109,29 @@ fly deploy --remote-only --app eprepo-portal
 - After a fresh box or a change to the intents, converge the stored search configurations:
   `POST /api/admin/t/eprepo/search-configs/ensure` with the admin passcode.
 - The image carries poppler for the Extraction Lab profiler and the run permission it needs.
+
+## Viewer dark mode
+
+The portal has a viewer-side light/dark toggle (the sun/moon button in the header; "Dark mode"
+in the phone menu). It defaults to the operating system's `prefers-color-scheme` and, once
+toggled, is persisted per browser in `localStorage` (`rp-scheme`). Dark is a token swap, not a
+second stylesheet: `apps/web/src/lib/theme.ts` maps a light-suite portal onto the house dark
+grey suite, the dark-polarity status colours and an opaque glass, and lightens the brand and
+accent inks until they clear WCAG AA on the dark surface (`ensureContrast`). A portal already
+on a dark library palette (Observatory) is left exactly as authored. Every page must be checked
+in both schemes before it is called done - see `apps/web/CLAUDE.md`.
+
+## Facet counts, sorting and example copy
+
+- `GET /api/t/:slug/facets` serves `topic`, `kind` and `format` together from one memoised
+  aggregation (30 s per tenant), plus `untagged.topic` - the real count of resources carrying no
+  topic, from the index. Search, Library and Taxonomy all read this one call, so their counts
+  agree. The documented `labelsets=` name and the short `ls=` both work.
+- `GET /api/t/:slug/catalog` accepts `sort=published` (the Library default, newest first; the
+  platform's own sort is created/modified/title only, so this runs over the cached listing) and
+  the facet names `topicIds`/`kindIds`/`formatIds` beside the short forms. Labels within one
+  facet are ORed and facets ANDed via a single `filter_expression`.
+- Example copy (the investigation-name placeholder and the Generate placeholders) is derived
+  from the tenant's own `suggestedQuestions` and `topics`, and can be overridden per tenant
+  under `copy` in the tenant configuration (`packages/core` `TenantConfigSchema.copy`); the
+  self-assessment heading is the top-level `assessmentHeading`.

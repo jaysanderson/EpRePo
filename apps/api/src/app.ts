@@ -17,7 +17,12 @@ import {
   TextScaleIdSchema,
   TypographyChoiceSchema,
 } from '@research-portal/core'
-import type { FacetCounts, MigrationEvent, RouteDecision, TenantConfig } from '@research-portal/core'
+import type {
+  FacetCounts,
+  MigrationEvent,
+  RouteDecision,
+  TenantConfig,
+} from '@research-portal/core'
 import {
   AragApiError,
   type AragProvider,

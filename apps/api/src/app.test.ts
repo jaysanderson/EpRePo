@@ -589,6 +589,9 @@ describe('GET /api/t/:slug/resources/:id/questions', () => {
     await new Promise((resolve) => setTimeout(resolve, 10))
     expect(generated).toBe(1)
     expect(enrichments.get('frdc', 'res-2', 'suggested-questions')?.data).toEqual({ questions: [] })
+  })
+})
+
 describe('GET /api/t/:slug/catalog', () => {
   /** Records what the route asked the provider for. */
   class RecordingProvider extends StubProvider {

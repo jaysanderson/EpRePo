@@ -736,7 +736,7 @@ function WatchControl({ question, slug }: { question: string; slug: string }) {
   if (status === 'done') {
     return (
       <p className='text-xs text-ink-3'>
-        Watching - you will see a change badge in Search when results change.
+        In your Watches - a change badge appears in Search when results change.
       </p>
     )
   }
@@ -744,13 +744,17 @@ function WatchControl({ question, slug }: { question: string; slug: string }) {
   return (
     <div className='flex items-center gap-1.5'>
       <ActionIcon
-        label={status === 'busy' ? 'Saving the watch' : 'Watch this question'}
+        label={status === 'busy' ? 'Adding to Watches' : 'Add to Watches'}
         onClick={handleWatch}
         disabled={status === 'busy'}
         path={ICON_WATCH}
       />
       {status === 'error'
-        ? <p className='text-xs text-[var(--rp-bad-ink)]'>Could not save the watch - try again.</p>
+        ? (
+          <p className='text-xs text-[var(--rp-bad-ink)]'>
+            Could not add it to Watches - try again.
+          </p>
+        )
         : null}
     </div>
   )
