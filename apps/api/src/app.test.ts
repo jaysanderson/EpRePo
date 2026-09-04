@@ -1370,3 +1370,475 @@ describe('rate limiting on anonymous LLM-spend routes', () => {
     }
   })
 })
+
+// ---------------------------------------------------------------------------
+// Grounding gate, intent fallback and answer shaping on POST /ask
+// ---------------------------------------------------------------------------
+
+const sseEvents = async (response: Response): Promise<AskEvent[]> =>
+  (await response.text())
+    .split('\n')
+    .filter((chunk) => chunk.startsWith('data: '))
+    .map((chunk) => AskEventSchema.parse(JSON.parse(chunk.slice('data: '.length))))
+
+describe('POST /api/t/:slug/ask grounding gate', () => {
+  it('declines before generating when the pre-flight find is weak, showing the closest matches', async () => {
+    let askCalls = 0
+    class WeakProvider extends StubProvider {
+      override async search(tenant: TenantConfig, query: string): Promise<SearchResults> {
+        const found = await super.search(tenant, query)
+        return {
+          ...found,
+          resources: found.resources.map((r) => ({ ...r, relevance: 0.2 })),
+        }
+      }
+      override ask(tenant: TenantConfig, query: string): AsyncIterable<AskEvent> {
+        askCalls += 1
+        return super.ask(tenant, query)
+      }
+    }
+    const app = buildApp({ provider: new WeakProvider(), tenants: freshTenants() })
+    const response = await app.request('/api/t/frdc/ask', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ query: 'What is the abalone harvest quota on Mars?' }),
+    })
+    expect(response.status).toBe(200)
+    const events = await sseEvents(response)
+    expect(askCalls).toBe(0)
+    const sources = events.find((e) => e.type === 'sources')
+    expect(sources && sources.type === 'sources' ? sources.resources.length : 0).toBeGreaterThan(0)
+    const deltas = events.filter((e) => e.type === 'delta').map((e) =>
+      e.type === 'delta' ? e.text : ''
+    )
+    expect(deltas.join('')).toContain('only weakly related (best match 20%)')
+    const done = events.find((e) => e.type === 'done')
+    expect(done && done.type === 'done' ? done.refused : false).toBe(true)
+    expect(events.some((e) => e.type === 'citation')).toBe(false)
+  })
+
+  it('falls back from a supplements-only intent to the general configuration when it finds nothing', async () => {
+    const seen: (string | undefined)[] = []
+    class SupplementAwareProvider extends StubProvider {
+      override async search(
+        tenant: TenantConfig,
+        query: string,
+        opts?: { intent?: string },
+      ): Promise<SearchResults> {
+        seen.push(opts?.intent)
+        if (opts?.intent === 'data') return { query, resources: [], relatedQuestions: [] }
+        return super.search(tenant, query)
+      }
+      override ask(tenant: TenantConfig, query: string, opts?: { intent?: string }) {
+        seen.push(`ask:${opts?.intent ?? 'none'}`)
+        return super.ask(tenant, query)
+      }
+    }
+    const app = buildApp({ provider: new SupplementAwareProvider(), tenants: freshTenants() })
+    const response = await app.request('/api/t/eprepo/ask', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        query: 'What seizure freedom rates are reported after thermocoagulation?',
+        intent: 'data',
+      }),
+    })
+    expect(response.status).toBe(200)
+    const events = await sseEvents(response)
+    const fallback = events.find((e) => e.type === 'fallback')
+    expect(fallback && fallback.type === 'fallback' ? fallback.from : null).toBe('data')
+    expect(seen).toEqual(['data', undefined, 'ask:none'])
+    expect(events.some((e) => e.type === 'done' && !e.refused)).toBe(true)
+  })
+
+  it('withholds a model-authored reference list from the stream and the bound text', async () => {
+    class ReferencingProvider extends StubProvider {
+      override async *ask(): AsyncIterable<AskEvent> {
+        yield { type: 'sources', resources: [{ ...resourceOne, relevance: 0.9, citedCount: 1 }] }
+        yield { type: 'delta', text: 'Abalone stocks are recovering [1].' }
+        yield { type: 'delta', text: '\n\n---\n\n**References:**\n' }
+        yield { type: 'delta', text: '1. Study on abalone recovery.\n2. Study on stressors.' }
+        yield {
+          type: 'citation',
+          citation: { index: 1, resourceId: resourceOne.id, title: resourceOne.title },
+        }
+        yield {
+          type: 'done',
+          text:
+            'Abalone stocks are recovering.[1]\n\n---\n\n**References:**\n1. Study on abalone recovery.',
+        }
+      }
+    }
+    const app = buildApp({ provider: new ReferencingProvider(), tenants: freshTenants() })
+    const response = await app.request('/api/t/frdc/ask', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ query: 'Are abalone stocks recovering?' }),
+    })
+    const events = await sseEvents(response)
+    const streamed = events.filter((e) => e.type === 'delta').map((e) =>
+      e.type === 'delta' ? e.text : ''
+    )
+      .join('')
+    expect(streamed).toBe('Abalone stocks are recovering [1].')
+    const done = events.find((e) => e.type === 'done')
+    expect(done && done.type === 'done' ? done.text : null).toBe(
+      'Abalone stocks are recovering.[1]',
+    )
+  })
+})
+
+describe('rate limiting per browser id', () => {
+  it('keys the ask limit on x-rp-client so callers behind one address get their own budget', async () => {
+    const app = buildApp({
+      provider: new StubProvider(),
+      tenants: freshTenants(),
+      rateLimitAskPerMin: 1,
+      rateLimitAskPerMinPerIp: 2,
+    })
+    const askAs = (client: string) =>
+      app.request('/api/t/frdc/ask', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'fly-client-ip': '203.0.113.9',
+          'x-rp-client': client,
+        },
+        body: JSON.stringify({ query: 'What is known about abalone stock health?' }),
+      })
+
+    expect((await askAs('client-aaaaaaaa')).status).toBe(200)
+    expect((await askAs('client-aaaaaaaa')).status).toBe(429)
+    expect((await askAs('client-bbbbbbbb')).status).toBe(200)
+    // The wider per-address bucket still caps a caller that mints new ids.
+    expect((await askAs('client-cccccccc')).status).toBe(429)
+  })
+})
+
+describe('POST /api/t/:slug/ask refusal fallback', () => {
+  it('re-asks on the general configuration when a supplements-only intent refuses outright', async () => {
+    const seen: string[] = []
+    class RefusingOnDataProvider extends StubProvider {
+      override async *ask(
+        tenant: TenantConfig,
+        query: string,
+        opts?: { intent?: string },
+      ): AsyncIterable<AskEvent> {
+        seen.push(`ask:${opts?.intent ?? 'none'}`)
+        if (opts?.intent === 'data') {
+          yield { type: 'sources', resources: [{ ...resourceOne, relevance: 0.9, citedCount: 0 }] }
+          yield { type: 'delta', text: 'This portal does not hold enough material to answer.' }
+          yield { type: 'done', refused: true }
+          return
+        }
+        yield* super.ask(tenant, query)
+      }
+    }
+    const app = buildApp({ provider: new RefusingOnDataProvider(), tenants: freshTenants() })
+    const response = await app.request('/api/t/eprepo/ask', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ query: 'What seizure freedom is reported?', intent: 'data' }),
+    })
+    const events = await sseEvents(response)
+    expect(seen).toEqual(['ask:data', 'ask:none'])
+    expect(events.filter((e) => e.type === 'fallback').length).toBe(1)
+    const dones = events.filter((e) => e.type === 'done')
+    expect(dones.length).toBe(1)
+    expect(dones[0] && dones[0].type === 'done' ? dones[0].refused : true).toBeFalsy()
+    expect(events.some((e) => e.type === 'citation')).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Sentence-level binding, the audit, refusals and sentinels on POST /ask
+// ---------------------------------------------------------------------------
+
+const CONSENSUS_TEXT =
+  'International consensus on diagnosis and management of Dravet syndrome. Sodium channel ' +
+  'blockers should be avoided. Lamotrigine is contraindicated in children with DS. In the ' +
+  'register, the malformation rate was 6.42% below 1400 mg per day.'
+const TRIAL_TEXT =
+  'Dose-ranging trial of cannabidiol in Dravet syndrome: the 20 mg/kg group had a 45.7% ' +
+  'reduction in convulsive seizure frequency. Participants were on stable therapy.'
+
+/** The management surface the ask handler needs, as a double. */
+function fakeManagement(texts: Record<string, string>): AragProvider {
+  return {
+    resourceExtraction: (_tenant: TenantConfig, id: string) =>
+      Promise.resolve({
+        status: 'PROCESSED',
+        text: texts[id] ?? '',
+        chars: 0,
+        paragraphs: 0,
+        tableRows: 0,
+      }),
+    rephrase: () => Promise.resolve(null),
+    askStructured: () => Promise.reject(new Error('not in this test')),
+  } as unknown as AragProvider
+}
+
+describe('POST /api/t/:slug/ask sentence-level binding and audit', () => {
+  it('re-binds each sentence to the text that carries it, renumbers, and audits the figures', async () => {
+    class SprayingProvider extends StubProvider {
+      override async *ask(): AsyncIterable<AskEvent> {
+        yield {
+          type: 'sources',
+          resources: [
+            { ...resourceOne, relevance: 0.9, citedCount: 1 },
+            { ...resourceTwo, relevance: 0.8, citedCount: 1 },
+          ],
+        }
+        yield { type: 'delta', text: 'Lamotrigine is contraindicated in Dravet syndrome. ' }
+        yield { type: 'delta', text: 'Cannabidiol at 20 mg/kg cut seizures by 45.7%. ' }
+        yield { type: 'delta', text: 'The malformation rate was 9.9% below 1400 mg.' }
+        yield { type: 'citation', citation: { index: 1, resourceId: 'res-2', title: 'Trial' } }
+        yield { type: 'citation', citation: { index: 2, resourceId: 'res-1', title: 'Consensus' } }
+        yield {
+          type: 'done',
+          text: 'Lamotrigine is contraindicated in Dravet syndrome. ' +
+            'Cannabidiol at 20 mg/kg cut seizures by 45.7%. ' +
+            'The malformation rate was 9.9% below 1400 mg.[1][2]',
+        }
+        yield {
+          type: 'quality',
+          answerRelevance: 4,
+          groundedness: 3,
+          contextRelevance: 2,
+        }
+      }
+    }
+    const app = buildApp({
+      provider: new SprayingProvider(),
+      tenants: freshTenants(),
+      management: fakeManagement({ 'res-1': CONSENSUS_TEXT, 'res-2': TRIAL_TEXT }),
+    })
+    const response = await app.request('/api/t/eprepo/ask', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ query: 'Which drugs are contraindicated in Dravet?' }),
+    })
+    const events = await sseEvents(response)
+    const citations = events.filter((e) => e.type === 'citation').map((e) =>
+      e.type === 'citation' ? [e.citation.index, e.citation.resourceId] : null
+    )
+    // The consensus grounds the first sentence and is cited first, so it is [1].
+    expect(citations).toEqual([[1, 'res-1'], [2, 'res-2']])
+    const done = events.find((e) => e.type === 'done')
+    const text = done && done.type === 'done' ? done.text ?? '' : ''
+    expect(text).toContain('Lamotrigine is contraindicated in Dravet syndrome.[1]')
+    expect(text).toContain('cut seizures by 45.7%.[2]')
+    // 9.9% appears in neither text: the sentence loses its markers (a text
+    // must carry every figure a sentence states) and the figure is flagged.
+    expect(text).toMatch(/9\.9% below 1400 mg\.(?!\[)/)
+    expect(text).toContain('do not appear beside their claim in the cited passages: 9.9%')
+    const audit = events.find((e) => e.type === 'audit')
+    expect(audit && audit.type === 'audit' ? audit : null).toMatchObject({
+      figuresChecked: 4,
+      figuresUnsupported: ['9.9%'],
+      yearsUnsupported: [],
+      contraindicationsUnsupported: [],
+    })
+    // Every citation event precedes done; the quality judge's event follows it.
+    const order = events.map((e) => e.type)
+    expect(order.indexOf('done')).toBeGreaterThan(order.lastIndexOf('citation'))
+    expect(order.indexOf('quality')).toBeGreaterThan(order.indexOf('done'))
+  })
+
+  it('strips a contraindication no cited passage states and says so', async () => {
+    class OverclaimingProvider extends StubProvider {
+      override async *ask(): AsyncIterable<AskEvent> {
+        yield { type: 'sources', resources: [{ ...resourceTwo, relevance: 0.9, citedCount: 1 }] }
+        yield { type: 'delta', text: 'Yes, vigabatrin is contraindicated in Dravet syndrome.' }
+        yield { type: 'citation', citation: { index: 1, resourceId: 'res-2', title: 'Trial' } }
+        yield { type: 'done', text: 'Yes, vigabatrin is contraindicated in Dravet syndrome.[1]' }
+      }
+    }
+    const app = buildApp({
+      provider: new OverclaimingProvider(),
+      tenants: freshTenants(),
+      management: fakeManagement({ 'res-2': TRIAL_TEXT + ' Vigabatrin was a concomitant drug.' }),
+    })
+    const response = await app.request('/api/t/eprepo/ask', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        query: 'Is vigabatrin contraindicated in Dravet syndrome?',
+        intent: 'clinical',
+      }),
+    })
+    const events = await sseEvents(response)
+    const done = events.find((e) => e.type === 'done')
+    const text = done && done.type === 'done' ? done.text ?? '' : ''
+    expect(text).toContain('The cited sources do not state that vigabatrin is contraindicated')
+    expect(text).not.toContain('Yes, vigabatrin is contraindicated')
+    const audit = events.find((e) => e.type === 'audit')
+    expect(audit && audit.type === 'audit' ? audit.contraindicationsUnsupported : []).toEqual([
+      'vigabatrin',
+    ])
+  })
+
+  it('fires the safety prequeries for a medication on a treatment question, never for an antigen', async () => {
+    const app = makeApp()
+    const searched = async (query: string) => {
+      const response = await app.request('/api/t/eprepo/ask', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ query, intent: 'clinical' }),
+      })
+      const events = await sseEvents(response)
+      const event = events.find((e) => e.type === 'searched')
+      return event && event.type === 'searched' ? event.queries : []
+    }
+    expect(await searched('What rituximab dose was used for NMDAR encephalitis?')).toEqual([])
+    expect(await searched('Should valproate be avoided in women of childbearing age?')).toEqual([
+      'contraindications, drugs to avoid and safety monitoring for valproate',
+      'dose limits, starting dose and interactions for valproate',
+    ])
+  })
+})
+
+describe('POST /api/t/:slug/ask refusals and sentinels', () => {
+  it('shows the closest matches on a refusal and names them in the decline', async () => {
+    class RefusingProvider extends StubProvider {
+      override async *ask(): AsyncIterable<AskEvent> {
+        yield {
+          type: 'sources',
+          resources: [
+            { ...resourceTwo, relevance: 0.4, citedCount: 0 },
+            { ...resourceOne, relevance: 0.6, citedCount: 0 },
+          ],
+        }
+        yield {
+          type: 'delta',
+          text: "This portal's content does not hold enough relevant material to answer this " +
+            'confidently. Try rephrasing the question.',
+        }
+        yield { type: 'sources', resources: [] }
+        yield { type: 'done', refused: true, text: "This portal's content does not hold enough." }
+      }
+    }
+    const app = buildApp({ provider: new RefusingProvider(), tenants: freshTenants() })
+    const response = await app.request('/api/t/frdc/ask', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ query: 'What is the abalone quota in the Baltic?' }),
+    })
+    const events = await sseEvents(response)
+    const sources = events.filter((e) => e.type === 'sources')
+    expect(sources.length).toBe(2)
+    expect(sources.every((e) => e.type === 'sources' && e.resources.length === 2)).toBe(true)
+    const done = events.find((e) => e.type === 'done')
+    const text = done && done.type === 'done' ? done.text ?? '' : ''
+    expect(done && done.type === 'done' ? done.refused : false).toBe(true)
+    expect(text).toContain("This portal's sources do not answer this question directly")
+    expect(text).toContain(
+      `*${resourceOne.title}* and *${resourceTwo.title}* - listed below but not used`,
+    )
+    expect(text).not.toContain('does not hold enough relevant material')
+    // The provider's own decline copy never reaches the stream.
+    const streamed = events.filter((e) => e.type === 'delta').map((e) =>
+      e.type === 'delta' ? e.text : ''
+    ).join('')
+    expect(streamed).not.toContain('does not hold enough')
+  })
+
+  it('re-asks once on the default configuration without prequeries when a strong match still refuses', async () => {
+    const seen: (string[] | undefined)[] = []
+    const intents: (string | undefined)[] = []
+    class ProbeSensitiveProvider extends StubProvider {
+      override async *ask(
+        tenant: TenantConfig,
+        query: string,
+        opts?: { prequeries?: string[]; intent?: string },
+      ): AsyncIterable<AskEvent> {
+        seen.push(opts?.prequeries)
+        intents.push(opts?.intent)
+        if (opts?.prequeries?.length) {
+          yield { type: 'sources', resources: [{ ...resourceOne, relevance: 0.95, citedCount: 0 }] }
+          yield {
+            type: 'delta',
+            text: "This portal's content does not hold enough relevant material.",
+          }
+          yield { type: 'sources', resources: [] }
+          yield { type: 'done', refused: true }
+          return
+        }
+        yield* super.ask(tenant, query)
+      }
+    }
+    const app = buildApp({ provider: new ProbeSensitiveProvider(), tenants: freshTenants() })
+    const response = await app.request('/api/t/eprepo/ask', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        query: 'What rituximab dose should be used with clobazam?',
+        intent: 'clinical',
+      }),
+    })
+    const events = await sseEvents(response)
+    expect(seen.length).toBe(2)
+    expect(seen[0]?.length).toBeGreaterThan(0)
+    expect(seen[1]).toBeUndefined()
+    expect(intents).toEqual(['clinical', undefined])
+    const dones = events.filter((e) => e.type === 'done')
+    expect(dones.length).toBe(1)
+    expect(dones[0] && dones[0].type === 'done' ? dones[0].refused : true).toBe(false)
+  })
+
+  it('uses the document-scope decline for a per-document ask', async () => {
+    class RefusingProvider extends StubProvider {
+      override async *ask(): AsyncIterable<AskEvent> {
+        yield {
+          type: 'delta',
+          text: "This portal's content does not hold enough relevant material.",
+        }
+        yield { type: 'done', refused: true }
+      }
+    }
+    const app = buildApp({ provider: new RefusingProvider(), tenants: freshTenants() })
+    const response = await app.request('/api/t/frdc/ask', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ query: 'Is the code available?', resourceId: 'res-1' }),
+    })
+    const events = await sseEvents(response)
+    const done = events.find((e) => e.type === 'done')
+    expect(done && done.type === 'done' ? done.text : '').toContain(
+      'This document does not state an answer to that question',
+    )
+  })
+
+  it('rewrites sentinel phrases in the streamed text and the final text', async () => {
+    class LeakyProvider extends StubProvider {
+      override async *ask(): AsyncIterable<AskEvent> {
+        yield { type: 'sources', resources: [{ ...resourceOne, relevance: 0.9, citedCount: 1 }] }
+        yield { type: 'delta', text: 'The context does not provide a quota [inference]. ' }
+        yield { type: 'delta', text: 'Stocks fell 12% since 2019. Not enough data to answer this.' }
+        yield { type: 'citation', citation: { index: 1, resourceId: 'res-1', title: 'Abalone' } }
+        yield {
+          type: 'done',
+          text:
+            'The context does not provide a quota [inference]. Stocks fell 12% since 2019.[1] ' +
+            'Not enough data to answer this.',
+        }
+      }
+    }
+    const app = buildApp({ provider: new LeakyProvider(), tenants: freshTenants() })
+    const response = await app.request('/api/t/frdc/ask', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ query: 'What is the abalone quota?' }),
+    })
+    const events = await sseEvents(response)
+    const streamed = events.filter((e) => e.type === 'delta').map((e) =>
+      e.type === 'delta' ? e.text : ''
+    ).join('')
+    expect(streamed).toContain('The cited sources do not provide a quota (inference).')
+    expect(streamed).not.toContain('Not enough data')
+    const done = events.find((e) => e.type === 'done')
+    expect(done && done.type === 'done' ? done.text : '').toBe(
+      'The cited sources do not provide a quota (inference). Stocks fell 12% since 2019.[1]',
+    )
+  })
+})

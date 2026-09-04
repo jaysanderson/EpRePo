@@ -399,6 +399,17 @@ export function calibrateRelevance(score: number): number {
  * so structured generation's grounding gate judges a source's relevance the
  * same way `ask` scores its grounding sources.
  */
+/**
+ * The platform reports a paragraph's page as a zero-based index
+ * (`position.page_number`); readers, "Open PDF at page N" and the PDF
+ * viewer count from one. Converting here, at the one boundary the index
+ * crosses, keeps every consumer one-based. A first-page match (index 0)
+ * used to be dropped as falsy and now surfaces as page 1.
+ */
+export function displayPage(page: number | undefined): number | undefined {
+  return typeof page === 'number' && Number.isInteger(page) && page >= 0 ? page + 1 : undefined
+}
+
 function bestParagraphMatch(raw: {
   fields?: Record<
     string,
@@ -1406,7 +1417,7 @@ export class AragProvider implements RetrievalProvider {
         relevance: Math.round(calibrate(best) * 100) / 100,
         citedCount: 0,
         matchedPassage: passage,
-        ...(page ? { matchedPage: page } : {}),
+        ...(displayPage(page) ? { matchedPage: displayPage(page) } : {}),
         ...(reference ? { referenceChunk: true } : {}),
         ...(passage ? { matchedField } : {}),
       }),
@@ -1981,7 +1992,7 @@ export class AragProvider implements RetrievalProvider {
               relevance: Math.round(calibrateRelevance(match.best) * 100) / 100,
               citedCount: 0,
               matchedPassage: match.passage,
-              ...(match.page ? { matchedPage: match.page } : {}),
+              ...(displayPage(match.page) ? { matchedPage: displayPage(match.page) } : {}),
               ...(match.reference ? { referenceChunk: true } : {}),
             }
           })
@@ -3139,8 +3150,14 @@ export class AragProvider implements RetrievalProvider {
               'the context states, mark it (inference). When the context ' +
               'contains conflicting, negative or nuanced findings (adverse observations, ' +
               'non-detections, disagreements between studies), state them explicitly with their ' +
-              'specifics - a researcher needs the tension, never a smoothed summary.')),
+              'specifics - a researcher needs the tension, never a smoothed summary. Refer to the ' +
+              'material as "the cited sources", never as "the context"; a reader never sees the ' +
+              'context, only the sources. Never write "Not enough data to answer this".')) +
+          (opts.promptAddendum?.trim() ? `\n\n${opts.promptAddendum.trim()}` : ''),
       },
+    }
+    if (opts.extraContext && opts.extraContext.length > 0) {
+      body.extra_context = opts.extraContext.filter((t) => t.trim().length > 0).slice(0, 12)
     }
     if (intent) {
       // The stored configuration's features win over the request's; never
@@ -3241,7 +3258,7 @@ export class AragProvider implements RetrievalProvider {
             100,
           citedCount: 0,
           matchedPassage: passage,
-          ...(page ? { matchedPage: page } : {}),
+          ...(displayPage(page) ? { matchedPage: displayPage(page) } : {}),
           ...(reference ? { referenceChunk: true } : {}),
           ...(passage ? { matchedField } : {}),
         }
@@ -3491,6 +3508,19 @@ export class AragProvider implements RetrievalProvider {
           boundText = bound.text
         }
         yield { type: 'stage', stage: 'generating', status: 'completed' }
+        // BUG 3: done.text always carries the final answer text, refusal
+        // included - a client that reads done.text as canonical (replacing
+        // its accumulated streamed text, as the delta contract intends)
+        // must get the honest refusal message here too, not nothing.
+        //
+        // `done` goes out BEFORE the quality judge runs: the answer is
+        // complete the moment the text and its citations are, and the REMi
+        // scores follow as their own event. Holding `done` for the judge
+        // was a flat 10 to 12 second "validating" tail on every answer
+        // with the composer still locked. Consumers keep reading after
+        // `done` for the trailing `quality` event.
+        const doneText = refused ? refusalMessage : boundText
+        yield { type: 'done', refused, ...(doneText !== undefined ? { text: doneText } : {}) }
         yield { type: 'stage', stage: 'validating', status: 'started' }
         // REMi trust signal: score the finished answer against the full
         // retrieved context. Best effort with a hard time cap - the answer is
@@ -3515,12 +3545,6 @@ export class AragProvider implements RetrievalProvider {
           }
         }
         yield { type: 'stage', stage: 'validating', status: 'completed' }
-        // BUG 3: done.text always carries the final answer text, refusal
-        // included - a client that reads done.text as canonical (replacing
-        // its accumulated streamed text, as the delta contract intends)
-        // must get the honest refusal message here too, not nothing.
-        const doneText = refused ? refusalMessage : boundText
-        yield { type: 'done', refused, ...(doneText !== undefined ? { text: doneText } : {}) }
         return
       } catch (err) {
         const status = err instanceof AragApiError ? err.status : 0

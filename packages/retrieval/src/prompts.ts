@@ -13,12 +13,17 @@ export const PROMPT_VARIANTS: Record<Exclude<PromptVariant, 'default'>, string> 
     'information before acting.',
   synthesis: 'This is an evidence review. Structure the answer by theme, name where studies ' +
     'agree and where they disagree, and say how strong the evidence is for each theme (study ' +
-    'design, size). If the context contains only reviews and no primary study of the ' +
-    'intervention asked about, say so plainly rather than describing the evidence as strong. ' +
+    'design, size). If the sources contain only reviews and no primary study of the ' +
+    'intervention asked about, say so plainly rather than describing the evidence as strong: ' +
+    'state that the corpus holds no primary study of that intervention. Every figure stays ' +
+    'attached to the intervention, population and study the source attaches it to - never ' +
+    're-attribute a comparison sentence to another intervention, and never present a figure ' +
+    'a source quotes second-hand about one procedure as a result for a different one. ' +
     'Close with what remains uncertain.',
   recency: 'The reader wants the newest evidence. Order findings newest first and state the ' +
-    'year of each study as you cite it. Say plainly when the most recent source is older than ' +
-    'two years.',
+    'year of each study as you cite it, taking the year only from the source itself or the ' +
+    'publication years listed with the sources - never guess a year. Say plainly when the ' +
+    'most recent source is older than two years.',
   data: 'The reader wants the numbers. Reproduce figures, table cells, sample sizes and ' +
     'thresholds exactly as they appear in the cited material, with units, and say which ' +
     'supplementary file each comes from.',

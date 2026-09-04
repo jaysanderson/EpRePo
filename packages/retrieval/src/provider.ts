@@ -59,6 +59,15 @@ export interface AskOptions {
    * retrieval score floor applies - the resource filter is the whole scope.
    */
   sandbox?: boolean
+  /**
+   * Passages the application adds to the grounding context beside what
+   * retrieval finds (a document's tables and key-resources block for
+   * document chat, the publication years of the matching resources for a
+   * recency question). Plain text, already trimmed to size by the caller.
+   */
+  extraContext?: string[]
+  /** Instructions appended to the system prompt for this ask only. */
+  promptAddendum?: string
 }
 
 export interface CatalogOptions {

@@ -976,7 +976,10 @@ export const CitationSchema = z.object({
   /** 1-based citation number as it appears in the answer text, e.g. [1]. */
   index: z.number().int().positive(),
   resourceId: z.string().min(1),
+  /** The bibliographic title (a journal article's real title) when the record has one. */
   title: z.string().min(1),
+  /** The generated headline, when it differs from the title - shown as a subtitle. */
+  headline: z.string().optional(),
   passage: z.string().optional(),
 })
 
@@ -1037,6 +1040,33 @@ export const AskEventSchema = z.discriminatedUnion('type', [
     text: z.string().optional(),
   }),
   z.object({ type: z.literal('error'), message: z.string() }),
+  /**
+   * What the post-answer audit checked against the cited texts. Figures are
+   * every number the answer states (with its unit), years every four-digit
+   * year; an unsupported figure is one no cited passage contains beside the
+   * claim's own terms. Contraindications are drugs the answer called
+   * contraindicated or to be avoided without a cited passage saying so.
+   * Sent before `done` so the surface can badge and mark the final text.
+   */
+  z.object({
+    type: z.literal('audit'),
+    figuresChecked: z.number().int().nonnegative(),
+    figuresUnsupported: z.string().array(),
+    yearsUnsupported: z.string().array(),
+    contraindicationsUnsupported: z.string().array(),
+  }),
+  /**
+   * The routed intent's retrieval found nothing usable (a supplements-only
+   * configuration with no strong match), so the answer was generated from
+   * the general configuration instead. Sent before any delta so the surface
+   * can relabel the route chip.
+   */
+  z.object({
+    type: z.literal('fallback'),
+    from: z.string(),
+    to: z.string().nullable(),
+    reason: z.string(),
+  }),
 ])
 
 // ---------------------------------------------------------------------------

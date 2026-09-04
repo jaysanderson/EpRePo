@@ -18,9 +18,11 @@ import {
   TypographyChoiceSchema,
 } from '@research-portal/core'
 import type {
+  Citation,
   FacetCounts,
   MigrationEvent,
   RouteDecision,
+  ScoredResource,
   TenantConfig,
 } from '@research-portal/core'
 import {
@@ -64,7 +66,6 @@ import {
   decideFromClassifier,
   defaultDecision,
   extractEntities,
-  fillPrequeries,
   parseIdentifier,
   routeByRules,
 } from './intent-router.ts'
@@ -76,11 +77,24 @@ import {
   resolveIdentifier,
 } from './catalog-lookup.ts'
 import {
-  auditAddendum,
-  drugsFlaggedInSources,
-  drugsMissingFromAnswer,
-  numbersMissing,
-} from './answer-audit.ts'
+  corpusDecline,
+  documentDecline,
+  forwardableSlice,
+  looksLikeProviderDecline,
+  rewriteSentinels,
+  SentinelStream,
+  stripModelReferences,
+} from './answer-shape.ts'
+import { applicablePrequeries } from './ask-prequeries.ts'
+import {
+  type AuditEvent,
+  bindAndAudit,
+  DOCUMENT_CHAT_ADDENDUM,
+  documentContextBlocks,
+  extractionText,
+  publicationYearsContext,
+  withoutReferencePassages,
+} from './ask-grounding.ts'
 import {
   compareExtraction,
   ensureLabMethods,
@@ -114,7 +128,13 @@ import {
   SuggestionStore,
   type SuggestionStoreApi,
 } from './interrogate.ts'
-import { clientIp, rateLimit, SlidingWindowLimiter } from './rate-limit.ts'
+import {
+  clientIp,
+  clientKey,
+  rateLimit,
+  rateLimitLayered,
+  SlidingWindowLimiter,
+} from './rate-limit.ts'
 import {
   EnrichmentStore,
   type EnrichmentStoreApi,
@@ -634,6 +654,8 @@ export interface BuildAppOptions {
   /** Requests/min/IP for the paid-LLM routes (ask, generate, summarize, subqueries, verdicts,
    *  synthesise). Defaults to env RATE_LIMIT_ASK_PER_MIN, or 20. 0 disables. */
   rateLimitAskPerMin?: number
+  /** Wider per-address cap behind the per-client limit (default 5x ask limit). */
+  rateLimitAskPerMinPerIp?: number
   /** Requests/min/IP for POST /api/ask-estate, which fans one request across every tenant.
    *  Defaults to env RATE_LIMIT_ESTATE_PER_MIN, or 6. 0 disables. */
   rateLimitEstatePerMin?: number
@@ -679,7 +701,16 @@ export function buildApp(opts: BuildAppOptions): Hono {
     Number(process.env.RATE_LIMIT_ESTATE_PER_MIN ?? 6)
   const expensiveLimiter = new SlidingWindowLimiter({ limit: askPerMin, windowMs: 60_000 })
   const estateLimiter = new SlidingWindowLimiter({ limit: estatePerMin, windowMs: 60_000 })
-  const expensiveRateLimit = rateLimit(expensiveLimiter, clientIp)
+  // Per browser first (the web app's `x-rp-client` id), so a ward of users
+  // behind one NAT address do not share a single budget; a second, wider
+  // per-address bucket still caps a caller that mints ids to escape it.
+  const askPerMinPerIp = opts.rateLimitAskPerMinPerIp ??
+    Number(process.env.RATE_LIMIT_ASK_PER_MIN_IP ?? askPerMin * 5)
+  const expensiveIpLimiter = new SlidingWindowLimiter({ limit: askPerMinPerIp, windowMs: 60_000 })
+  const expensiveRateLimit = rateLimitLayered([
+    { limiter: expensiveLimiter, keyFn: clientKey },
+    { limiter: expensiveIpLimiter, keyFn: clientIp },
+  ])
   const estateRateLimit = rateLimit(estateLimiter, clientIp)
 
   // Baseline security headers on every response. Deliberately narrow for now:
@@ -1905,11 +1936,28 @@ export function buildApp(opts: BuildAppOptions): Hono {
         message: 'Save some evidence first - synthesis works only from kept passages.',
       }, 400)
     }
-    const numbered = investigation.evidence.slice(0, 40).map((item, index) =>
-      `[${index + 1}] (${item.verdict ?? 'unjudged'}) ${item.resourceTitle}:\n${
-        item.passage.slice(0, 1200)
-      }`
-    )
+    // Evidence the researcher judged not relevant is left out; what is left
+    // carries the researcher's verdict, tags and note so the synthesis works
+    // from their judgement, not just the raw passage.
+    const kept = investigation.evidence
+      .filter((item) => item.verdict !== 'not-relevant')
+      .slice(0, 40)
+    if (kept.length === 0) {
+      return c.json({
+        error: 'no_evidence',
+        message: 'Every saved passage is marked not relevant - judge or add evidence first.',
+      }, 400)
+    }
+    const numbered = kept.map((item, index) => {
+      const head = [
+        `[${index + 1}]`,
+        `verdict: ${item.verdict ?? 'unjudged'}`,
+        item.tags.length > 0 ? `tags: ${item.tags.join(', ')}` : null,
+        item.resourceTitle,
+      ].filter(Boolean).join(' | ')
+      const note = item.note.trim() ? `Researcher's note: ${item.note.trim().slice(0, 600)}\n` : ''
+      return `${head}\n${note}${item.passage.slice(0, 1200)}`
+    })
     const prompt = [
       `Research question: ${investigation.question || investigation.name}`,
       '',
@@ -1919,6 +1967,16 @@ export function buildApp(opts: BuildAppOptions): Hono {
       'evidence establishes, each with its [n] citations. In `contested` list points where ' +
       'passages disagree, naming both sides with citations. In `gaps` list what a researcher ' +
       'would still need to find out. Australian English.',
+      '',
+      "Each passage carries the researcher's verdict on it: `supports` means it supports an " +
+      'answer to the question; `partial` means it bears on the question only in part; ' +
+      "`contradicts` means the researcher judged it to contradict the question's premise or " +
+      'the other evidence - report it as opposing evidence, never as support; `unjudged` ' +
+      'means no verdict yet - use it with care and say so. A "Researcher\'s note" is the ' +
+      "researcher's own reading of that passage and overrides the passage's surface " +
+      'claim: if a note says the figures belong to a different intervention, study or ' +
+      'population than the passage appears to describe, do not attribute them to the ' +
+      "question's subject, and mention the caveat in `contested` or `gaps`.",
       '',
       ...numbered,
     ].join('\n')
@@ -1930,7 +1988,7 @@ export function buildApp(opts: BuildAppOptions): Hono {
         contested?: string[]
         gaps?: string[]
       }
-      const references = investigation.evidence.slice(0, 40).map((item, index) => ({
+      const references = kept.map((item, index) => ({
         n: index + 1,
         resourceId: item.resourceId,
         resourceTitle: item.resourceTitle,
@@ -3156,16 +3214,23 @@ export function buildApp(opts: BuildAppOptions): Hono {
     return withUtf8EventStream(streamSSE(c, async (stream) => {
       const { query, ...askOpts } = parsed.data
       const settings = tenants.promptsFor(config.slug)
+      const lexicon = config.entityTerms ?? []
+      const variant = intentDef?.answer.promptVariant
+      const documentScope = Boolean(askOpts.resourceId)
+      const send = (event: unknown) => stream.writeSSE({ data: JSON.stringify(event) })
       // An intent's mandatory sub-questions (a safety check for a treatment
-      // decision, a recency probe) join whatever the caller sent, with the
-      // entities the router found in the question substituted in.
+      // decision, a recency probe) join whatever the caller sent - but only
+      // the ones that fit: a drug-safety probe fires for medication entities
+      // on a treatment question, never for an antigen, a journal or a
+      // retention question (ask-prequeries.ts).
       if (intentDef && intentDef.answer.prequeries.length > 0) {
-        const entities = extractEntities(query, config.entityTerms ?? [])
-        const mandatory = fillPrequeries(intentDef.answer.prequeries, query, entities)
-        askOpts.prequeries = [...mandatory, ...(askOpts.prequeries ?? [])].slice(0, 8)
-        await stream.writeSSE({
-          data: JSON.stringify({ type: 'searched', queries: askOpts.prequeries }),
-        })
+        const entities = extractEntities(query, lexicon)
+        const mandatory = applicablePrequeries(intentDef.answer.prequeries, query, entities)
+        const combined = [...mandatory, ...(askOpts.prequeries ?? [])].slice(0, 8)
+        if (combined.length > 0) {
+          askOpts.prequeries = combined
+          await send({ type: 'searched', queries: combined })
+        }
       }
       // Evidence-seeking questions get decomposed by default: broad questions
       // otherwise miss decisive passages that narrower phrasings retrieve.
@@ -3194,13 +3259,115 @@ export function buildApp(opts: BuildAppOptions): Hono {
             .slice(0, 5)
           if (cleaned.length > 0) {
             askOpts.prequeries = cleaned
-            await stream.writeSSE({
-              data: JSON.stringify({ type: 'searched', queries: cleaned }),
-            })
+            await send({ type: 'searched', queries: cleaned })
           }
         } catch {
           // Decomposition is best-effort - the plain ask still runs.
         }
+      }
+      // Grounding gate BEFORE generation. The platform's stream reports its
+      // retrieval after the answer tokens, so a floor applied to that event
+      // can only append a decline under an answer that already streamed. A
+      // find on the routed configuration costs well under a second and lets
+      // the portal decline (or change configuration) before a word is
+      // generated. Two outcomes: an intent whose configuration is restricted
+      // to supplements and finds nothing strong falls back to the general
+      // configuration (a "what rate" question misrouted to data sheets is
+      // otherwise answered from the wrong table); a weak best match on the
+      // final configuration is declined outright with the closest matches
+      // shown as sources, never answered over.
+      const GROUNDING_FLOOR = 0.3
+      /** A best match this strong with a refusal is the generator, not the corpus, saying no. */
+      const STRONG_MATCH = 0.9
+      let intentForAsk = askOpts.intent
+      let preflightRan = false
+      // The closest resources the pre-flight found: named in a decline, and
+      // the source of publication years for a recency question.
+      let nearest: ScoredResource[] = []
+      const supplementsOnly = intentDef?.retrieval.only.some((l) =>
+        l.labelset === 'format' && l.label === 'supplement'
+      ) ?? false
+      const fallbackEvent = (reason: string) =>
+        send({ type: 'fallback', from: intentDef?.id, to: null, reason })
+      const recordDecline = () => {
+        try {
+          insights.record(config.slug, {
+            ts: new Date().toISOString(),
+            question: query.slice(0, 500),
+            answered: false,
+            citations: 0,
+            durationSec: null,
+            answerRelevance: null,
+            groundedness: null,
+            contextRelevance: null,
+          })
+        } catch {
+          // insights are best-effort
+        }
+      }
+      if (!documentScope && !askOpts.context?.length) {
+        const probe = async (intent: string | undefined) => {
+          const found = await provider.search(config, query, { intent, pageSize: 8 })
+          const best = found.resources.reduce((m, r) =>
+            Math.max(m, r.relevance), 0)
+          return { resources: found.resources, best }
+        }
+        try {
+          let found = await probe(intentForAsk)
+          preflightRan = true
+          if (
+            intentDef && supplementsOnly &&
+            (found.resources.length === 0 || found.best < GROUNDING_FLOOR)
+          ) {
+            intentForAsk = undefined
+            await fallbackEvent(
+              found.resources.length === 0
+                ? 'The supplementary data configuration found nothing for this question.'
+                : `The supplementary data configuration found only weak matches (best ${
+                  Math.round(found.best * 100)
+                }%).`,
+            )
+            found = await probe(undefined)
+          }
+          nearest = merchandiseSources(
+            enrichments,
+            config.slug,
+            withoutReferencePassages(found.resources),
+          )
+          if (found.resources.length > 0 && found.best < GROUNDING_FLOOR) {
+            await send({ type: 'sources', resources: nearest })
+            const decline = corpusDecline(nearestTitles(nearest), found.best * 100)
+            await send({ type: 'delta', text: decline })
+            await send({ type: 'done', refused: true, text: decline })
+            recordDecline()
+            return
+          }
+        } catch {
+          // The gate is best-effort: a failed probe streams the plain ask,
+          // which keeps the in-stream floor below as its fallback.
+        }
+      }
+      // Context the application adds beside retrieval. Document chat gets
+      // the document's tables and key-resources block (retrieval alone
+      // misses a strain or a parameter that lives only in a table) and a
+      // prompt that keeps a statistic's name and enumerates on "which"; a
+      // recency question gets the publication years of the matching
+      // resources so no year is guessed.
+      let extraContext: string[] | undefined
+      let promptAddendum: string | undefined
+      if (documentScope) {
+        promptAddendum = DOCUMENT_CHAT_ADDENDUM
+        if (opts.management) {
+          try {
+            const text = await extractionText(opts.management, config, askOpts.resourceId!)
+            const blocks = documentContextBlocks(text)
+            if (blocks.length > 0) extraContext = blocks
+          } catch {
+            // The document's own retrieval still grounds the answer.
+          }
+        }
+      } else if (variant === 'recency' && nearest.length > 0) {
+        extraContext = [publicationYearsContext(nearest)]
       }
       // How the platform interpreted the question, surfaced when it lands in
       // time (first turn only - follow-ups depend on chat context).
@@ -3209,14 +3376,21 @@ export function buildApp(opts: BuildAppOptions): Hono {
         opts.management.rephrase(config, query).then((v) => interpreted = v, () => {})
       }
       let interpretedSent = false
-      // Grounding guard and post-answer audit (docs/CLINICIAN-REVIEW-2.md P0-1..3):
-      // an answer never streams over weak grounding, and for the safety and
-      // data intents the finished answer is checked against the cited texts.
-      const GROUNDING_FLOOR = 0.3
+      // The stream is reshaped on the way through (docs/EPREPO-ROADMAP.md
+      // R1 to R5, R8, R10, R19): text forwards through the reference-list
+      // stop and the sentinel rewriter; citations are held until the text
+      // is complete and re-bound sentence by sentence against the cited
+      // texts; the finished text is audited (figures beside their terms,
+      // years, contraindications) before `done`; a refusal becomes the
+      // portal's own decline with the closest matches shown, not used.
       let answerText = ''
-      const citedIds: string[] = []
-      const citationIndexById = new Map<string, number>()
-      let heldDone: unknown = null
+      let forwardedLength = 0
+      let sentinels = new SentinelStream()
+      let heldCitations: Citation[] = []
+      let heldDecline = false
+      let lastSources: ScoredResource[] = []
+      let bestRelevance = 0
+      let finished = false
       const record = {
         citations: 0,
         durationSec: null as number | null,
@@ -3226,111 +3400,221 @@ export function buildApp(opts: BuildAppOptions): Hono {
         failed: false,
         refused: false,
       }
-      try {
-        for await (
-          const event of provider.ask(config, query, {
-            ...askOpts,
-            ...(settings.ask ? { systemPrompt: settings.ask } : {}),
-            ...(settings.images ? { images: true } : {}),
-          })
-        ) {
-          if (event.type === 'citation') {
-            record.citations += 1
-            if (!citedIds.includes(event.citation.resourceId)) {
-              citedIds.push(event.citation.resourceId)
-            }
-            citationIndexById.set(event.citation.resourceId, event.citation.index)
-          }
-          if (event.type === 'delta') answerText += event.text
-          if (event.type === 'sources' && !askOpts.resourceId) {
-            const best = event.resources.reduce((m, r) => Math.max(m, r.relevance), 0)
-            // An empty retrieval is the provider's own refusal path; the guard
-            // covers the other failure, weak matches that would be answered over.
-            if (event.resources.length > 0 && best < GROUNDING_FLOOR) {
-              await stream.writeSSE({
-                data: JSON.stringify({
-                  ...event,
-                  resources: merchandiseSources(enrichments, config.slug, event.resources),
-                }),
-              })
-              const pct = Math.round(best * 100)
-              const decline = "This portal's corpus does not hold material that answers this " +
-                `question directly. The closest passages found were only weakly related (best match ${pct}%), ` +
-                'so no answer has been generated from them. Try narrowing the question to what the ' +
-                'corpus covers, or browse the Library to see what it holds.'
-              await stream.writeSSE({ data: JSON.stringify({ type: 'delta', text: decline }) })
-              await stream.writeSSE({ data: JSON.stringify({ type: 'done', refused: true }) })
-              record.refused = true
-              break
-            }
-          }
-          if (event.type === 'done') {
-            heldDone = event
-            if (event.refused) record.refused = true
-            continue
-          }
-          if (event.type === 'usage') record.durationSec = event.totalSec ?? null
-          if (event.type === 'quality') {
-            record.answerRelevance = event.answerRelevance
-            record.groundedness = event.groundedness
-            record.contextRelevance = event.contextRelevance
-          }
-          if (event.type === 'error') record.failed = true
-          if (!interpretedSent && interpreted) {
-            interpretedSent = true
-            await stream.writeSSE({
-              data: JSON.stringify({ type: 'interpreted', query: interpreted }),
-            })
-          }
-          // Merchandise the answer surface the same way /search, /catalog and
-          // /resources are: a source card or citation must show the real
-          // generated title, never the raw filename/project code the
-          // platform itself returns - see docs BUG 1 (the enrichment store
-          // lives only in this app layer, so the provider's own events carry
-          // baseline-only titles and need this overlay before they reach the
-          // client).
-          const merchandised = event.type === 'sources'
-            ? { ...event, resources: merchandiseSources(enrichments, config.slug, event.resources) }
-            : event.type === 'citation'
-            ? { ...event, citation: merchandiseCitation(enrichments, config.slug, event.citation) }
-            : event
-          await stream.writeSSE({ data: JSON.stringify(merchandised) })
-        }
-      } catch (err) {
-        record.failed = true
-        await stream.writeSSE({
-          data: JSON.stringify({ type: 'error', message: publicErrorMessage(err) }),
-        })
+      const finishRefused = async () => {
+        finished = true
+        record.refused = true
+        const text = documentScope ? documentDecline() : corpusDecline(nearestTitles(lastSources))
+        // A refusal always shows what retrieval found, labelled by the
+        // surface as the closest matches, not used - never an empty panel
+        // beside "no answer".
+        if (lastSources.length > 0) await send({ type: 'sources', resources: lastSources })
+        await send({ type: 'delta', text })
+        await send({ type: 'done', refused: true, text })
       }
-      if (heldDone) {
-        const variant = intentDef?.answer.promptVariant
-        // Figures are checked on every cited answer; the contraindication
-        // check only makes sense for a treatment-decision question.
-        if (citedIds.length > 0 && !askOpts.resourceId && opts.management) {
+      const finishAnswered = async (doneText: string | undefined) => {
+        finished = true
+        const tail = sentinels.flush()
+        if (tail) await send({ type: 'delta', text: tail })
+        let text = rewriteSentinels(stripModelReferences(doneText ?? answerText))
+        if (!text) {
+          await finishRefused()
+          return
+        }
+        // A citation's chip carries the bibliographic title; a resource the
+        // grounding cited without retrieving (graph walks do this) is looked
+        // up so its curated title is used rather than a generated headline.
+        const byId = new Map<
+          string,
+          { title: string; titleCurated?: boolean; sourceName?: string; enriched?: boolean }
+        >(
+          lastSources.map((s) => [s.id, s]),
+        )
+        await Promise.all(
+          [...new Set(heldCitations.map((c) => c.resourceId))]
+            .filter((id) => !byId.has(id))
+            .map(async (id) => {
+              try {
+                const resource = await provider.resource(config, id)
+                if (resource) byId.set(id, resource)
+              } catch {
+                // The citation keeps the title the provider resolved.
+              }
+            }),
+        )
+        let citations = heldCitations.map((citation) =>
+          merchandiseCitation(enrichments, config.slug, citation, byId.get(citation.resourceId))
+        )
+        let audit: AuditEvent | null = null
+        if (!documentScope && citations.length > 0 && opts.management) {
           try {
-            const texts = await Promise.all(
-              citedIds.slice(0, 6).map(async (id) => ({
-                index: citationIndexById.get(id) ?? 0,
-                text: (await opts.management!.resourceExtraction(config, id)).text,
-              })),
-            )
-            const missingNumbers = numbersMissing(answerText, texts.map((t) => t.text))
-            const missingDrugs = variant === 'safety'
-              ? drugsMissingFromAnswer(
-                answerText,
-                drugsFlaggedInSources(texts, config.entityTerms ?? []),
-              )
-              : []
-            const addendum = auditAddendum({ missingDrugs, missingNumbers })
-            if (addendum) {
-              await stream.writeSSE({ data: JSON.stringify({ type: 'delta', text: addendum }) })
-            }
+            const bound = await bindAndAudit({
+              management: opts.management,
+              config,
+              query,
+              text,
+              citations,
+              sources: lastSources,
+              lexicon,
+              variant,
+              floor: GROUNDING_FLOOR,
+            })
+            text = bound.text
+            citations = bound.citations
+            audit = bound.audit
           } catch {
-            // the audit is best-effort; the answer stands without it
+            // The audit is best-effort; the answer stands with the
+            // platform's own binding.
           }
         }
-        await stream.writeSSE({ data: JSON.stringify(heldDone) })
+        // Evidence cards never show a bibliography paragraph as a passage,
+        // and an uncited reference-list hit is not evidence at all.
+        const citedIds = new Set(citations.map((c) => c.resourceId))
+        const shown = lastSources.filter((s) => !s.referenceChunk || citedIds.has(s.id))
+        if (shown.length !== lastSources.length) {
+          await send({ type: 'sources', resources: shown })
+        }
+        for (const citation of citations) await send({ type: 'citation', citation })
+        if (audit) await send(audit)
+        record.citations = citations.length
+        await send({ type: 'done', refused: false, text })
       }
+      // One attempt normally. A second when a supplements-only intent's own
+      // generation refuses outright (the data sheets matched on words but
+      // held no answer) - on the general configuration - or when the
+      // generator refuses despite a strong best match on a routed intent or
+      // with safety prequeries in play: the probes and the narrower
+      // configuration crowded the grounding set, so the question is asked
+      // once more on the default configuration without them. Nothing has
+      // streamed by then, so the surface sees one answer.
+      const attempts: { intent: string | undefined; prequeries: string[] | undefined }[] = [{
+        intent: intentForAsk,
+        prequeries: askOpts.prequeries,
+      }]
+      let retry: 'supplements' | 'prequeries' | null = null
+      let retriedWithoutPrequeries = false
+      for (let attempt = 0; attempt < attempts.length; attempt++) {
+        const current = attempts[attempt]!
+        answerText = ''
+        forwardedLength = 0
+        sentinels = new SentinelStream()
+        heldCitations = []
+        heldDecline = false
+        record.citations = 0
+        try {
+          for await (
+            const event of provider.ask(config, query, {
+              ...askOpts,
+              intent: current.intent,
+              prequeries: current.prequeries,
+              ...(settings.ask ? { systemPrompt: settings.ask } : {}),
+              ...(settings.images ? { images: true } : {}),
+              ...(extraContext ? { extraContext } : {}),
+              ...(promptAddendum ? { promptAddendum } : {}),
+            })
+          ) {
+            if (event.type === 'citation') {
+              heldCitations.push(event.citation)
+              continue
+            }
+            if (event.type === 'delta') {
+              // The provider's fixed decline copy is held: the handler
+              // composes its own decline once `done` confirms the refusal.
+              if (!answerText.trim() && looksLikeProviderDecline(event.text)) {
+                heldDecline = true
+                continue
+              }
+              answerText += event.text
+              // A model-authored "References:" list is never forwarded: the
+              // evidence panel is the reference list, and the model's own
+              // numbering never matches the bound citations.
+              const slice = forwardableSlice(forwardedLength, answerText)
+              if (slice.text.length > 0) {
+                forwardedLength += slice.text.length
+                const out = sentinels.push(slice.text)
+                if (out) await send({ type: 'delta', text: out })
+              }
+              continue
+            }
+            if (event.type === 'sources') {
+              // The provider clears its sources on a refusal; the refusal
+              // path here re-sends the closest matches instead.
+              if (event.resources.length === 0) continue
+              const shaped = merchandiseSources(
+                enrichments,
+                config.slug,
+                withoutReferencePassages(event.resources),
+              )
+              lastSources = shaped
+              bestRelevance = shaped.reduce((m, r) => Math.max(m, r.relevance), 0)
+              if (!documentScope && !preflightRan && bestRelevance < GROUNDING_FLOOR) {
+                // An empty retrieval is the provider's own refusal path; the
+                // guard covers the other failure, weak matches that would be
+                // answered over.
+                await send({ type: 'sources', resources: shaped })
+                const decline = corpusDecline(nearestTitles(shaped), bestRelevance * 100)
+                await send({ type: 'delta', text: decline })
+                await send({ type: 'done', refused: true, text: decline })
+                record.refused = true
+                finished = true
+                break
+              }
+              await send({ type: 'sources', resources: shaped })
+              continue
+            }
+            if (event.type === 'done') {
+              if (event.refused) {
+                if (
+                  current.intent && supplementsOnly && attempts.length === 1 && !documentScope
+                ) {
+                  retry = 'supplements'
+                  break
+                }
+                if (
+                  !documentScope && !retriedWithoutPrequeries && bestRelevance >= STRONG_MATCH &&
+                  ((current.prequeries?.length ?? 0) > 0 || current.intent)
+                ) {
+                  retry = 'prequeries'
+                  break
+                }
+                await finishRefused()
+              } else {
+                await finishAnswered(event.text)
+              }
+              continue
+            }
+            if (event.type === 'usage') record.durationSec = event.totalSec ?? null
+            if (event.type === 'quality') {
+              record.answerRelevance = event.answerRelevance
+              record.groundedness = event.groundedness
+              record.contextRelevance = event.contextRelevance
+            }
+            if (event.type === 'error') record.failed = true
+            if (!interpretedSent && interpreted) {
+              interpretedSent = true
+              await send({ type: 'interpreted', query: interpreted })
+            }
+            await send(event)
+          }
+        } catch (err) {
+          record.failed = true
+          await send({ type: 'error', message: publicErrorMessage(err) })
+        }
+        if (retry === 'supplements') {
+          attempts.push({ intent: undefined, prequeries: current.prequeries })
+          intentForAsk = undefined
+          await fallbackEvent(
+            'The supplementary data configuration could not answer from the data sheets it found.',
+          )
+        } else if (retry === 'prequeries') {
+          // The generator, not the corpus, said no: a 90%-plus match was
+          // retrieved. Ask once more with neither the safety prequeries nor
+          // the intent's narrower configuration crowding the grounding set.
+          retriedWithoutPrequeries = true
+          attempts.push({ intent: undefined, prequeries: undefined })
+        }
+        retry = null
+      }
+      if (!finished && !record.failed && heldDecline) await finishRefused()
       try {
         insights.record(config.slug, {
           ts: new Date().toISOString(),
@@ -3375,7 +3659,14 @@ export function buildApp(opts: BuildAppOptions): Hono {
   })
 
   return app
-} /** The same SSE response with an explicit UTF-8 charset on its content type. */
+}
+
+/** The strongest matches first: what a decline names as the closest the corpus holds. */
+function nearestTitles(resources: readonly ScoredResource[]): string[] {
+  return [...resources].sort((a, b) => b.relevance - a.relevance).slice(0, 3).map((r) => r.title)
+}
+
+/** The same SSE response with an explicit UTF-8 charset on its content type. */
 function withUtf8EventStream(res: Response): Response {
   try {
     res.headers.set('content-type', 'text/event-stream; charset=utf-8')
