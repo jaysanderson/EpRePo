@@ -91,7 +91,9 @@ export function unsupportedFigurePattern(audit: AnswerAudit | undefined): RegExp
     if (/^\d{4}$/.test(year)) alternatives.push(`(?<![\\d.\\-/])${year}(?![\\d.\\-/%])`)
   }
   if (alternatives.length === 0) return null
-  return new RegExp(`(${alternatives.join('|')})`, 'g')
+  // Non-capturing: callers wrap it in their own splitter group, and a
+  // nested capture would make `String.split` emit each match twice.
+  return new RegExp(`(?:${alternatives.join('|')})`, 'g')
 }
 
 /** Whether a split segment is one of the unsupported figures (the pattern is global; test a fresh copy). */

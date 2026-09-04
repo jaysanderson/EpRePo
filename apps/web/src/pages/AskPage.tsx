@@ -1266,7 +1266,7 @@ function AnswerCard({
             style={tailStyle(TAIL_ACTIONS)}
           >
             <FeedbackControl message={message} onFeedback={onFeedback} />
-            <div className='ml-auto flex items-center gap-0.5'>
+            <div className='ml-auto flex flex-wrap items-center justify-end gap-0.5'>
               {intents.filter((i) => i.answer.surfaces.includes('ask')).length > 1 &&
                   question.trim().length > 0
                 ? (

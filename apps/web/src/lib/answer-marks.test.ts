@@ -46,7 +46,9 @@ describe('unsupportedFigurePattern', () => {
       yearsUnsupported: ['2025'],
     })
     const text = 'Below 1,400 mg the rate was 6.42%; 21% to 45 % in 2025, not 20250 or 4.5%.'
-    const marked = text.split(pattern!).filter((s) => isUnsupportedFigure(s, pattern))
+    const marked = text.split(new RegExp(`(${pattern!.source})`, 'g')).filter((s) =>
+      isUnsupportedFigure(s, pattern)
+    )
     expect(marked).toEqual(['1,400 mg', '6.42%', '45 %', '2025'])
   })
 

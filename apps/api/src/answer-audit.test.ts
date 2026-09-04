@@ -53,6 +53,15 @@ describe('answer audit - claim verification', () => {
     expect(numbersMissing('A dose of .5 mg/kg.', ['0.5 mg/kg was given'])).toEqual([])
   })
 
+  it('gives both ends of a range the unit', () => {
+    expect(extractNumbers('a 21–45% chance and 1400-1600 mg')).toEqual([
+      '21%',
+      '45%',
+      '1400mg',
+      '1600mg',
+    ])
+  })
+
   it('needs the unit beside the number: "21%" is not "21 patients"', () => {
     expect(numbersMissing('Recurrence was 21%.', ['21 patients relapsed; recurrence was 45%']))
       .toEqual([

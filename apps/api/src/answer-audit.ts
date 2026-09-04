@@ -23,6 +23,11 @@ export function normaliseFigures(text: string): string {
 /** Numbers worth checking: percentages, decimals, doses; not citation markers, list numbers, years or labels. */
 export function extractNumbers(answer: string): string[] {
   const cleaned = normaliseFigures(answer)
+    // Both ends of a range carry the range's unit: "21-45%" states 21% and 45%.
+    .replace(
+      /(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)(\s?(?:%|mg(?:\/kg)?(?:\/day)?))/g,
+      '$1$3 and $2$3',
+    )
     .replace(/\[\d+(?:\s*,\s*\d+)*\]/g, ' ') // citation markers
     .replace(/^\s*\d+\.\s+/gm, ' ') // ordered-list numbers
     // Labels, not measurements: "Table 2", "Figure 3", "Patient 10", "reference 41".
