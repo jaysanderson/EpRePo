@@ -87,8 +87,10 @@ import {
   rewriteSentinels,
   SentinelStream,
   stripModelReferences,
+  trimTruncatedTail,
 } from './answer-shape.ts'
 import { applicablePrequeries } from './ask-prequeries.ts'
+import { authorsNamed } from './ask-author.ts'
 import {
   type AuditEvent,
   bindAndAudit,
@@ -2055,11 +2057,21 @@ export function buildApp(opts: BuildAppOptions): Hono {
     ].join('\n')
     try {
       const result = await opts.management.askStructured(config, SYNTHESIS_SCHEMA, prompt)
-      const brief = result.object as {
+      const raw = result.object as {
         summary?: string
         supported?: string[]
         contested?: string[]
         gaps?: string[]
+      }
+      // The synthesis never says "the context": the researcher sees passages.
+      const voice = (v: string | undefined) => v === undefined ? undefined : rewriteSentinels(v)
+      const list = (v: string[] | undefined) => v?.map((item) => rewriteSentinels(item))
+      const brief = {
+        ...raw,
+        summary: voice(raw.summary),
+        supported: list(raw.supported),
+        contested: list(raw.contested),
+        gaps: list(raw.gaps),
       }
       const references = kept.map((item, index) => ({
         n: index + 1,
@@ -3417,6 +3429,16 @@ export function buildApp(opts: BuildAppOptions): Hono {
           await send({ type: 'searched', queries: cleaned })
         }
       }
+      // A question that names an author the catalogue knows is a question
+      // about that author's papers: retrieval is scoped to them, and the
+      // audit later forbids "X and colleagues" over a paper X did not write
+      // (ask-author.ts). The catalogue read is cached by the provider.
+      const catalogue = documentScope ? [] : await provider.listResources(config).catch(() => [])
+      const namedAuthors = documentScope ? [] : authorsNamed(query, catalogue, lexicon)
+      const authorScope = [...new Set(namedAuthors.flatMap((a) => a.resourceIds))]
+      const resourceIds = authorScope.length > 0 && authorScope.length <= 80
+        ? authorScope
+        : undefined
       let intentForAsk = askOpts.intent
       let preflightRan = false
       // The closest resources the pre-flight found: named in a decline, and
@@ -3568,7 +3590,16 @@ export function buildApp(opts: BuildAppOptions): Hono {
         finished = true
         const tail = sentinels.flush()
         if (tail) await send({ type: 'delta', text: tail })
-        let text = rewriteSentinels(stripModelReferences(doneText ?? answerText))
+        // The model's own reference lines go (a "References" block, an
+        // author-year entry, a cited title written out), then the sentinel
+        // phrases, then a generation that stopped mid-sentence is cut back
+        // to its last complete sentence and the surface told (D1-04).
+        const stripped = rewriteSentinels(
+          stripModelReferences(doneText ?? answerText, heldCitations.map((c) => c.title)),
+        )
+        const trimmed = trimTruncatedTail(stripped)
+        let text = trimmed.text
+        const truncated = trimmed.truncated
         if (!text) {
           await finishRefused()
           return
@@ -3598,6 +3629,7 @@ export function buildApp(opts: BuildAppOptions): Hono {
           merchandiseCitation(enrichments, config.slug, citation, byId.get(citation.resourceId))
         )
         let audit: AuditEvent | null = null
+        let passagesRechosen = false
         if (!documentScope && citations.length > 0 && opts.management) {
           try {
             const bound = await bindAndAudit({
@@ -3610,10 +3642,15 @@ export function buildApp(opts: BuildAppOptions): Hono {
               lexicon,
               variant,
               floor: GROUNDING_FLOOR,
+              catalogue,
+              authors: namedAuthors,
             })
             text = bound.text
             citations = bound.citations
             audit = bound.audit
+            // Cited resources now quote the paragraph that carries the claim.
+            lastSources = bound.sources
+            passagesRechosen = true
           } catch {
             // The audit is best-effort; the answer stands with the
             // platform's own binding.
@@ -3632,13 +3669,13 @@ export function buildApp(opts: BuildAppOptions): Hono {
         // and an uncited reference-list hit is not evidence at all.
         const citedIds = new Set(citations.map((c) => c.resourceId))
         const shown = lastSources.filter((s) => !s.referenceChunk || citedIds.has(s.id))
-        if (shown.length !== lastSources.length) {
+        if (shown.length !== lastSources.length || passagesRechosen) {
           await send({ type: 'sources', resources: shown })
         }
         for (const citation of citations) await send({ type: 'citation', citation })
         if (audit) await send(audit)
         record.citations = citations.length
-        await send({ type: 'done', refused: false, text })
+        await send({ type: 'done', refused: false, text, ...(truncated ? { truncated } : {}) })
       }
       // One attempt normally. A second when a supplements-only intent's own
       // generation refuses outright (the data sheets matched on words but
@@ -3666,6 +3703,7 @@ export function buildApp(opts: BuildAppOptions): Hono {
           for await (
             const event of provider.ask(config, query, {
               ...askOpts,
+              ...(resourceIds ? { resourceIds } : {}),
               intent: current.intent,
               prequeries: current.prequeries,
               ...(pinnedIds.length > 0 ? { pinnedResourceIds: pinnedIds } : {}),
