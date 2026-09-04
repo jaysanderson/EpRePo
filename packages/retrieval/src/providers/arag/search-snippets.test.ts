@@ -119,7 +119,9 @@ describe('search() snippet selection', () => {
     const result = await provider.search(TENANT, 'brivaracetam retention')
     const hit = result.resources[0]!
     expect(hit.matchedPassage).toBe(BODY_LINE)
-    expect(hit.matchedPage).toBe(3)
+    // The platform's page index is zero-based; the reader counts from one
+    // (displayPage, roadmap R15), so index 3 is shown as page 4.
+    expect(hit.matchedPage).toBe(4)
     expect(hit.referenceChunk).toBeUndefined()
     expect(hit.relevance).toBe(0.62)
   })
