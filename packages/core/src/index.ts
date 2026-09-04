@@ -1010,13 +1010,21 @@ export const CitationSchema = z.object({
   passage: z.string().optional(),
 })
 
-export const AskStageSchema = z.enum(['preprocessing', 'retrieval', 'generating', 'validating'])
+export const AskStageSchema = z.enum([
+  'preprocessing',
+  'retrieval',
+  'generating',
+  'auditing',
+  'validating',
+])
 
 export const AskEventSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('stage'),
     stage: AskStageSchema,
     status: z.enum(['started', 'completed']),
+    /** For `auditing`: how many figures the answer states, so the surface can say "Checking 6 figures". */
+    figures: z.number().int().nonnegative().optional(),
   }),
   z.object({ type: z.literal('sources'), resources: ScoredResourceSchema.array() }),
   z.object({ type: z.literal('delta'), text: z.string() }),
@@ -1094,6 +1102,14 @@ export const AskEventSchema = z.discriminatedUnion('type', [
     denominatorsMissing: z.string().array().optional(),
     /** Attributions ("X and colleagues") rewritten because the cited paper lacks that author. */
     attributionsCorrected: z.string().array().optional(),
+    /**
+     * Sentences the figure gate removed from the answer because no cited
+     * passage carries their figures beside the claim, and those figures.
+     * What remains in the text has passed; `figuresUnsupported` is then
+     * empty.
+     */
+    sentencesRemoved: z.number().int().nonnegative().optional(),
+    figuresRemoved: z.string().array().optional(),
   }),
   /**
    * The routed intent's retrieval found nothing usable (a supplements-only

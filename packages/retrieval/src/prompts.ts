@@ -38,7 +38,10 @@ export const DENOMINATOR_RULE =
   'Every proportion, rate or ratio you state must carry its denominator and analysis set ' +
   'in the same sentence, exactly as the source gives them - "71.1% (n = 1644, full analysis ' +
   'set)", "HR 1.41 (95% CI 1.02 to 1.97; 1,805 patients)" - and when the source states no ' +
-  'denominator, say so beside the figure rather than leaving it bare.'
+  'denominator, say so beside the figure rather than leaving it bare. When a cited passage ' +
+  'gives an effect size for the claim - a hazard ratio, odds ratio or relative risk with its ' +
+  'confidence interval - state it in the sentence exactly as the source gives it rather than ' +
+  'paraphrasing it away.'
 
 /** The clinical variant names each source\'s study design the first time it cites it. */
 export const DESIGN_RULE =

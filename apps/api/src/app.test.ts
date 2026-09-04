@@ -1783,15 +1783,24 @@ describe('POST /api/t/:slug/ask sentence-level binding and audit', () => {
     expect(text).toContain('Lamotrigine is contraindicated in Dravet syndrome.[1]')
     expect(text).toContain('cut seizures by 45.7%.[2]')
     // 9.9% appears in neither text: the sentence loses its markers (a text
-    // must carry every figure a sentence states) and the figure is flagged.
-    expect(text).toMatch(/9\.9% below 1400 mg\.(?!\[)/)
-    expect(text).toContain('do not appear beside their claim in the cited passages: 9.9%')
+    // must carry every figure a sentence states), the gate removes it, and
+    // the answer says what went (D2-02: a gate on the text, not a footnote).
+    expect(text).not.toContain('9.9% below 1400 mg')
+    expect(text).toContain('One sentence was removed from this answer: its figures (9.9%)')
+    // The auditing stage bracketed the check, with the count of figures.
+    const auditing = events.filter((e) => e.type === 'stage' && e.stage === 'auditing')
+    expect(auditing.map((e) => e.type === 'stage' ? [e.status, e.figures] : null)).toEqual([
+      ['started', 4],
+      ['completed', undefined],
+    ])
     const audit = events.find((e) => e.type === 'audit')
     expect(audit && audit.type === 'audit' ? audit : null).toMatchObject({
       figuresChecked: 4,
-      figuresUnsupported: ['9.9%'],
+      figuresUnsupported: [],
       yearsUnsupported: [],
       contraindicationsUnsupported: [],
+      sentencesRemoved: 1,
+      figuresRemoved: ['9.9%'],
     })
     // Every citation event precedes done; the quality judge's event follows it.
     const order = events.map((e) => e.type)

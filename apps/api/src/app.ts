@@ -105,6 +105,7 @@ import {
   SentinelStream,
   stripModelReferences,
   trimTruncatedTail,
+  withheldDecline,
 } from './answer-shape.ts'
 import { applicablePrequeries } from './ask-prequeries.ts'
 import { DOCS_DECLINE, DocsSentinelStream, rewriteDocsSentinels } from './docs-answer.ts'
@@ -115,6 +116,7 @@ import {
   DOCUMENT_CHAT_ADDENDUM,
   documentContextBlocks,
   extractionText,
+  figureCount,
   publicationYearsContext,
   withoutReferencePassages,
 } from './ask-grounding.ts'
@@ -3896,7 +3898,17 @@ export function buildApp(opts: BuildAppOptions): Hono {
         )
         let audit: AuditEvent | null = null
         let passagesRechosen = false
+        let emptied = false
         if (!documentScope && citations.length > 0 && opts.management) {
+          // The reader sees the streamed text as "checking N figures" until
+          // the gate has passed it: an answer is not complete before it has
+          // been checked (D2-17).
+          await send({
+            type: 'stage',
+            stage: 'auditing',
+            status: 'started',
+            figures: figureCount(text),
+          })
           try {
             const bound = await bindAndAudit({
               management: opts.management,
@@ -3914,6 +3926,7 @@ export function buildApp(opts: BuildAppOptions): Hono {
             text = bound.text
             citations = bound.citations
             audit = bound.audit
+            emptied = bound.emptied
             // Cited resources now quote the paragraph that carries the claim.
             lastSources = bound.sources
             passagesRechosen = true
@@ -3937,12 +3950,28 @@ export function buildApp(opts: BuildAppOptions): Hono {
             // The audit is best-effort; the answer stands with the
             // platform's own binding.
           }
+          await send({ type: 'stage', stage: 'auditing', status: 'completed' })
         }
         // An answer that states figures with no citation left to carry
         // them is not an answer: the binding stripped every marker because
         // no cited passage held the claims, and bare prose with numbers in
         // it would read as fact. The honest decline stands in its place,
-        // with the closest matches shown, not used.
+        // with the closest matches shown, not used. The same when the
+        // figure gate removed every sentence that said anything.
+        if (!documentScope && emptied) {
+          // The gate removed every sentence: the audit still goes out (what
+          // failed, and why, is the finding), then the decline names the
+          // figures that could not be verified rather than a generic "no
+          // answer".
+          finished = true
+          record.refused = true
+          if (audit) await send(audit)
+          const decline = withheldDecline(nearestTitles(lastSources), audit?.figuresRemoved ?? [])
+          if (lastSources.length > 0) await send({ type: 'sources', resources: lastSources })
+          await send({ type: 'delta', text: decline })
+          await send({ type: 'done', refused: true, text: decline })
+          return
+        }
         if (!documentScope && citations.length === 0 && /\d/.test(text)) {
           // A named paper is in the sources: one document-scoped retry on
           // it before declining (D2-08), the same path as a generator refusal.
