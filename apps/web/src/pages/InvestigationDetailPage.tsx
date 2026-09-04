@@ -624,6 +624,8 @@ interface SynthesisData {
   contested: string[]
   gaps: string[]
   references: SynthesisReference[]
+  /** Reference numbers the brief never cited: listed as not used, never silently dropped. */
+  notUsed: number[]
 }
 
 /** Tolerant read of a synthesis artefact's data - never trusts the shape blindly. */
@@ -644,6 +646,9 @@ function readSynthesisData(data: unknown): SynthesisData {
     contested: strings(record.contested),
     gaps: strings(record.gaps),
     references,
+    notUsed: Array.isArray(record.notUsed)
+      ? record.notUsed.filter((n): n is number => typeof n === 'number')
+      : [],
   }
 }
 
@@ -814,6 +819,9 @@ function SynthesisArtefactCard({
                   >
                     {ref.resourceTitle}
                   </Link>
+                  {data.notUsed.includes(ref.n)
+                    ? <span className='ml-1.5 text-xs text-ink-3'>Not used in this synthesis</span>
+                    : null}
                 </li>
               ))}
             </ol>
@@ -841,7 +849,11 @@ function synthesisArtefactHtml(artefact: InvestigationArtefact): string {
     (data.gaps.length > 0 ? `<h3>Gaps</h3>${list(data.gaps)}` : '') +
     (data.references.length > 0
       ? `<h3>References</h3><ol>${
-        data.references.map((r) => `<li>${escapeHtml(r.resourceTitle)}</li>`).join('')
+        data.references.map((r) =>
+          `<li>${escapeHtml(r.resourceTitle)}${
+            data.notUsed.includes(r.n) ? ' (not used in this synthesis)' : ''
+          }</li>`
+        ).join('')
       }</ol>`
       : '')
 }
