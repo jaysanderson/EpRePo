@@ -3,6 +3,7 @@ import { expect } from '@std/expect'
 import {
   bindSentences,
   looksLikeBibliographyEntry,
+  looksLikeReferencePassage,
   prepareText,
   sentenceFeatures,
   splitSentences,
@@ -220,6 +221,19 @@ describe('reference-list exclusion', () => {
     expect(
       looksLikeBibliographyEntry(
         'Phenytoin within 7 days reduced early seizures in the 1990 trial of 404 patients.',
+      ),
+    ).toBe(false)
+  })
+
+  it('recognises a mid-list slice of a bibliography as a reference passage', () => {
+    expect(
+      looksLikeReferencePassage(
+        '2018;90(1):e67-e72. 58. Devinsky O, Cross JH, Wright S. Trial of Cannabidiol for Drug-Resistant Seizures in the Dravet Syndrome. N Engl J Med. 2017;377(7):699-700. 59. Lux AL, Edwards SW, Hancock E. The United Kingdom Infantile Spasms Study.',
+      ),
+    ).toBe(true)
+    expect(
+      looksLikeReferencePassage(
+        'Lamotrigine is contraindicated in children with DS; sodium channel blockers should be avoided.',
       ),
     ).toBe(false)
   })

@@ -13,7 +13,11 @@ import {
   verifyFigures,
   yearsUnsupported,
 } from './answer-audit.ts'
-import { bindSentences, stripReferenceSection } from './citation-binding.ts'
+import {
+  bindSentences,
+  looksLikeReferencePassage,
+  stripReferenceSection,
+} from './citation-binding.ts'
 import {
   isMedicationTerm,
   isTreatmentDecisionQuestion,
@@ -73,12 +77,18 @@ export function extractionText(
 // Sources as shown: never a bibliography paragraph as the passage
 // ---------------------------------------------------------------------------
 
-/** Reference-list hits keep their flag but lose the bibliography paragraph and its page. */
+/**
+ * Reference-list hits keep their flag but lose the bibliography paragraph
+ * and its page. A passage the provider did not flag is checked here too:
+ * mid-list chunks slip past its density heuristic.
+ */
 export function withoutReferencePassages(resources: ScoredResource[]): ScoredResource[] {
   return resources.map((r) => {
-    if (!r.referenceChunk) return r
+    const reference = r.referenceChunk ||
+      (r.matchedPassage !== undefined && looksLikeReferencePassage(r.matchedPassage))
+    if (!reference) return r
     const { matchedPassage: _passage, matchedPage: _page, matchedField: _field, ...rest } = r
-    return rest
+    return { ...rest, referenceChunk: true }
   })
 }
 

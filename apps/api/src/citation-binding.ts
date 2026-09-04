@@ -309,6 +309,23 @@ export function looksLikeBibliographyEntry(paragraph: string): boolean {
 }
 
 /**
+ * Whether a retrieved passage is a slice of a reference list: one entry, or
+ * a run of numbered author-initial entries and journal citations. Catches
+ * the mid-list chunks ("2018;90(1):e67. 58. Devinsky O, Cross JH ...") the
+ * provider's density check lets through.
+ */
+export function looksLikeReferencePassage(passage: string): boolean {
+  const p = passage.trim()
+  if (!p) return false
+  if (looksLikeBibliographyEntry(p)) return true
+  const numberedAuthors =
+    (p.match(/(?:^|\s)\d{1,3}\.\s+[A-Z][A-Za-z'-]+\s+[A-Z]{1,3}[,.]/g) ?? []).length
+  const journalRefs = (p.match(/\b(?:19|20)\d{2};\s?\d{1,4}(?:\(\d+\))?:\s?[e]?\d+/g) ?? []).length
+  const authors = (p.match(/\b[A-Z][a-z]+(?:-[A-Z][a-z]+)? [A-Z]{1,3}\b[,.]/g) ?? []).length
+  return numberedAuthors >= 2 || (journalRefs >= 2 && authors >= 2)
+}
+
+/**
  * The text with its reference list removed: everything after a References
  * heading that reads as a bibliography, plus any paragraph anywhere that
  * looks like a bibliography entry.
