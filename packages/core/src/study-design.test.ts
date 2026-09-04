@@ -124,6 +124,96 @@ describe('classifyStudyDesign - the persona corpus', () => {
     })).toBe('pooled-analysis')
   })
 
+  it('a historical-controlled study is a non-randomised trial, whatever dose it randomised (lacosamide monotherapy)', () => {
+    expect(kindOf({
+      title:
+        'Conversion to lacosamide monotherapy in the treatment of focal epilepsy: results from a historical-controlled, multicenter, double-blind study',
+      abstract:
+        'Methods This historical-controlled, double-blind study enrolled patients aged 16-70 years. Patients were randomized to lacosamide 400 or 300 mg/day (3:1 ratio). The primary assessment was compared with the historical-control threshold (65.3%).',
+      keywords: ['Historical Control', 'Humans'],
+    })).toBe('clinical-trial')
+  })
+
+  it('a reporting checklist is a guideline, not a trial (GREENBEAN)', () => {
+    expect(kindOf({
+      title:
+        'The GREENBEAN checklist for reporting studies evaluating the effectiveness of EEG-based biomarkers',
+      abstract:
+        'An international working group developed the Guidelines for Reporting EEG/Neurophysiology Biomarker Evaluation (GREENBEAN). EEG biomarker validation studies are classified into four phases, similarly to therapeutic studies. We provide a checklist of items to address and report.',
+      keywords: ['Reporting Standard', 'Checklist', 'Research Design'],
+    })).toBe('guideline')
+    expect(studyDesignLabel('guideline')).toBe('Guideline or checklist')
+  })
+
+  it('a consensus statement is a guideline; a cohort about guideline adherence is a cohort', () => {
+    expect(
+      kindOf({ title: 'International consensus on diagnosis and management of Dravet syndrome' }),
+    )
+      .toBe('guideline')
+    expect(kindOf({
+      title:
+        'International Consensus on the Evaluation and Management of Hypothalamic Hamartomas: Results From a Modified Delphi Survey',
+      abstract: 'Methods A modified Delphi survey was conducted among 17 epilepsy surgery centers.',
+    })).toBe('guideline')
+    expect(kindOf({
+      title: 'Adherence to status epilepticus guidelines: a retrospective cohort study',
+    })).toBe('cohort-study')
+  })
+
+  it('a semi-structured interview used to score a phenotype is not a qualitative study', () => {
+    expect(kindOf({
+      title:
+        'Tracing Autism Traits in Large Multiplex Families to Identify Endophenotypes of the Broader Autism Phenotype',
+      abstract:
+        'We evaluated ASD/BAP features using standardised tests and a semi-structured interview to assess social, intellectual, executive and adaptive functioning in 110 individuals.',
+    })).toBeUndefined()
+  })
+
+  it('a modelling feasibility study is not a clinical trial', () => {
+    expect(kindOf({
+      title:
+        'Using stereo-electroencephalography data to model the optimal intracranial venous sinus location for an endovascular seizure detection device: A feasibility study',
+      abstract:
+        'Objective We investigated the theoretical optimal venous location using SEEG data.',
+      keywords: ['Feasibility Studies', 'Humans'],
+    })).toBeUndefined()
+  })
+
+  it('an interview study inside a first-in-human trial is qualitative, not a trial (intelligent BCI)', () => {
+    expect(kindOf({
+      title: 'Embodiment and Estrangement: Results from a First-in-Human "Intelligent BCI" Trial',
+      abstract:
+        'We explored perceptions of self-change across six patients implanted with BCI devices. We used qualitative methodological tools grounded in phenomenology to conduct in-depth, semi-structured interviews.',
+      keywords: ['Phenomenology', 'Qualitative Interviews'],
+    })).toBe('qualitative-study')
+    expect(studyDesignLabel('qualitative-study')).toBe('Qualitative study')
+  })
+
+  it('a randomised pilot trial that pools its own samples is the trial its title states (sodium selenate)', () => {
+    expect(kindOf({
+      title:
+        "Supranutritional Sodium Selenate Supplementation Delivers Selenium to the Central Nervous System: Results from a Randomized Controlled Pilot Trial in Alzheimer's Disease",
+      abstract:
+        'A pilot study of 40 AD cases was randomized to placebo, nutritional, or supranutritional groups. Pooled analysis of all samples revealed that CSF selenium could predict change in MMSE performance.',
+      keywords: ['Randomized controlled trial', 'Pilot Projects', 'Double-Blind Method'],
+    })).toBe('randomised-controlled-trial')
+  })
+
+  it('a pilot trial without randomisation is a non-randomised clinical trial', () => {
+    expect(kindOf({
+      title: 'Sub-scalp EEG for seizure counting: a single-centre pilot trial',
+      abstract: 'Ten adults with focal epilepsy were implanted and followed for six months.',
+    })).toBe('clinical-trial')
+  })
+
+  it('a paper whose method is a survey of centres is a survey (missed SCN1A mutations)', () => {
+    expect(kindOf({
+      title: 'Pitfalls in genetic testing: the story of missed SCN1A mutations',
+      abstract:
+        'Methods We sent out a survey to 16 genetic centers performing SCN1A testing. Results We collected data on 28 mutations initially missed using Sanger sequencing.',
+    })).toBe('survey')
+  })
+
   it('an open-label extension is not the randomised trial it extended', () => {
     expect(kindOf({
       title:

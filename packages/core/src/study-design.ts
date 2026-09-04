@@ -15,6 +15,7 @@
 
 export const STUDY_DESIGNS = [
   { id: 'protocol', label: 'Study protocol' },
+  { id: 'guideline', label: 'Guideline or checklist' },
   { id: 'systematic-review', label: 'Systematic review or meta-analysis' },
   { id: 'pooled-analysis', label: 'Pooled analysis' },
   { id: 'genetic-association-study', label: 'Genetic association study' },
@@ -26,6 +27,7 @@ export const STUDY_DESIGNS = [
   { id: 'cohort-study', label: 'Cohort study' },
   { id: 'case-report', label: 'Case report or series' },
   { id: 'survey', label: 'Survey' },
+  { id: 'qualitative-study', label: 'Qualitative study' },
   { id: 'narrative-review', label: 'Narrative review' },
 ] as const
 
@@ -127,6 +129,22 @@ export function classifyStudyDesign(input: StudyDesignInput): StudyDesignVerdict
     return rule('protocol')
   }
 
+  // 1b. Guidelines, reporting checklists, consensus and position statements
+  //     recommend rather than report, so they carry no study design of their
+  //     own (a Delphi consensus is the statement it produced, not a survey).
+  //     A bare "guidelines" in a title can be the subject of an audit or a
+  //     cohort, so it counts only without those words.
+  if (
+    /\bchecklist\b|\breporting (?:guidelines?|standards?)\b|\bstandards? for (?:the )?reporting\b|\bconsensus\b|\brecommendations\b|\bposition (?:paper|statement)\b|\bpractice parameters?\b/
+      .test(title) ||
+    (/\bguidelines?\b/.test(title) &&
+      !/\b(?:adherence|compliance|audit|cohort|survey|retrospective|prospective|outcomes?)\b/
+        .test(title)) ||
+    keywords.some((k) => /^(?:checklist|reporting standards?|practice guidelines?)$/i.test(k))
+  ) {
+    return rule('guideline')
+  }
+
   // 2. Evidence syntheses. A genome-wide meta-analysis is a genetic study, not a review.
   const genetic = /\bgenome-wide association\b|\bgwas\b/.test(text) ||
     /\bassociation stud(?:y|ies)\b/.test(title)
@@ -139,10 +157,13 @@ export function classifyStudyDesign(input: StudyDesignInput): StudyDesignVerdict
   ) {
     return rule('systematic-review')
   }
-  if (
-    /\bpooled analys[ie]s\b|\bindividual[- ](?:level|participant|patient)[- ]data\b|\bdata from \d+ (?:\w+[- ])*(?:trials|studies)\b/
-      .test(text)
-  ) {
+  // A pooled analysis is one the paper calls pooled (or individual participant
+  // data). A trial that pools its own samples in a secondary analysis keeps
+  // the design its title states.
+  const pooled = /\bpooled analys[ie]s\b|\bindividual[- ](?:level|participant|patient)[- ]data\b/
+  const titleTrial = /\brandomi[sz]ed\b|\bcontrolled trial\b|\bpilot trial\b/.test(title) &&
+    !/\btrials\b/.test(title)
+  if (pooled.test(title) || (!titleTrial && pooled.test(own))) {
     return rule('pooled-analysis')
   }
   if (genetic) return rule('genetic-association-study')
@@ -165,11 +186,33 @@ export function classifyStudyDesign(input: StudyDesignInput): StudyDesignVerdict
   // 4. A title that names itself a review, guideline or position paper is one;
   //    a "retrospective review" of records is a cohort and falls through.
   const titleReview =
-    /\b(?:review|overview|commentary|viewpoint|expert opinion|misconceptions?|consensus|guidelines?|recommendations|position (?:paper|statement)|state of the art|primer|editorial|narrative|appraisal|hypothesis paper|guide)\b/
+    /\b(?:review|overview|commentary|viewpoint|expert opinion|misconceptions?|state of the art|primer|editorial|narrative|appraisal|hypothesis paper|guide)\b/
       .test(title) &&
     !/\b(?:retrospective|chart|record|case[- ]note|clinical|medical|file) review\b/.test(title)
   if (titleReview) return rule('narrative-review')
   if (/\bsurvey\b/.test(title)) return rule('survey')
+
+  // 4b. Designs a trial-shaped title can hide. A historical-controlled study
+  //     compares against an earlier cohort, not a concurrent randomised arm,
+  //     whatever dose randomisation it also used; a qualitative interview
+  //     study run inside a trial reports experience, not the trial's outcome.
+  if (
+    /\bhistorical(?:ly)?[- ]control(?:led|s)?\b/.test(text) ||
+    keywords.some((k) => /^historical controls?$/i.test(k))
+  ) {
+    return rule('clinical-trial')
+  }
+  //     A semi-structured interview alone is also how a phenotyping study
+  //     scores its participants, so on its own it settles nothing.
+  if (
+    /\bqualitative (?:study|studies|research|design|method|methodolog|interview|approach|analysis|inquiry|exploration)\w*\b|\bthematic analysis\b|\bfocus groups?\b|\binterpretative phenomenological\b|\bgrounded theory\b/
+      .test(text) ||
+    (/\bsemi-structured interviews?\b/.test(text) &&
+      /\bqualitative\b|\bthematic\b|\bphenomenolog/.test(text)) ||
+    keywords.some((k) => /^qualitative\b/i.test(k))
+  ) {
+    return rule('qualitative-study')
+  }
 
   // 5. Trials. Randomisation has to be the paper's own, with an arm to compare
   //    against; a plural "trials" in the title is a paper about trials, and an
@@ -194,7 +237,8 @@ export function classifyStudyDesign(input: StudyDesignInput): StudyDesignVerdict
   }
   if (
     titleOpenLabel ||
-    /\btrial of\b|\bphase (?:1|2|3|4|i|ii|iii|iv)\b|\bnon-?randomi[sz]ed\b/.test(title) ||
+    /\btrial of\b|\bphase (?:1|2|3|4|i|ii|iii|iv)\b|\bnon-?randomi[sz]ed\b|\bpilot trial\b|\bfeasibility trial\b/
+      .test(title) ||
     /\bopen-label\b|\bsingle-arm\b|\bfirst-in-human\b|\bphase (?:1|2|3|4|i|ii|iii|iv)b?\b|\bnon-?randomi[sz]ed\b|\bextension (?:study|phase)\b/
       .test(own)
   ) {
