@@ -218,7 +218,7 @@ export function getCatalog(
     topicIds?: string[]
     kindIds?: string[]
     formatIds?: string[]
-    sort?: 'created' | 'modified' | 'title'
+    sort?: 'created' | 'modified' | 'title' | 'published'
     order?: 'asc' | 'desc'
   } = {},
 ): Promise<CatalogPage> {
@@ -247,9 +247,17 @@ export function getTopicResources(
   )
 }
 
-export function getFacets(slug: string, labelsets: string[] = ['topic']): Promise<FacetCounts> {
+/**
+ * Facet counts for the rails. Every rail (Search, Library) calls this with
+ * the same default set and shares one query key, so they cannot disagree;
+ * the response also carries `untagged.topic`, the real no-topic count.
+ */
+export function getFacets(
+  slug: string,
+  labelsets: string[] = ['topic', 'kind', 'format'],
+): Promise<FacetCounts> {
   return request<FacetCounts>(
-    `/api/t/${encodeURIComponent(slug)}/facets?ls=${labelsets.join(',')}`,
+    `/api/t/${encodeURIComponent(slug)}/facets?labelsets=${labelsets.join(',')}`,
   )
 }
 

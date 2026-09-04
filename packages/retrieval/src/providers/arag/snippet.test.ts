@@ -64,9 +64,14 @@ describe('looksLikeIdentifierFragment', () => {
     expect(looksLikeIdentifierFragment('p. 12')).toBe(true)
   })
 
-  it('flags a shredded table column', () => {
+  it('flags a shredded table column, including one that opens a longer passage', () => {
     expect(
       looksLikeIdentifierFragment('Pa tie nt s (% ) d n Patients with post-stroke epilepsy 12 4 n'),
+    ).toBe(true)
+    expect(
+      looksLikeIdentifierFragment(
+        'Pa tie nt s (% ) d n Patients with post-stroke epilepsy Patients without post-stroke epilepsy Patients with BTRE Patients without BTRE Etiologies Fig. 2 Analyses of effectiveness by etiology',
+      ),
     ).toBe(true)
   })
 

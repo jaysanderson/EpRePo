@@ -16,7 +16,7 @@ export function Skeleton({ className = '' }: { className?: string }) {
 }
 
 const TYPE_LABELS: Record<ResourceType, string> = {
-  document: 'Report',
+  document: 'Document',
   pdf: 'PDF',
   video: 'Video',
   web: 'Web',

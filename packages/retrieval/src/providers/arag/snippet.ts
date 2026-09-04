@@ -68,8 +68,13 @@ export function looksLikeIdentifierFragment(text: string): boolean {
   // Column-extracted tables come back as a spray of one- and two-letter
   // tokens; real sentences are mostly longer words.
   const tokens = t.split(/\s+/)
-  const short = tokens.filter((w) => w.replace(/[^A-Za-z0-9]/g, '').length <= 2).length
-  return tokens.length >= 8 && short / tokens.length > 0.5
+  const isShort = (w: string) => w.replace(/[^A-Za-z0-9]/g, '').length <= 2
+  const short = tokens.filter(isShort).length
+  if (tokens.length >= 8 && short / tokens.length > 0.5) return true
+  // Or a passage that OPENS with a spray of them before the prose resumes
+  // ("Pa tie nt s (%) d n Patients with post-stroke epilepsy ...").
+  const opening = tokens.slice(0, 12)
+  return opening.length >= 8 && opening.filter(isShort).length >= 6
 }
 
 /** True when a passage should never be the snippet for a body-text match. */
