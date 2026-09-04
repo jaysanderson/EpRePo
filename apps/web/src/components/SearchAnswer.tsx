@@ -54,6 +54,7 @@ function renderCitationMarkers(
   sources: ScoredResource[],
   slug: string,
   keyPrefix: string,
+  streaming: boolean,
 ): ReactNode[] {
   const segments = text.split(/(\[\d+\])/g)
   return segments.map((segment, index) => {
@@ -79,6 +80,10 @@ function renderCitationMarkers(
         </sup>
       )
     }
+    // While the answer streams, a marker with no citation to bind to is the
+    // model's own provisional numbering: never shown as if it were a
+    // source (D2-14). The server's bound text replaces it on `done`.
+    if (citationIndex !== null && streaming) return null
     return <span key={`${keyPrefix}-${index}`}>{segment}</span>
   })
 }
@@ -89,12 +94,13 @@ function renderInline(
   sources: ScoredResource[],
   slug: string,
   keyPrefix: string,
+  streaming: boolean,
 ): ReactNode[] {
   const parts = text.split(/(\*\*[^*]+\*\*)/g)
   return parts.flatMap((part, index): ReactNode[] =>
     part.startsWith('**') && part.endsWith('**') && part.length > 4
       ? [<strong key={`${keyPrefix}-${index}`}>{part.slice(2, -2)}</strong>]
-      : renderCitationMarkers(part, citations, sources, slug, `${keyPrefix}-${index}`)
+      : renderCitationMarkers(part, citations, sources, slug, `${keyPrefix}-${index}`, streaming)
   )
 }
 
@@ -104,11 +110,13 @@ function renderAnswer(
   citations: Citation[],
   sources: ScoredResource[],
   slug: string,
+  streaming: boolean,
 ): ReactNode {
   return (
     <AnswerMarkdown
       text={text}
-      renderInline={(run, keyPrefix) => renderInline(run, citations, sources, slug, keyPrefix)}
+      renderInline={(run, keyPrefix) =>
+        renderInline(run, citations, sources, slug, keyPrefix, streaming)}
       bodyClassName='text-sm leading-relaxed text-ink'
     />
   )
@@ -395,7 +403,7 @@ export function SearchAnswer({ slug, query, onResult }: SearchAnswerProps) {
                   {text.length > 0
                     ? (
                       <div className='rp-answer-in rp-prose text-sm text-ink'>
-                        {renderAnswer(text, citations, sources, slug)}
+                        {renderAnswer(text, citations, sources, slug, status === 'streaming')}
                       </div>
                     )
                     : null}

@@ -64,6 +64,12 @@ search configurations are all configurable objects ON the KB, viewable in the ad
   stream, verified 2026-09-04), so a `temperature`, `seed` or `generation_params` field can be
   sent without error and without any evidence it reached the model. Do not rely on one for
   determinism; cache decisions portal-side instead (the intent classifier does).
+- **`/ask` honours a request-level `top_k` over the stored configuration's** (verified
+  2026-09-05 on `portal-intent-review`: 20 paragraphs over 15 resources by default, 60 over 21
+  with `top_k: 60`). A `prequeries` entry is a full find request, so each pass carries its own
+  `top_k`, `resource_filters` and `weight` - the portal gives a pinned paper a 20-paragraph pass
+  at weight 2 and a 10-paragraph pass per question clause, and never sends `full_resource`
+  beside a wide budget (whole papers and sixty paragraphs do not fit one context).
 - **`/graph` caps `top_k` at 500** (422 `less_than_equal` above it) and pages the path index in
   no stable order, so one page is a different slice on every call while the index is growing.
   The path query accepts a group scope, `{prop:'path', source:{group:'Gene'}, undirected:true}`

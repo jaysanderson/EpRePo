@@ -8,8 +8,12 @@ import {
   intentSearchConfigs,
   intentStrategies,
   MAX_PREQUERIES,
+  PINNED_CLAUSE_TOP_K,
+  PINNED_TOP_K,
   researchExcludeFilterExpression,
+  SCOPED_TOP_K,
   shapeSourcesForIntent,
+  splitPartialMarker,
 } from './index.ts'
 
 const tenant = TenantConfigSchema.parse({
@@ -136,8 +140,9 @@ describe('grounding prequeries', () => {
           query: 'the BREATHS trial design',
           features: ['keyword', 'semantic'],
           resource_filters: ['breaths'],
+          top_k: PINNED_TOP_K,
         },
-        weight: 1,
+        weight: 2,
       },
       {
         request: {
@@ -153,6 +158,26 @@ describe('grounding prequeries', () => {
       },
     ])
   })
+  it('runs each clause of a multi-part question against the first pinned papers', () => {
+    const queries = groundingPrequeries('criteria, and what proportion met them', {
+      pinnedResourceIds: ['lgs', 'other', 'third'],
+      pinnedQueries: ['What are the ILAE criteria', 'what proportion met them', 'a third clause'],
+    })
+    const clausePasses = queries.filter((q) =>
+      (q.request as { top_k?: number }).top_k === PINNED_CLAUSE_TOP_K
+    )
+    expect(clausePasses.map((q) => (q.request as { query: string; resource_filters: string[] })))
+      .toEqual([
+        expect.objectContaining({ query: 'What are the ILAE criteria', resource_filters: ['lgs'] }),
+        expect.objectContaining({ query: 'what proportion met them', resource_filters: ['lgs'] }),
+        expect.objectContaining({
+          query: 'What are the ILAE criteria',
+          resource_filters: ['other'],
+        }),
+        expect.objectContaining({ query: 'what proportion met them', resource_filters: ['other'] }),
+      ])
+    expect(queries.length).toBe(7)
+  })
   it('sends nothing when there is nothing to add, and never more than the platform cap', () => {
     expect(groundingPrequeries('q', {})).toEqual([])
     const many = groundingPrequeries('q', {
@@ -161,8 +186,35 @@ describe('grounding prequeries', () => {
       prequeries: Array.from({ length: 12 }, (_, i) => `sub-question ${i}`),
     })
     expect(many.length).toBe(MAX_PREQUERIES)
-    // At most three pinned resources: a pinned set never crowds the window.
-    expect(many.filter((q) => 'resource_filters' in (q.request as object)).length).toBe(3)
+    // At most four pinned resources (named studies plus the top paper per
+    // entity): a pinned set never crowds the window.
+    expect(many.filter((q) => 'resource_filters' in (q.request as object)).length).toBe(4)
+  })
+  it("runs a scoped topic pass over an author's articles ahead of everything else", () => {
+    const queries = groundingPrequeries("What has D'Souza published on cycles?", {
+      scopedQueries: [{ query: 'seizure cycles', resourceIds: ['a', 'b'] }, {
+        query: '   ',
+        resourceIds: ['a'],
+      }],
+      prequeries: ['sub-question'],
+    })
+    expect(queries[0]).toEqual({
+      request: {
+        query: 'seizure cycles',
+        features: ['keyword', 'semantic'],
+        resource_filters: ['a', 'b'],
+        top_k: SCOPED_TOP_K,
+      },
+      weight: 2,
+    })
+    expect(queries.length).toBe(2)
+  })
+  it('holds back the start of a marker a later chunk completes', () => {
+    expect(splitPartialMarker('relapse [')).toEqual({ emit: 'relapse', hold: ' [' })
+    expect(splitPartialMarker('relapse [1')).toEqual({ emit: 'relapse', hold: ' [1' })
+    expect(splitPartialMarker('relapse [1, 2')).toEqual({ emit: 'relapse', hold: ' [1, 2' })
+    expect(splitPartialMarker('relapse [1].')).toEqual({ emit: 'relapse [1].', hold: '' })
+    expect(splitPartialMarker('plain text')).toEqual({ emit: 'plain text', hold: '' })
   })
   it('stores an additive filter for a preferring intent: excluded labels only, nothing restricted', () => {
     const additive = intentFilterExpression(

@@ -42,7 +42,9 @@ import {
   ASSESSMENT_INSTRUCTIONS,
   attributeBriefing,
   attributeQuiz,
+  BRIEFING_CONTEXT_RULE,
   BRIEFING_INSTRUCTIONS,
+  BRIEFING_RETRIEVAL_TOP_K,
 } from './generate-sources.ts'
 import { analyseTenant } from './analyse.ts'
 import {
@@ -72,7 +74,18 @@ import {
   routeByRules,
   type RouteContext,
 } from './intent-router.ts'
-import { matchStudies } from './study-guard.ts'
+import { isAttachmentTitle, matchStudies } from './study-guard.ts'
+import {
+  comparisonEntities,
+  entityPins,
+  isConferenceTitle,
+  pinnedAddendum,
+  questionClauses,
+  rankClosest,
+} from './ask-entities.ts'
+import { markedSentences, secondhandFigures, secondhandNote } from './secondhand.ts'
+import { briefingGrounding, groundingParagraphs } from './briefing-grounding.ts'
+import { passageDenominators, unusedReferences } from './synthesis-check.ts'
 import {
   authorLine,
   isCatalogueAuthor,
@@ -95,7 +108,7 @@ import {
 } from './answer-shape.ts'
 import { applicablePrequeries } from './ask-prequeries.ts'
 import { DOCS_DECLINE, DocsSentinelStream, rewriteDocsSentinels } from './docs-answer.ts'
-import { authorsNamed } from './ask-author.ts'
+import { authorsNamed, authorTopicQuery } from './ask-author.ts'
 import {
   type AuditEvent,
   bindAndAudit,
@@ -1570,11 +1583,64 @@ export function buildApp(opts: BuildAppOptions): Hono {
       const topicIds = (parsed.data.topics ?? []).filter((id) =>
         config.topics.some((topic) => topic.id === id)
       )
+      // A briefing grounds on the papers' own results (D2-06): one
+      // retrieval per named drug or study plus one for the topic chooses the
+      // papers, each paper's Abstract, Results, Methods and Conclusion
+      // paragraphs (never its Introduction or Discussion, where the
+      // headings allow it) and its data-augmentation key takeaways and
+      // summary go to the generation as extra context, and the platform's
+      // own retrieval is held to those papers with a small paragraph budget.
+      const seen = new Map<string, ScoredResource>()
+      const grounding = parsed.data.kind === 'briefing'
+        ? await briefingGrounding(parsed.data.query, config.entityTerms ?? [], {
+          search: async (text) => {
+            const found = merchandiseSources(
+              enrichments,
+              config.slug,
+              (await provider.search(config, text, {
+                pageSize: 8,
+                ...(topicIds.length > 0 ? { topicIds } : {}),
+              })).resources,
+            )
+            for (const r of found) seen.set(r.id, r)
+            return found
+          },
+          extraction: (id) => extractionText(opts.management!, config, id),
+          record: (id) => {
+            const r = seen.get(id)
+            if (!r) return undefined
+            const year = r.year ?? r.published?.slice(0, 4)
+            return {
+              id,
+              title: r.title,
+              ...(year ? { year } : {}),
+              ...(r.keyTakeaways?.length ? { keyTakeaways: r.keyTakeaways } : {}),
+              ...(r.summary ? { summary: r.summary } : {}),
+            }
+          },
+        }).catch(() => null)
+        : null
+      const grounded = grounding !== null && grounding.sources.length > 0
       const result = await opts.management.askStructured(config, schema, parsed.data.query, {
         requireGrounding: true,
-        ...(instructions ? { instructions } : {}),
+        ...(instructions
+          ? { instructions: grounded ? `${instructions} ${BRIEFING_CONTEXT_RULE}` : instructions }
+          : {}),
         ...(topicIds.length > 0 ? { topicIds } : {}),
+        ...(grounded
+          ? {
+            resourceIds: grounding.sources.map((s) => s.id),
+            extraContext: grounding.context,
+            topK: BRIEFING_RETRIEVAL_TOP_K,
+          }
+          : {}),
       })
+      if (grounded) {
+        // The chosen papers lead the sources; whatever the platform's own
+        // retrieval added within them follows.
+        const ids = new Set(grounding.sources.map((s) => s.id))
+        result.sources = [...grounding.sources, ...result.sources.filter((s) => !ids.has(s.id))]
+      }
       // Merchandise the answer surface's own sources the same way /search,
       // /catalog and /resources are - see BUG 1: the enrichment store lives
       // only in this app layer, so the provider's `sources` still carry
@@ -1608,6 +1674,41 @@ export function buildApp(opts: BuildAppOptions): Hono {
               'Library for coverage.',
             sources: result.sources,
           })
+        }
+        // A figure a section states that its source carries only in the
+        // introduction or discussion is that paper citing other studies:
+        // the section says so in one sentence, as the Ask surface does.
+        if (grounded && opts.management) {
+          const texts = new Map<string, string>()
+          await Promise.all(
+            attributed.sections.flatMap((section) => section.sources).map(async (source) => {
+              if (texts.has(source.resourceId)) return
+              try {
+                texts.set(
+                  source.resourceId,
+                  await extractionText(opts.management!, config, source.resourceId),
+                )
+              } catch {
+                // An unfetchable text is not judged.
+              }
+            }),
+          )
+          for (const section of attributed.sections) {
+            const byIndex = new Map<number, string>()
+            section.sources.forEach((source, i) => {
+              const text = texts.get(source.resourceId)
+              if (text) byIndex.set(i + 1, text)
+            })
+            const found = secondhandFigures(
+              [{ text: section.content, bound: [...byIndex.keys()] }],
+              byIndex,
+            )
+            if (found.length > 0) {
+              const figures = [...new Set(found.map((f) => f.figure))].join(', ')
+              section.content += ` (${figures}: quoted in the paper's introduction or ` +
+                'discussion from earlier studies, not its own result.)'
+            }
+          }
         }
         result.object = attributed
       }
@@ -2067,7 +2168,13 @@ export function buildApp(opts: BuildAppOptions): Hono {
         item.resourceTitle,
       ].filter(Boolean).join(' | ')
       const note = item.note.trim() ? `Researcher's note: ${item.note.trim().slice(0, 600)}\n` : ''
-      return `${head}\n${note}${item.passage.slice(0, 1200)}`
+      const denominators = passageDenominators(item.passage)
+      const carry = denominators.length > 0
+        ? `Denominators this passage carries, to be written beside any of its figures you use: ${
+          denominators.join('; ')
+        }\n`
+        : ''
+      return `${head}\n${note}${carry}${item.passage.slice(0, 1200)}`
     })
     const prompt = [
       `Research question: ${investigation.question || investigation.name}`,
@@ -2088,6 +2195,15 @@ export function buildApp(opts: BuildAppOptions): Hono {
       'claim: if a note says the figures belong to a different intervention, study or ' +
       'population than the passage appears to describe, do not attribute them to the ' +
       "question's subject, and mention the caveat in `contested` or `gaps`.",
+      '',
+      "Figures: every proportion or rate you repeat from a passage carries that passage's " +
+      'denominator beside it, written as the passage gives it (for example "64.2% (2698/4201)" ' +
+      'or "71.1% (n = 1644)"). A retention, response or seizure-freedom rate is a proportion, ' +
+      'never a "denominator": the denominator is the number of patients the rate is computed ' +
+      'over. `gaps` lists only what no passage covers: never say a population, subgroup, ' +
+      'denominator or time point is not detailed when a passage states it. Use and cite every ' +
+      'passage that bears on the question, including subgroup and comparison passages; a ' +
+      'passage you leave uncited is reported by the portal as not used.',
       '',
       ...numbered,
     ].join('\n')
@@ -2114,10 +2230,12 @@ export function buildApp(opts: BuildAppOptions): Hono {
         resourceId: item.resourceId,
         resourceTitle: item.resourceTitle,
       }))
+      // Every reference is cited or listed as not used (D2-16).
+      const notUsed = unusedReferences(brief, kept.length)
       const artefact = investigations.addArtefact(config.slug, clientId(c), investigation.id, {
         kind: 'synthesis',
         title: `Synthesis - ${new Date().toISOString().slice(0, 10)}`,
-        data: { ...brief, references },
+        data: { ...brief, references, notUsed },
       })
       return c.json({ ok: true, artefact })
     } catch {
@@ -3370,9 +3488,33 @@ export function buildApp(opts: BuildAppOptions): Hono {
       // trial", "UMPIRE", a quoted title) is pinned into the grounding set
       // and leads the sources, whatever retrieval ranks first.
       const pinned = !documentScope && firstTurn
-        ? matchStudies(query, await provider.listResources(config).catch(() => []))
+        ? matchStudies(query, await provider.listResources(config).catch(() => []), lexicon)
         : []
+      // Grows with the top paper per named entity (below); read after the
+      // entity pins resolve, so every later use sees the full set.
       const pinnedIds = pinned.map((p) => p.id)
+      const pinnedTitles = pinned.map((p) => p.title)
+      // A comparison names two or more drugs or studies: each gets its own
+      // pass on the routed configuration and its top paper joins the
+      // grounding set (D2-03), so one drug's figure is never read off the
+      // other drug's paper. Runs beside the probe below.
+      const entities = !documentScope && firstTurn ? comparisonEntities(query, lexicon) : []
+      const entityPinsPending = entities.length >= 2
+        ? entityPins(
+          query,
+          entities,
+          pinned,
+          (text) =>
+            provider.search(config, text, {
+              ...(askOpts.intent ? { intent: askOpts.intent } : {}),
+              pageSize: 6,
+            }).then((found) => found.resources),
+        )
+        : Promise.resolve([])
+      // The pinned papers as the portal's own retrieval found them: a pinned
+      // paper grounds and is cited through its prequery even when the
+      // platform's retrieval item omits it, and the rail must still show it.
+      const pinnedPreview: ScoredResource[] = []
       const pinnedFirst = (resources: ScoredResource[]): ScoredResource[] =>
         pinnedIds.length === 0
           ? resources
@@ -3414,6 +3556,8 @@ export function buildApp(opts: BuildAppOptions): Hono {
       // intent known so far and runs while the classifier thinks; a pinned
       // paper gets its own targeted find beside it.
       const GROUNDING_FLOOR = 0.3
+      /** Paragraph budget when retrieval is scoped to a named author's articles. */
+      const AUTHOR_SCOPE_TOP_K = 60
       /** A best match this strong with a refusal is the generator, not the corpus, saying no. */
       const STRONG_MATCH = 0.9
       /** Closest matches previewed before generation, and named in a decline. */
@@ -3437,6 +3581,16 @@ export function buildApp(opts: BuildAppOptions): Hono {
         askOpts.intent = decision.intent
         await send({ type: 'route', decision })
       }
+      for (const pin of await entityPinsPending) {
+        if (!pinnedIds.includes(pin.id)) {
+          pinnedIds.push(pin.id)
+          pinnedTitles.push(pin.title)
+          pinnedPreview.push(pin.paper)
+        }
+      }
+      // A two-part question about a pinned paper runs each clause against
+      // it as its own retrieval pass (D2-05, D2-08).
+      const pinnedQueries = pinnedIds.length > 0 ? questionClauses(query) : []
       const variant = intentDef?.answer.promptVariant
       // An intent's mandatory sub-questions (a safety check for a treatment
       // decision, a recency probe) join whatever the caller sent - but only
@@ -3470,10 +3624,33 @@ export function buildApp(opts: BuildAppOptions): Hono {
       // audit later forbids "X and colleagues" over a paper X did not write
       // (ask-author.ts). The catalogue read is cached by the provider.
       const catalogue = documentScope ? [] : await provider.listResources(config).catch(() => [])
-      const namedAuthors = documentScope ? [] : authorsNamed(query, catalogue, lexicon)
+      // An author's papers are their articles: a supplement or a peer-review
+      // file is neither counted nor retrieved as "authored by" (D2-23).
+      const titleOf = new Map(catalogue.map((r) => [r.id, r.title]))
+      const namedAuthors = documentScope
+        ? []
+        : authorsNamed(query, catalogue, lexicon).map((a) => ({
+          ...a,
+          resourceIds: a.resourceIds.filter((id) => !isAttachmentTitle(titleOf.get(id) ?? '')),
+        })).filter((a) => a.resourceIds.length > 0)
       const authorScope = [...new Set(namedAuthors.flatMap((a) => a.resourceIds))]
       const resourceIds = authorScope.length > 0 && authorScope.length <= 80
         ? authorScope
+        : undefined
+      // A review over an author's forty papers needs more than twenty
+      // paragraphs, or it sees four of them (D1-05).
+      const authorTopK = resourceIds
+        ? Math.max(intentDef?.retrieval.topK ?? 30, AUTHOR_SCOPE_TOP_K)
+        : undefined
+      // The topic alone, searched within the author's articles: the surname
+      // in the retrieval text otherwise matches their other papers'
+      // reference lists, and a paper found only through its bibliography
+      // grounds nothing (D1-05).
+      const authorTopic = resourceIds
+        ? authorTopicQuery(query, namedAuthors.map((a) => a.surname))
+        : ''
+      const scopedQueries = resourceIds && authorTopic
+        ? [{ query: authorTopic, resourceIds }]
         : undefined
       let intentForAsk = askOpts.intent
       let preflightRan = false
@@ -3501,6 +3678,53 @@ export function buildApp(opts: BuildAppOptions): Hono {
           // insights are best-effort
         }
       }
+      // The closest matches a decline names come from the stored
+      // configuration's semantic ranking, never the keyword order that
+      // put a conference abstract collection first (D2-10): conference
+      // proceedings and attachments are dropped, and when nothing clears
+      // the grounding gate on meaning the decline says "no close match"
+      // rather than naming near misses.
+      const closestMatches = async (): Promise<
+        { resources: ScoredResource[]; noCloseMatch: boolean } | null
+      > => {
+        try {
+          const found = await provider.search(config, query, {
+            mode: 'semantic',
+            pageSize: NEAREST_SHOWN + 4,
+          })
+          const resources = rankClosest(
+            merchandiseSources(
+              enrichments,
+              config.slug,
+              withoutReferencePassages(
+                found.resources.filter((r) =>
+                  !isConferenceTitle(r.title) && !isAttachmentTitle(r.title)
+                ),
+              ),
+            ),
+            query,
+          ).slice(0, NEAREST_SHOWN)
+          const best = resources.reduce((m, r) =>
+            Math.max(m, r.relevance), 0)
+          return { resources, noCloseMatch: best < GROUNDING_FLOOR }
+        } catch {
+          return null
+        }
+      }
+      const sendDecline = async (fallback: ScoredResource[], bestPct?: number) => {
+        const near = await closestMatches()
+        const shown = near ? (near.noCloseMatch ? [] : near.resources) : fallback
+        const text = near
+          ? corpusDecline(nearestTitles(near.resources), bestPct, {
+            noCloseMatch: near.noCloseMatch,
+          })
+          : corpusDecline(nearestTitles(fallback), bestPct)
+        // The panel always agrees with the text: the semantic closest
+        // matches, or nothing when none is close.
+        await send({ type: 'sources', resources: shown })
+        await send({ type: 'delta', text })
+        await send({ type: 'done', refused: true, text })
+      }
       if (probePending) {
         try {
           let found = await probePending
@@ -3526,8 +3750,10 @@ export function buildApp(opts: BuildAppOptions): Hono {
             found = await probe(undefined)
           }
           const pinnedFound = pinnedPending ? await pinnedPending : []
-          const pinnedBest = pinnedFound.reduce((m, r) =>
-            Math.max(m, r.relevance), 0)
+          for (const found of pinnedFound) {
+            if (!pinnedPreview.some((p) => p.id === found.id)) pinnedPreview.push(found)
+          }
+          const pinnedBest = pinnedFound.reduce((m, r) => Math.max(m, r.relevance), 0)
           const seen = new Set(pinnedFound.map((r) => r.id))
           // The pinned papers, then the probe's closest matches: a preview
           // of the grounding set, capped so it reads as a shortlist.
@@ -3541,10 +3767,7 @@ export function buildApp(opts: BuildAppOptions): Hono {
           ).slice(0, NEAREST_SHOWN)
           const best = Math.max(found.best, pinnedBest)
           if (nearest.length > 0 && best < GROUNDING_FLOOR) {
-            await send({ type: 'sources', resources: nearest })
-            const decline = corpusDecline(nearestTitles(nearest), best * 100)
-            await send({ type: 'delta', text: decline })
-            await send({ type: 'done', refused: true, text: decline })
+            await sendDecline(nearest, best * 100)
             recordDecline()
             return
           }
@@ -3566,6 +3789,10 @@ export function buildApp(opts: BuildAppOptions): Hono {
       // resources so no year is guessed.
       let extraContext: string[] | undefined
       let promptAddendum: string | undefined
+      // A pinned paper is answered from first: the text's own figures with
+      // their n, a figure or table named when the text holds the sample but
+      // not the outcome, and nothing declared absent that the paper holds.
+      if (!documentScope && pinnedIds.length > 0) promptAddendum = pinnedAddendum(pinnedTitles)
       if (documentScope) {
         promptAddendum = DOCUMENT_CHAT_ADDENDUM
         if (opts.management) {
@@ -3614,13 +3841,16 @@ export function buildApp(opts: BuildAppOptions): Hono {
       const finishRefused = async () => {
         finished = true
         record.refused = true
-        const text = documentScope ? documentDecline() : corpusDecline(nearestTitles(lastSources))
-        // A refusal always shows what retrieval found, labelled by the
-        // surface as the closest matches, not used - never an empty panel
-        // beside "no answer".
-        if (lastSources.length > 0) await send({ type: 'sources', resources: lastSources })
-        await send({ type: 'delta', text })
-        await send({ type: 'done', refused: true, text })
+        if (documentScope) {
+          const text = documentDecline()
+          if (lastSources.length > 0) await send({ type: 'sources', resources: lastSources })
+          await send({ type: 'delta', text })
+          await send({ type: 'done', refused: true, text })
+          return
+        }
+        // A refusal shows the closest matches on meaning, labelled by the
+        // surface as not used - or nothing, when none is close.
+        await sendDecline(lastSources)
       }
       const finishAnswered = async (doneText: string | undefined) => {
         finished = true
@@ -3687,6 +3917,22 @@ export function buildApp(opts: BuildAppOptions): Hono {
             // Cited resources now quote the paragraph that carries the claim.
             lastSources = bound.sources
             passagesRechosen = true
+            // A figure the cited paper carries only in its introduction or
+            // discussion is that paper citing other studies: said so in one
+            // line, on every surface the route serves (D2-06, D2-14).
+            const texts = new Map<number, string>()
+            await Promise.all(citations.map(async (citation) => {
+              try {
+                texts.set(
+                  citation.index,
+                  await extractionText(opts.management!, config, citation.resourceId),
+                )
+              } catch {
+                // An unfetchable text is simply not judged.
+              }
+            }))
+            const secondhand = secondhandNote(secondhandFigures(markedSentences(text), texts))
+            if (secondhand) text += `\n\n${secondhand}`
           } catch {
             // The audit is best-effort; the answer stands with the
             // platform's own binding.
@@ -3698,6 +3944,13 @@ export function buildApp(opts: BuildAppOptions): Hono {
         // it would read as fact. The honest decline stands in its place,
         // with the closest matches shown, not used.
         if (!documentScope && citations.length === 0 && /\d/.test(text)) {
+          // A named paper is in the sources: one document-scoped retry on
+          // it before declining (D2-08), the same path as a generator refusal.
+          if (!retriedOnPinned && pinnedIds.length > 0) {
+            finished = false
+            retry = 'pinned'
+            return
+          }
           await finishRefused()
           return
         }
@@ -3721,12 +3974,18 @@ export function buildApp(opts: BuildAppOptions): Hono {
       // configuration crowded the grounding set, so the question is asked
       // once more on the default configuration without them. Nothing has
       // streamed by then, so the surface sees one answer.
-      const attempts: { intent: string | undefined; prequeries: string[] | undefined }[] = [{
+      const attempts: {
+        intent: string | undefined
+        prequeries: string[] | undefined
+        /** A document-scoped retry on the pinned paper (D2-08). */
+        resourceId?: string
+      }[] = [{
         intent: intentForAsk,
         prequeries: askOpts.prequeries,
       }]
-      let retry: 'supplements' | 'prequeries' | null = null
+      let retry: 'supplements' | 'prequeries' | 'pinned' | null = null
       let retriedWithoutPrequeries = false
+      let retriedOnPinned = false
       for (let attempt = 0; attempt < attempts.length; attempt++) {
         const current = attempts[attempt]!
         answerText = ''
@@ -3735,17 +3994,39 @@ export function buildApp(opts: BuildAppOptions): Hono {
         heldCitations = []
         heldDecline = false
         record.citations = 0
+        // The document-scoped retry reads the pinned paper's own paragraphs
+        // beside retrieval: the ones in its Abstract, Results, Methods and
+        // Conclusion that carry the question's words or figures, from the
+        // platform's extracted text, so the n the text states and the
+        // figure the outcome sits in are both in front of the generator.
+        let attemptContext = extraContext
+        if (current.resourceId && opts.management) {
+          try {
+            const text = await extractionText(opts.management, config, current.resourceId)
+            const title = pinnedTitles[pinnedIds.indexOf(current.resourceId)] ?? ''
+            const blocks = groundingParagraphs(text, query, 8).map((p) =>
+              `From "${title}" [${p.section}]: ${p.text}`
+            )
+            if (blocks.length > 0) attemptContext = [...(extraContext ?? []), ...blocks]
+          } catch {
+            // Retrieval alone grounds the retry.
+          }
+        }
         try {
           for await (
             const event of provider.ask(config, query, {
               ...askOpts,
               ...(resourceIds ? { resourceIds } : {}),
+              ...(authorTopK ? { topK: authorTopK } : {}),
+              ...(scopedQueries ? { scopedQueries } : {}),
+              ...(current.resourceId ? { resourceId: current.resourceId } : {}),
               intent: current.intent,
               prequeries: current.prequeries,
               ...(pinnedIds.length > 0 ? { pinnedResourceIds: pinnedIds } : {}),
+              ...(pinnedQueries.length > 0 ? { pinnedQueries } : {}),
               ...(settings.ask ? { systemPrompt: settings.ask } : {}),
               ...(settings.images ? { images: true } : {}),
-              ...(extraContext ? { extraContext } : {}),
+              ...(attemptContext ? { extraContext: attemptContext } : {}),
               ...(promptAddendum ? { promptAddendum } : {}),
             })
           ) {
@@ -3776,10 +4057,13 @@ export function buildApp(opts: BuildAppOptions): Hono {
               // The provider clears its sources on a refusal; the refusal
               // path here re-sends the closest matches instead.
               if (event.resources.length === 0) continue
+              const missingPins = pinnedPreview.filter((p) =>
+                !event.resources.some((r) => r.id === p.id)
+              )
               const shaped = pinnedFirst(merchandiseSources(
                 enrichments,
                 config.slug,
-                withoutReferencePassages(event.resources),
+                withoutReferencePassages([...event.resources, ...missingPins]),
               ))
               lastSources = shaped
               bestRelevance = shaped.reduce((m, r) => Math.max(m, r.relevance), 0)
@@ -3787,10 +4071,7 @@ export function buildApp(opts: BuildAppOptions): Hono {
                 // An empty retrieval is the provider's own refusal path; the
                 // guard covers the other failure, weak matches that would be
                 // answered over.
-                await send({ type: 'sources', resources: shaped })
-                const decline = corpusDecline(nearestTitles(shaped), bestRelevance * 100)
-                await send({ type: 'delta', text: decline })
-                await send({ type: 'done', refused: true, text: decline })
+                await sendDecline(shaped, bestRelevance * 100)
                 record.refused = true
                 finished = true
                 break
@@ -3813,9 +4094,18 @@ export function buildApp(opts: BuildAppOptions): Hono {
                   retry = 'prequeries'
                   break
                 }
+                // The question names a paper the corpus holds and the
+                // generator still declined: ask once more within that paper
+                // alone, where a partial answer (the n from the text, the
+                // outcome in a figure) is the right answer (D2-08).
+                if (!documentScope && !retriedOnPinned && pinnedIds.length > 0) {
+                  retry = 'pinned'
+                  break
+                }
                 await finishRefused()
               } else {
                 await finishAnswered(event.text)
+                if (retry) break
               }
               continue
             }
@@ -3848,6 +4138,12 @@ export function buildApp(opts: BuildAppOptions): Hono {
           // the intent's narrower configuration crowding the grounding set.
           retriedWithoutPrequeries = true
           attempts.push({ intent: undefined, prequeries: undefined })
+        } else if (retry === 'pinned') {
+          retriedOnPinned = true
+          attempts.push({ intent: undefined, prequeries: undefined, resourceId: pinnedIds[0] })
+          await fallbackEvent(
+            'The question names a paper this collection holds; asking it directly.',
+          )
         }
         retry = null
       }

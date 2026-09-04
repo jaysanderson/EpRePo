@@ -127,6 +127,10 @@ describe('decline copy', () => {
     expect(text).toContain('best match 21%')
     expect(text).toContain('*A first paper* and *A second paper* - listed below but not used')
     expect(corpusDecline([])).not.toContain('closest matches')
+    const none = corpusDecline(['A near miss'], 12, { noCloseMatch: true })
+    expect(none).toContain('No source in the corpus comes close to this question')
+    expect(none).not.toContain('A near miss')
+    expect(none).toContain('best match 12%')
   })
 
   it('recognises the provider decline strings so the handler can hold them', () => {

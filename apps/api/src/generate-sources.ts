@@ -119,6 +119,23 @@ export const BRIEFING_INSTRUCTIONS =
   'a section with no source will be discarded, so only write sections the passages support. ' +
   'Australian English.'
 
+/**
+ * Appended to the briefing instructions when the application supplies the
+ * grounding blocks itself (briefing-grounding.ts): one block per paper,
+ * headed by the exact title the model must name in each section's sources.
+ */
+export const BRIEFING_CONTEXT_RULE =
+  'The extra context supplies one block per paper, each headed `Source: "<title>"` followed ' +
+  "by that paper's key takeaways, summary and its own Abstract, Results, Methods and " +
+  'Conclusion paragraphs (labelled by section). Build every section from those blocks and ' +
+  "name each block's exact title in the section's `sources`. Report each paper's own " +
+  'hazard ratios, odds ratios, proportions and cohort sizes with their confidence intervals ' +
+  'and denominators as the blocks give them; a figure the paper attributes to a ' +
+  "meta-analysis or to earlier studies is not that paper's finding and must be described as such."
+
+/** Paragraph budget for the platform's own retrieval when a briefing's context is supplied. */
+export const BRIEFING_RETRIEVAL_TOP_K = 4
+
 /** Instruction appended to the system prompt for an assessment quiz (roadmap R21, P8-11). */
 export const ASSESSMENT_INSTRUCTIONS =
   'You are writing a knowledge check for a specialist reader. Every question must be answerable ' +

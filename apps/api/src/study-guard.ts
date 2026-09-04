@@ -8,6 +8,10 @@
  * A study name is an upper-case token of four or more characters that names
  * at most a few articles: an acronym that titles a dozen papers (ILAE,
  * SUDEP, COVID-19) is a topic, not a study, and a gene symbol is a gene.
+ * A distinctive term works the same way (D2-05): an eponym ("Lennox-Gastaut")
+ * or a lexicon entry ("lamotrigine") that titles at most a few articles
+ * names those papers, so a question about the ILAE criteria for LGS reads
+ * the LGS paper in depth rather than whatever ranks first.
  * Pure functions over the catalogue, tested without the platform.
  */
 import type { ResourceSummary } from '@research-portal/core'
@@ -16,9 +20,9 @@ import { GENERIC_ACRONYMS, looksLikeGeneSymbol } from './intent-router.ts'
 export interface StudyMatch {
   id: string
   title: string
-  /** The acronym or quoted fragment in the question that named it. */
+  /** The acronym, quoted fragment or distinctive term in the question that named it. */
   term: string
-  kind: 'acronym' | 'title'
+  kind: 'acronym' | 'title' | 'term'
 }
 
 /** A name that titles more articles than this is a topic, not a study. */
@@ -35,6 +39,28 @@ export function studyAcronyms(query: string): string[] {
     if (GENERIC_ACRONYMS.has(bare) || looksLikeGeneSymbol(bare)) continue
     if (/^(?:PMC|PMID)\d+$/i.test(bare) || /^\d+$/.test(bare)) continue
     out.push(bare)
+  }
+  return out
+}
+
+/**
+ * Distinctive terms in the question that could title a paper: capitalised
+ * hyphenated eponyms ("Lennox-Gastaut", "Rasmussen-type") and lexicon
+ * entries of five letters or more that the question uses as whole words.
+ * Acronyms are handled by `studyAcronyms`; a hyphenated compound with an
+ * upper-case half ("EEG-fMRI", "anti-NMDAR") is not an eponym.
+ */
+export function distinctiveTerms(query: string, lexicon: readonly string[] = []): string[] {
+  const out: string[] = []
+  const add = (term: string) => {
+    if (!out.some((t) => t.toLowerCase() === term.toLowerCase())) out.push(term)
+  }
+  for (const m of query.matchAll(/\b([A-Z][a-z]{2,}-[A-Z][a-z]{2,})\b/g)) add(m[1]!)
+  const lower = query.toLowerCase()
+  for (const term of lexicon) {
+    const t = term.trim()
+    if (t.length < 5 || GENERIC_ACRONYMS.has(t.toUpperCase())) continue
+    if (new RegExp(`(?:^|[^a-z0-9])${escape(t.toLowerCase())}(?=$|[^a-z0-9])`).test(lower)) add(t)
   }
   return out
 }
@@ -73,12 +99,16 @@ function newestFirst(a: ResourceSummary, b: ResourceSummary): number {
  * The catalogue resources the question names. An acronym pins the articles
  * whose title carries it as a whole upper-case word, when there are few
  * enough to be one study; a quoted fragment pins the resources whose title
- * contains it. Articles come before their attachments and the list is
- * capped, so a pinned set never crowds the grounding window.
+ * contains it; a distinctive term (an eponym, a lexicon drug or syndrome)
+ * pins the articles whose title carries it as a whole word, again only when
+ * there are few enough to be the papers meant. Acronyms and quoted titles
+ * come first, then terms; articles come before their attachments and the
+ * list is capped, so a pinned set never crowds the grounding window.
  */
 export function matchStudies(
   query: string,
   catalogue: readonly ResourceSummary[],
+  lexicon: readonly string[] = [],
 ): StudyMatch[] {
   const out: StudyMatch[] = []
   const seen = new Set<string>()
@@ -106,5 +136,93 @@ export function matchStudies(
     if (matches.length === 0 || matches.length > MAX_ARTICLES_PER_NAME) continue
     for (const match of matches) add(match, fragment, 'title')
   }
+  for (const term of distinctiveTerms(query, lexicon)) {
+    const word = new RegExp(`(?:^|[^a-z0-9])${escape(term.toLowerCase())}(?=$|[^a-z0-9])`)
+    const articles = catalogue
+      .filter((r) => !isAttachmentTitle(r.title) && word.test(normalise(r.title)))
+      .sort(newestFirst)
+    if (articles.length === 0) continue
+    if (articles.length <= MAX_ARTICLES_PER_NAME) {
+      for (const article of articles) add(article, term, 'term')
+      continue
+    }
+    // A term that titles many papers is a topic - unless the rest of the
+    // question singles one of them out ("the ILAE diagnostic criteria for
+    // Lennox-Gastaut syndrome in the real-world cohort" names the criteria
+    // paper, not the fenfluramine trials).
+    const best = bestTitleMatch(query, term, articles)
+    if (best) add(best, term, 'term')
+  }
   return out
+}
+
+/** Words of a question that do not single out a paper. */
+const TITLE_STOP = new Set([
+  'what',
+  'which',
+  'were',
+  'does',
+  'that',
+  'this',
+  'with',
+  'from',
+  'have',
+  'been',
+  'them',
+  'they',
+  'their',
+  'there',
+  'about',
+  'into',
+  'than',
+  'when',
+  'where',
+  'many',
+  'much',
+  'rate',
+  'rates',
+  'proportion',
+  'percentage',
+  'patients',
+  'study',
+  'trial',
+  'paper',
+  'syndrome',
+  'epilepsy',
+  'seizure',
+  'seizures',
+])
+
+/** How many of the question's other content words a title must carry to be singled out. */
+export const MIN_TITLE_WORDS = 3
+
+/**
+ * Among the articles a topic term titles, the one the question's other
+ * content words single out: at least `MIN_TITLE_WORDS` of them in the
+ * title, and clearly ahead of the runner-up. Undefined when the question
+ * is about the topic rather than one paper.
+ */
+export function bestTitleMatch(
+  query: string,
+  term: string,
+  articles: readonly ResourceSummary[],
+): ResourceSummary | undefined {
+  const termWords = new Set(term.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean))
+  const words = new Set(
+    (query.toLowerCase().match(/[a-z][a-z-]{3,}/g) ?? []).filter((w) =>
+      !TITLE_STOP.has(w) && !termWords.has(w)
+    ),
+  )
+  if (words.size === 0) return undefined
+  const scored = articles.map((article) => {
+    const have = new Set(normalise(article.title).match(/[a-z][a-z-]{3,}/g) ?? [])
+    let hits = 0
+    for (const w of words) if (have.has(w)) hits++
+    return { article, hits }
+  }).sort((a, b) => b.hits - a.hits)
+  const top = scored[0]
+  const next = scored[1]
+  if (!top || top.hits < MIN_TITLE_WORDS) return undefined
+  if (next && next.hits >= top.hits - 1) return undefined
+  return top.article
 }
