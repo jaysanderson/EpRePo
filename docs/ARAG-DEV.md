@@ -60,6 +60,15 @@ search configurations are all configurable objects ON the KB, viewable in the ad
   whitespace runs** - normalize before rendering or raw `##`/`|` leaks on screen and position-based
   citation highlighting breaks.
 
+- **`/ask` ignores unknown top-level keys silently** (`zzz_probe: 1` returns 200 with a normal
+  stream, verified 2026-09-04), so a `temperature`, `seed` or `generation_params` field can be
+  sent without error and without any evidence it reached the model. Do not rely on one for
+  determinism; cache decisions portal-side instead (the intent classifier does).
+- **`/graph` caps `top_k` at 500** (422 `less_than_equal` above it) and pages the path index in
+  no stable order, so one page is a different slice on every call while the index is growing.
+  The path query accepts a group scope, `{prop:'path', source:{group:'Gene'}, undirected:true}`
+  (verified), so a whole-index read is one page per entity group plus the ungrouped page,
+  unioned and ranked portal-side. `/entitiesgroups` inlines every entity per custom group.
 - **Multi-doc summaries:** `POST /kb/{id}/summarize` `{resources: [uids] (REQUIRED), summary_kind:
   'simple'|'extended', user_prompt?}` - verified 2xx; response has a combined `summary` plus
   per-resource summaries. Missing uids are silently ignored.
