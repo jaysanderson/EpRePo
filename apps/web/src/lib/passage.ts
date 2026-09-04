@@ -25,13 +25,15 @@ export function passageIsInformative(passage: string, query: string): boolean {
 /**
  * Whether a matched passage is document text worth quoting under a result.
  * An author or identifier lookup matches the bibliographic record, so its
- * "passage" is the byline; a reference-list or front-matter hit is a
- * bibliography line. Neither is a quotation from the paper.
+ * "passage" is the byline, or wherever else the surname appears (an author
+ * contribution statement, a declaration); a reference-list or front-matter
+ * hit is a bibliography line. None of these is a quotation from the paper.
  */
 export function passageIsQuotable(
   resource: { matchedField?: 'body' | 'summary' | 'metadata'; referenceChunk?: boolean },
+  lookup = false,
 ): boolean {
-  return resource.matchedField !== 'metadata' && !resource.referenceChunk
+  return !lookup && resource.matchedField !== 'metadata' && !resource.referenceChunk
 }
 
 /** Lowercase, letters and digits only - for comparing a snippet with a summary. */

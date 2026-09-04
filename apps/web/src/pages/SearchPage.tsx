@@ -115,13 +115,15 @@ function resourceLink(slug: string, resource: ScoredResource): string {
  * switches the AI answer off.
  */
 function ResultCard(
-  { resource, slug, query, kindLabel, citedIndex }: {
+  { resource, slug, query, kindLabel, citedIndex, lookup = false }: {
     resource: ScoredResource
     slug: string
     query: string
     kindLabel: (id: string) => string
     /** Lowest `[n]` marker the AI answer cites this resource under, when it is cited at all. */
     citedIndex?: number
+    /** True when the list is an exact author or identifier lookup rather than a retrieval. */
+    lookup?: boolean
   },
 ) {
   const keyFacts = resource.keyFacts.slice(0, 3)
@@ -133,10 +135,11 @@ function ResultCard(
   // A reference-list, front-matter or DOI-fragment match is flagged by the
   // API and labelled on the meter; quoting it would only show the reader a
   // bibliography line, and an author or identifier lookup's "passage" is the
-  // byline (D2-20). A snippet that merely repeats the title or the summary
-  // is noise of a different kind.
+  // byline or wherever the surname appears - an author-contribution
+  // statement, a declaration (D2-20). A snippet that merely repeats the title
+  // or the summary is noise of a different kind.
   const showSnippet = snippet.length > 0 &&
-    passageIsQuotable(resource) &&
+    passageIsQuotable(resource, lookup) &&
     passageIsInformative(snippet, query) &&
     !passageRepeatsSummary(snippet, resource.title) &&
     !(resource.summary && passageRepeatsSummary(snippet, resource.summary))
@@ -1326,6 +1329,7 @@ export function SearchPage() {
                                 query={trimmedQuery}
                                 kindLabel={kindLabel}
                                 citedIndex={citationIndexByResource.get(resource.id)}
+                                lookup={lookupOnly}
                               />
                             ))}
                           </div>

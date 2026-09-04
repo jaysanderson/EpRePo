@@ -78,6 +78,8 @@ describe('passageIsQuotable', () => {
 
   it('never quotes the byline an author or identifier lookup matched (D2-20)', () => {
     expect(passageIsQuotable({ matchedField: 'metadata' })).toBe(false)
+    // In a lookup even a body hit is only where the surname appears.
+    expect(passageIsQuotable({ matchedField: 'body' }, true)).toBe(false)
   })
 
   it('never quotes a reference-list or front-matter hit', () => {
