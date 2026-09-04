@@ -2,12 +2,14 @@ import { describe, it } from '@std/testing/bdd'
 import { expect } from '@std/expect'
 import {
   corpusDecline,
+  endsMidSentence,
   forwardableSlice,
   looksLikeProviderDecline,
   referenceBlockStart,
   rewriteSentinels,
   SentinelStream,
   stripModelReferences,
+  trimTruncatedTail,
 } from './answer-shape.ts'
 
 describe('stripModelReferences', () => {
@@ -132,5 +134,66 @@ describe('decline copy', () => {
       looksLikeProviderDecline("This portal's content does not hold enough relevant material"),
     ).toBe(true)
     expect(looksLikeProviderDecline('Seizure freedom was 76%.')).toBe(false)
+  })
+})
+
+describe('stripModelReferences - trailing author-year and title entries', () => {
+  it('cuts an author-year reference the model appended to its last paragraph', () => {
+    const text =
+      'JME shows 10-16 Hz polyspikes.[1][2] Seneviratne et al. (2017). Electroencephalography in the Diagnosis of Genetic Generalized Epilepsy Syndromes.[1][2][3]'
+    expect(stripModelReferences(text)).toBe('JME shows 10-16 Hz polyspikes.[1][2]')
+  })
+
+  it('cuts a run of bare cited titles after the conclusion', () => {
+    const text =
+      'Their findings suggest promising avenues for seizure prediction.[3] Multiday cycles of heart rate are associated with seizure likelihood: An observational cohort study.[1][2] Forecasting seizure likelihood from cycles of self-reported events and heart rate: a prospective pilot study.[1][2]'
+    const titles = [
+      'Multiday cycles of heart rate are associated with seizure likelihood: An observational cohort study',
+      'Forecasting seizure likelihood from cycles of self-reported events and heart rate: a prospective pilot study',
+    ]
+    expect(stripModelReferences(text, titles)).toBe(
+      'Their findings suggest promising avenues for seizure prediction.[3]',
+    )
+    // Without the titles the sentences read as prose and stand.
+    expect(stripModelReferences(text)).toBe(text)
+  })
+
+  it('leaves an author-year mention that is followed by prose', () => {
+    const text =
+      'Marson et al. (2021) reported non-inferiority was not met.[1] This matters for IGE.'
+    expect(stripModelReferences(text)).toBe(text)
+  })
+})
+
+describe('trimTruncatedTail', () => {
+  it('detects a text that stops on a dangling word or comma', () => {
+    expect(endsMidSentence('Retention was 64.2%.[1] Therefore,')).toBe(true)
+    expect(endsMidSentence('Retention was 64.2% and')).toBe(true)
+    expect(endsMidSentence('Retention was 64.2% at 12 months in the')).toBe(true)
+    expect(endsMidSentence('Retention was 64.2%.[1]')).toBe(false)
+    expect(endsMidSentence('Retention was 64.2% (n = 1644).')).toBe(false)
+    expect(endsMidSentence('**Conclusion:** the evidence is limited.')).toBe(false)
+  })
+
+  it('cuts back to the last complete sentence and says so', () => {
+    expect(trimTruncatedTail('Seizure freedom was 23.2%.[1] Retention was 64.2%.[1] Therefore,'))
+      .toEqual({ text: 'Seizure freedom was 23.2%.[1] Retention was 64.2%.[1]', truncated: true })
+  })
+
+  it('drops a dangling paragraph when an earlier paragraph is complete', () => {
+    expect(trimTruncatedTail('A complete paragraph.[1]\n\nThe second one stops in the'))
+      .toEqual({ text: 'A complete paragraph.[1]', truncated: true })
+  })
+
+  it('keeps a text with no complete sentence, flagged', () => {
+    expect(trimTruncatedTail('Only a fragment that stops at the')).toEqual({
+      text: 'Only a fragment that stops at the',
+      truncated: true,
+    })
+  })
+
+  it('leaves a complete text alone', () => {
+    const text = 'One.[1] Two.[2]'
+    expect(trimTruncatedTail(text)).toEqual({ text, truncated: false })
   })
 })
