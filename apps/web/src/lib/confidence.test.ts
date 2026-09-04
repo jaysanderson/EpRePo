@@ -110,24 +110,24 @@ describe('assessConfidence', () => {
     })
   })
 
-  describe('high', () => {
-    it('is high when every signal is strong', () => {
+  describe('platform score alone', () => {
+    it('never reaches high on the platform score alone - the audit earns that (D2-15)', () => {
       const result = assessConfidence({
         groundedness: 5,
         answerRelevance: 5,
         contextRelevance: 5,
       })
-      expect(result.state).toBe('high')
-      expect(result.label).toBe('High confidence')
+      expect(result.state).toBe('moderate')
+      expect(result.basis).toBe('remi')
     })
 
-    it('is high exactly at the 4.0 groundedness boundary with no other signals', () => {
+    it('is moderate exactly at the 4.0 groundedness boundary with no other signals', () => {
       const result = assessConfidence({
         groundedness: 4,
         answerRelevance: null,
         contextRelevance: null,
       })
-      expect(result.state).toBe('high')
+      expect(result.state).toBe('moderate')
     })
   })
 })
@@ -211,11 +211,29 @@ describe('assessConfidence with the audit', () => {
   const remiLow = { groundedness: 1, answerRelevance: 5, contextRelevance: 5 }
   const remiHigh = { groundedness: 5, answerRelevance: 5, contextRelevance: 5 }
 
-  it('lets a clean audit override a low platform score', () => {
-    const result = assessConfidence(remiLow, clean)
+  it('is high on a clean audit, whatever the platform adds', () => {
+    const result = assessConfidence(remiHigh, clean)
     expect(result.state).toBe('high')
     expect(result.basis).toBe('audit')
+    expect(assessConfidence(undefined, clean).state).toBe('high')
+  })
+
+  it('lets a low platform score lower a clean audit one step, never to low (D2-15)', () => {
+    const result = assessConfidence(remiLow, clean)
+    expect(result.state).toBe('moderate')
+    expect(result.basis).toBe('audit')
     expect(isThinlyGrounded(remiLow, clean)).toBe(false)
+  })
+
+  it('never lets the platform raise an audited verdict', () => {
+    expect(assessConfidence(remiHigh, { ...clean, sentencesCited: 1 }).state).toBe('moderate')
+    expect(assessConfidence(remiHigh, { ...clean, figuresUnsupported: ['31%'] }).state).toBe('low')
+  })
+
+  it('caps an answer the gate shortened at moderate', () => {
+    const gated = { ...clean, sentencesRemoved: 1, figuresRemoved: ['80%'] }
+    expect(assessConfidence(remiHigh, gated).state).toBe('moderate')
+    expect(assessConfidence(remiHigh, { ...gated, sentencesCited: 1 }).state).toBe('low')
   })
 
   it('lets an unsupported figure override a high platform score', () => {

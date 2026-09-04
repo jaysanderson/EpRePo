@@ -107,6 +107,11 @@ type ChatMessage = {
   truncated?: boolean
   /** What the post-answer audit checked against the cited texts, once it has run. */
   audit?: AnswerAudit
+  /**
+   * The text is complete but the figure gate has not passed it yet: how
+   * many figures are being checked. Cleared by `done`; never persisted.
+   */
+  checking?: number
   /** The intent-routing decision this answer ran under (docs/INTENT-ROUTING.md). */
   route?: RouteDecision
   /** Per-source AI relevance verdicts, once judged - persisted so the Evidence table doesn't re-judge on reload. */
@@ -209,6 +214,8 @@ function migrateAudit(raw: unknown): AnswerAudit | undefined {
     sentencesCited: count(value.sentencesCited),
     denominatorsMissing: strings(value.denominatorsMissing),
     attributionsCorrected: strings(value.attributionsCorrected),
+    sentencesRemoved: count(value.sentencesRemoved),
+    figuresRemoved: strings(value.figuresRemoved),
   }
 }
 
@@ -781,6 +788,28 @@ const ICON_WATCH =
  * in a cited passage (quiet, green), or how many were not (amber, with the
  * figures named in the tooltip and marked inline in the prose).
  */
+/**
+ * The state between the last streamed word and the gated text: the answer
+ * reads complete but has not been checked, and this says so in the badge's
+ * own place, with the number of figures under check. Replaced by the audit
+ * badge on `done`.
+ */
+function CheckingBadge({ figures }: { figures: number }) {
+  const label = figures === 0
+    ? 'Checking the answer'
+    : figures === 1
+    ? 'Checking 1 figure'
+    : `Checking ${figures} figures`
+  return (
+    <div className='mt-3 flex items-center gap-2' role='status' aria-live='polite'>
+      <span className='rp-badge rp-badge-quiet inline-flex items-center gap-1.5'>
+        <span className='rp-stage-spin inline-block h-3 w-3 rounded-full border-[1.5px] border-current border-t-transparent opacity-70' />
+        {label} against the cited papers
+      </span>
+    </div>
+  )
+}
+
 function AuditBadge({ audit }: { audit?: AnswerAudit }) {
   const badge = auditBadge(audit)
   if (!badge) return null
@@ -1215,6 +1244,10 @@ function AnswerCard({
             {renderMarkdown(message.text, message.citations, message.sources, slug, message.audit)}
           </div>
         )
+        : null}
+
+      {message.pending && typeof message.checking === 'number'
+        ? <CheckingBadge figures={message.checking} />
         : null}
 
       {
@@ -2190,6 +2223,13 @@ export function AskPage() {
               } else {
                 setSeenStages((prev) => new Set(prev).add(event.stage))
               }
+              // The streamed text is on screen but not yet checked: say so
+              // where the audit badge will land, with the count of figures
+              // under check, until `done` carries the gated text (D2-17).
+              if (event.stage === 'auditing') {
+                const figures = event.status === 'started' ? (event.figures ?? 0) : undefined
+                update((message) => ({ ...message, checking: figures }))
+              }
               break
             case 'sources':
               update((message) => ({ ...message, sources: event.resources }))
@@ -2269,6 +2309,8 @@ export function AskPage() {
                   sentencesCited: event.sentencesCited,
                   denominatorsMissing: event.denominatorsMissing ?? [],
                   attributionsCorrected: event.attributionsCorrected ?? [],
+                  sentencesRemoved: event.sentencesRemoved ?? 0,
+                  figuresRemoved: event.figuresRemoved ?? [],
                 },
               }))
               break
@@ -2284,6 +2326,7 @@ export function AskPage() {
                 // text when absent (e.g. a refusal, which carries no citations).
                 text: event.text ?? message.text,
                 pending: false,
+                checking: undefined,
                 refused: event.refused,
                 truncated: event.truncated === true,
               }))

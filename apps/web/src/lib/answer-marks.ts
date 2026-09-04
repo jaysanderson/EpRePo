@@ -17,6 +17,9 @@ export interface AnswerAudit {
   denominatorsMissing?: string[]
   /** Authors whose attribution was corrected because the cited paper lacks them. */
   attributionsCorrected?: string[]
+  /** Sentences the figure gate removed because no cited passage carries their figures, and those figures. */
+  sentencesRemoved?: number
+  figuresRemoved?: string[]
 }
 
 /** "12months" reads as "12 months" in the badge and the tooltip. */
@@ -35,7 +38,10 @@ export function auditBadge(audit: AnswerAudit | undefined): {
   if (!audit) return null
   const unsupported = audit.figuresUnsupported.length + audit.yearsUnsupported.length
   const stripped = audit.contraindicationsUnsupported.length
-  if (audit.figuresChecked === 0 && unsupported === 0 && stripped === 0) return null
+  const removed = audit.sentencesRemoved ?? 0
+  if (audit.figuresChecked === 0 && unsupported === 0 && stripped === 0 && removed === 0) {
+    return null
+  }
   const checked = audit.figuresChecked === 1
     ? '1 figure checked'
     : `${audit.figuresChecked} figures checked`
@@ -48,12 +54,28 @@ export function auditBadge(audit: AnswerAudit | undefined): {
       (audit.denominatorsMissing ?? []).map(figureLabel).join(', ')
     }.`
     : ''
-  if (unsupported === 0 && stripped === 0) {
+  if (unsupported === 0 && stripped === 0 && removed === 0) {
     return {
       label: checked,
       tone: 'ok',
       title:
         `Every figure in this answer was found beside its claim in a cited passage.${cited}${denominators}`,
+    }
+  }
+  if (unsupported === 0 && stripped === 0) {
+    // The gate removed what failed: what remains has passed, and the badge
+    // says both so the reader knows the answer is shorter than it was.
+    const figures = (audit.figuresRemoved ?? []).map(figureLabel).join(', ')
+    return {
+      label: `${checked} · ${removed === 1 ? '1 sentence' : `${removed} sentences`} removed`,
+      tone: 'warn',
+      title: `${
+        removed === 1 ? 'One sentence was' : `${removed} sentences were`
+      } removed because no cited passage carries ${
+        removed === 1 ? 'its' : 'their'
+      } figures beside the claim${
+        figures ? ` (${figures})` : ''
+      }. Every figure still in the answer was found beside its claim.${cited}${denominators}`,
     }
   }
   const parts: string[] = []
