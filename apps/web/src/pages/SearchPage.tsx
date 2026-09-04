@@ -787,7 +787,7 @@ export function SearchPage() {
           ? (
             <p className='text-sm font-medium tabular-nums text-ink-3'>
               {filteredResults.length} {filteredResults.length === 1 ? 'resource' : 'resources'}
-              {answerMode ? ` · ${citedResults.length} cited` : ''}
+              {answerMode && citedResults.length > 0 ? ` · ${citedResults.length} cited` : ''}
             </p>
           )
           : null}

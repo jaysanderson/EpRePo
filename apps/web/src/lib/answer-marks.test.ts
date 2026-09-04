@@ -1,6 +1,11 @@
 import { describe, it } from '@std/testing/bdd'
 import { expect } from '@std/expect'
-import { auditBadge, isUnsupportedFigure, unsupportedFigurePattern } from './answer-marks.ts'
+import {
+  auditBadge,
+  figureLabel,
+  isUnsupportedFigure,
+  unsupportedFigurePattern,
+} from './answer-marks.ts'
 
 const clean = {
   figuresChecked: 4,
@@ -55,5 +60,35 @@ describe('unsupportedFigurePattern', () => {
   it('is null with nothing to mark', () => {
     expect(unsupportedFigurePattern(clean)).toBeNull()
     expect(isUnsupportedFigure('45%', null)).toBe(false)
+  })
+})
+
+describe('audit badge - denominators, sentences and durations', () => {
+  it('names the sentence coverage and bare proportions in the tooltip', () => {
+    const badge = auditBadge({
+      figuresChecked: 2,
+      figuresUnsupported: [],
+      yearsUnsupported: [],
+      contraindicationsUnsupported: [],
+      sentencesChecked: 3,
+      sentencesCited: 2,
+      denominatorsMissing: ['71.1%'],
+    })
+    expect(badge?.label).toBe('2 figures checked')
+    expect(badge?.title).toContain('2 of 3 sentences carry a citation')
+    expect(badge?.title).toContain('Stated without a denominator: 71.1%')
+  })
+
+  it('marks a duration as written, "12 months" or "12-month"', () => {
+    const pattern = unsupportedFigurePattern({
+      figuresChecked: 1,
+      figuresUnsupported: ['12months'],
+      yearsUnsupported: [],
+      contraindicationsUnsupported: [],
+    })
+    expect(pattern).not.toBeNull()
+    expect('at 12 months'.split(new RegExp(`(${pattern!.source})`, 'g'))).toContain('12 months')
+    expect('the 12-month rate'.split(new RegExp(`(${pattern!.source})`, 'g'))).toContain('12-month')
+    expect(figureLabel('12months')).toBe('12 months')
   })
 })

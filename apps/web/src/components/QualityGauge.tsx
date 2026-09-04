@@ -7,6 +7,7 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 import { assessConfidence, type ConfidenceState } from '../lib/confidence.ts'
+import { type AnswerAudit, figureLabel } from '../lib/answer-marks.ts'
 import { useCompactViewport } from './useViewMode.ts'
 
 const SEGMENTS = 5
@@ -400,6 +401,12 @@ const TRIGGER_TONE: Record<
 export interface AnswerQualityDisclosureProps {
   quality: QualityScores | null | undefined
   /**
+   * The portal's own audit of the answer against the cited texts. When it
+   * checked anything it decides the headline; the platform score then reads
+   * as the secondary signal it is, so the two never contradict each other.
+   */
+  audit?: AnswerAudit
+  /**
    * Present only when a deep re-answer is genuinely on offer for this answer -
    * the caller owns that decision, because it turns on message state (already
    * deep, already dismissed) this component cannot see.
@@ -427,8 +434,53 @@ export interface AnswerQualityDisclosureProps {
  * site header. The breakpoint comes from the shared `useCompactViewport`, which
  * matches Tailwind's own `sm` rather than guessing at a `max-width` epsilon.
  */
+/** What the audit found, in one sentence, for the disclosure panel. */
+export function auditSummary(audit: AnswerAudit | undefined): string | null {
+  if (!audit) return null
+  const parts: string[] = []
+  const unsupported = audit.figuresUnsupported.length + audit.yearsUnsupported.length
+  if (audit.figuresChecked > 0) {
+    parts.push(
+      unsupported === 0
+        ? `${
+          audit.figuresChecked === 1 ? '1 figure' : `${audit.figuresChecked} figures`
+        } found beside ${
+          audit.figuresChecked === 1 ? 'its claim' : 'their claims'
+        } in the cited passages`
+        : `${unsupported} of ${
+          audit.figuresChecked + audit.yearsUnsupported.length
+        } figures not found beside their claim: ${
+          [...audit.figuresUnsupported, ...audit.yearsUnsupported].map(figureLabel).join(', ')
+        }`,
+    )
+  }
+  if (typeof audit.sentencesChecked === 'number' && audit.sentencesChecked > 0) {
+    parts.push(
+      `${audit.sentencesCited ?? 0} of ${audit.sentencesChecked} sentences carry a citation`,
+    )
+  }
+  if (audit.contraindicationsUnsupported.length > 0) {
+    parts.push(
+      `${audit.contraindicationsUnsupported.length} unsupported contraindication${
+        audit.contraindicationsUnsupported.length === 1 ? '' : 's'
+      } removed`,
+    )
+  }
+  if ((audit.denominatorsMissing ?? []).length > 0) {
+    parts.push(
+      `stated without a denominator: ${audit.denominatorsMissing!.map(figureLabel).join(', ')}`,
+    )
+  }
+  if ((audit.attributionsCorrected ?? []).length > 0) {
+    parts.push(`attribution corrected for ${audit.attributionsCorrected!.join(', ')}`)
+  }
+  if (parts.length === 0) return null
+  const sentence = parts.join('; ')
+  return sentence.charAt(0).toUpperCase() + sentence.slice(1) + '.'
+}
+
 export function AnswerQualityDisclosure(
-  { quality, onReanswerDeeply, sparselyGrounded = false }: AnswerQualityDisclosureProps,
+  { quality, audit, onReanswerDeeply, sparselyGrounded = false }: AnswerQualityDisclosureProps,
 ) {
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement | null>(null)
@@ -488,8 +540,11 @@ export function AnswerQualityDisclosure(
     }
   }
 
-  const confidence = assessConfidence(quality)
-  const detail = CONFIDENCE_DETAIL[confidence.state]
+  const confidence = assessConfidence(quality, audit)
+  const audited = auditSummary(audit)
+  const detail = confidence.basis === 'audit' && audited
+    ? `Checked against the cited texts: ${audited.charAt(0).toLowerCase()}${audited.slice(1)}`
+    : CONFIDENCE_DETAIL[confidence.state]
   const { tone, labelled } = TRIGGER_TONE[confidence.state]
   const loud = tone !== 'quiet'
 
@@ -518,6 +573,14 @@ export function AnswerQualityDisclosure(
       {quality
         ? (
           <div className='mt-3 rounded-[var(--rp-radius)] border border-line bg-surface-2 px-3 py-2.5'>
+            {confidence.basis === 'audit'
+              ? (
+                <p className='mb-2 text-xs leading-relaxed text-ink-3'>
+                  The platform's own scores, shown for reference - the headline above comes from the
+                  portal's check of the answer against the cited texts.
+                </p>
+              )
+              : null}
             <TrustSignals quality={quality} showLabel={false} />
           </div>
         )

@@ -1,4 +1,5 @@
 import type { QualityScores } from '../components/QualityGauge.tsx'
+import type { AnswerAudit } from './answer-marks.ts'
 
 /**
  * Overall, plain-language confidence state for a single AI answer, derived
@@ -14,6 +15,13 @@ export interface Confidence {
   state: ConfidenceState
   /** Plain-language headline, e.g. "High confidence". */
   label: string
+  /**
+   * What decided the state: the portal's own audit of the answer against
+   * the cited texts (figures beside their claims, sentences bound to a
+   * passage) or, when there was nothing to audit, the platform's REMi
+   * groundedness score. Named so the two signals never read as one.
+   */
+  basis: 'audit' | 'remi' | 'none'
 }
 
 const LABELS: Record<ConfidenceState, string> = {
@@ -82,14 +90,44 @@ export const DEEP_REANSWER_CONFIDENCE: ConfidenceState = 'low'
  * carries the offer, a moderate/high one never does, and an unscored one never
  * does. Pure and side-effect free, so it is unit-tested directly.
  */
-export function isThinlyGrounded(quality: QualityScores | null | undefined): boolean {
-  return assessConfidence(quality).state === DEEP_REANSWER_CONFIDENCE
+export function isThinlyGrounded(
+  quality: QualityScores | null | undefined,
+  audit?: AnswerAudit,
+): boolean {
+  return assessConfidence(quality, audit).state === DEEP_REANSWER_CONFIDENCE
 }
 
-export function assessConfidence(quality: QualityScores | null | undefined): Confidence {
+/**
+ * The audit's verdict, when it checked anything: figures that the cited
+ * passages do not carry beside their claim, or contraindications no source
+ * states, make the answer `low`; every figure found and most sentences
+ * bound to a passage make it `high`; figures found but half the sentences
+ * uncited is `moderate`. Null when the audit had nothing to judge by (no
+ * figures, no sentences), so the platform score decides instead.
+ */
+export function auditConfidence(audit: AnswerAudit | undefined): ConfidenceState | null {
+  if (!audit) return null
+  const unsupported = audit.figuresUnsupported.length + audit.yearsUnsupported.length +
+    audit.contraindicationsUnsupported.length
+  if (unsupported > 0) return 'low'
+  const checked = audit.sentencesChecked ?? 0
+  const cited = audit.sentencesCited ?? 0
+  if (audit.figuresChecked === 0 && checked === 0) return null
+  const citedRate = checked > 0 ? cited / checked : 1
+  if (audit.figuresChecked > 0 && citedRate >= 0.5) return 'high'
+  if (audit.figuresChecked > 0 || citedRate >= 0.5) return 'moderate'
+  return 'low'
+}
+
+export function assessConfidence(
+  quality: QualityScores | null | undefined,
+  audit?: AnswerAudit,
+): Confidence {
+  const audited = auditConfidence(audit)
+  if (audited) return { state: audited, label: LABELS[audited], basis: 'audit' }
   const groundedness = quality?.groundedness
   if (groundedness === null || groundedness === undefined) {
-    return { state: 'unscored', label: LABELS.unscored }
+    return { state: 'unscored', label: LABELS.unscored, basis: 'none' }
   }
 
   const groundednessBand = bandOf(groundedness)
@@ -103,17 +141,17 @@ export function assessConfidence(quality: QualityScores | null | undefined): Con
     : bandOf(contextRelevance)
 
   if (groundednessBand === 'bad') {
-    return { state: 'low', label: LABELS.low }
+    return { state: 'low', label: LABELS.low, basis: 'remi' }
   }
 
   if (groundednessBand === 'warn') {
     const state: ConfidenceState = answerBand === 'bad' ? 'low' : 'moderate'
-    return { state, label: LABELS[state] }
+    return { state, label: LABELS[state], basis: 'remi' }
   }
 
   // groundednessBand === 'ok'
   const secondaryWeak = answerBand === 'warn' || answerBand === 'bad' ||
     contextBand === 'warn' || contextBand === 'bad'
   const state: ConfidenceState = secondaryWeak ? 'moderate' : 'high'
-  return { state, label: LABELS[state] }
+  return { state, label: LABELS[state], basis: 'remi' }
 }
