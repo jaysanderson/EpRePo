@@ -405,7 +405,10 @@ export function claimWindow(text: string, at: number): string {
 export function claimWindowBounds(text: string, at: number): { start: number; end: number } {
   const floor = Math.max(0, at - 350)
   const before = text.slice(floor, at)
-  const boundaries = [...before.matchAll(/[.!?;]\s+(?=[a-z0-9("])/g)].map((m) =>
+  // A semicolon ends a clause only before a word: "(aHR = 0.56; 95% CI
+  // 0.31-1.01)" is one statistic, and the drug named before it vouches
+  // for the interval after it.
+  const boundaries = [...before.matchAll(/[.!?]\s+(?=[a-z0-9("])|;\s+(?=[a-z(])/g)].map((m) =>
     m.index + m[0].length
   )
   const start = boundaries.length >= 2
@@ -414,7 +417,7 @@ export function claimWindowBounds(text: string, at: number): { start: number; en
     ? 0
     : (boundaries[0] ?? 0)
   const after = text.slice(at, at + 200)
-  const endMatch = /[.!?;](?:\s|$)/.exec(after)
+  const endMatch = /[.!?](?:\s|$)|;\s(?=[a-z(])|;$/.exec(after)
   const end = endMatch ? at + endMatch.index + 1 : at + after.length
   return { start: floor + start, end }
 }

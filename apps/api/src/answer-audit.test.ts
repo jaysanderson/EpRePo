@@ -166,6 +166,20 @@ describe('answer audit - abbreviations, denominators and designs', () => {
     ])
   })
 
+  it('keeps a confidence interval in the window of the statistic it belongs to', () => {
+    const text =
+      'Multivariable Cox regression revealed no significant difference in SUDEP risk in those prescribed lamotrigine at EMU admission (adjusted hazard ratio [aHR] = 0.56; 95% CI: 0.31– 1.01, p = 0.054). There was also no difference for NaM-ASMs (aHR = 0.82; 95% CI: 0.40– 1.68).'
+    const checks = verifyFigures(
+      [{
+        text: 'SUDEP risk did not differ with lamotrigine (aHR 0.56, 95% CI 0.31–1.01, P = 0.054).',
+        texts: [text],
+      }],
+      [text],
+      ['lamotrigine'],
+    )
+    expect(checks.filter((c) => !c.supported).map((c) => c.figure)).toEqual([])
+  })
+
   it('accepts the long form when the claim uses the abbreviation', () => {
     const text =
       'Radiofrequency thermocoagulation (RFTC) was performed. Naming declined by 30.60 (SD 39.60) after radiofrequency thermocoagulation of the language-dominant side.'
