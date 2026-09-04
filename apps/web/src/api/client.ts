@@ -286,6 +286,8 @@ export function generateArtifact(
   opts: {
     /** Keep retrieval to resources filed under these topics (an assessment on one area). */
     topicIds?: string[]
+    /** Writing guidance (count, depth) kept out of the retrieval text. */
+    guidance?: string
   } = {},
 ): Promise<GenerateResult> {
   return fetch(`/api/t/${encodeURIComponent(slug)}/generate`, {
@@ -295,6 +297,7 @@ export function generateArtifact(
       kind,
       query,
       ...(opts.topicIds?.length ? { topics: opts.topicIds } : {}),
+      ...(opts.guidance?.trim() ? { guidance: opts.guidance.trim() } : {}),
     }),
   }).then(async (res) => {
     if (!res.ok) {

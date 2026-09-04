@@ -30,6 +30,7 @@ import {
   type AragProvider,
   KbClient,
   KnowledgeBoxNotConnectedError,
+  looksLikeReferenceChunk,
   parseKbUrl,
   type RetrievalProvider,
 } from '@research-portal/retrieval'
@@ -539,6 +540,8 @@ const generateBodySchema = z.object({
   query: z.string().min(3).max(2000),
   /** Topic ids to keep retrieval within (an assessment built on one knowledge area). */
   topics: z.string().min(1).max(80).array().max(8).optional(),
+  /** Writing guidance (how many, how deep) that rides the system prompt, not the retrieval text. */
+  guidance: z.string().max(1500).optional(),
 })
 const hexColour = z.string().regex(/^#[0-9a-fA-F]{6}$/)
 const renameTenantSchema = z.object({
@@ -1551,11 +1554,17 @@ export function buildApp(opts: BuildAppOptions): Hono {
       // Briefings and quizzes carry writing instructions on the system
       // prompt: concrete figures and a named source per section or question
       // (generate-sources.ts). The other kinds keep the platform default.
-      const instructions = parsed.data.kind === 'briefing'
+      const base = parsed.data.kind === 'briefing'
         ? BRIEFING_INSTRUCTIONS
         : parsed.data.kind === 'assessment'
         ? ASSESSMENT_INSTRUCTIONS
         : undefined
+      // The caller's brief (count, depth) is appended to the writing
+      // instructions rather than folded into the query, which is also the
+      // retrieval text: an instruction retrieves reference lists and
+      // methodology chatter, a topic retrieves its results (D1-20).
+      const guidance = parsed.data.guidance?.trim()
+      const instructions = guidance ? `${base ?? ''}${base ? ' ' : ''}${guidance}` : base
       // Only the portal's own topics can scope retrieval; anything else is ignored.
       const topicIds = (parsed.data.topics ?? []).filter((id) =>
         config.topics.some((topic) => topic.id === id)
@@ -1608,6 +1617,7 @@ export function buildApp(opts: BuildAppOptions): Hono {
           result.object as Record<string, unknown>,
           result.sources,
           result.passagesByResource,
+          looksLikeReferenceChunk,
         )
       }
       // Comparison cells that came back empty get one targeted second look -

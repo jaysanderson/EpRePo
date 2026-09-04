@@ -10,6 +10,7 @@ import {
   isAssessment,
 } from '../components/AssessmentQuiz.tsx'
 import {
+  buildAssessmentBrief,
   buildAssessmentQuery,
   COUNT_OPTIONS,
   type Depth,
@@ -176,8 +177,11 @@ export function AssessmentPage() {
   const topicCounts = facets?.topic ?? {}
 
   const mutation = useMutation({
-    mutationFn: (vars: { query: string; topicIds?: string[] }) =>
-      generateArtifact(slug, 'assessment', vars.query, { topicIds: vars.topicIds }),
+    mutationFn: (vars: { query: string; guidance: string; topicIds?: string[] }) =>
+      generateArtifact(slug, 'assessment', vars.query, {
+        guidance: vars.guidance,
+        topicIds: vars.topicIds,
+      }),
   })
 
   // A knowledge-area tile scopes retrieval to the resources filed under that
@@ -185,7 +189,8 @@ export function AssessmentPage() {
   // topic has no such scope and searches the whole corpus.
   const generate = (topic: Topic, nextCount: QuestionCount, nextDepth: Depth) => {
     mutation.mutate({
-      query: buildAssessmentQuery(topic.label, nextCount, nextDepth),
+      query: buildAssessmentQuery(topic.label),
+      guidance: buildAssessmentBrief(topic.label, nextCount, nextDepth),
       ...(topic.id !== CUSTOM_TOPIC_ID ? { topicIds: [topic.id] } : {}),
     })
   }

@@ -353,7 +353,7 @@ function renderCitationMarkers(
         <sup key={`${keyPrefix}-${index}`}>
           <Link
             to={citationHref(slug, citation.resourceId, matchedPassage, source?.matchedPage)}
-            className='font-semibold no-underline'
+            className='rp-focus inline-flex min-h-6 min-w-6 items-center justify-center px-0.5 font-semibold no-underline'
             style={{ color: 'var(--rp-accent-fg)' }}
             title={`Source ${citationIndex} - ${citation.title}; click to open, or find it in the Evidence table below`}
           >

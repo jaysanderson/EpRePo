@@ -1056,6 +1056,7 @@ export function InvestigationDetailPage() {
   const { id } = useParams<{ id: string }>()
   const queryClient = useQueryClient()
   const [verdictFilter, setVerdictFilter] = useState<VerdictFilter>('all')
+  const { notice: exportNotice, announce: announceExport } = useExportNotice()
   const [tagFilter, setTagFilter] = useState<string | null>(null)
   const [groupByTag, setGroupByTag] = useState(false)
   const [highlightArtefactId, setHighlightArtefactId] = useState<string | null>(null)
@@ -1166,7 +1167,6 @@ export function InvestigationDetailPage() {
   // first says what it would do and offers judging first.
   const coverage = synthesisCoverage(sortedEvidence)
   const needsWarning = coverage.unjudged > 0 || coverage.contradicting > 0
-  const { notice: exportNotice, announce: announceExport } = useExportNotice()
   const startSynthesis = () => {
     if (needsWarning && !synthesisWarning) {
       setSynthesisWarning(true)

@@ -5,6 +5,7 @@ import {
   attributeBriefing,
   attributeQuiz,
   cleanQuizProse,
+  isReferenceQuote,
   resolveByQuote,
   resolveSource,
   rotateOptions,
@@ -308,5 +309,78 @@ describe('quiz prose (D1-20)', () => {
     expect(ASSESSMENT_INSTRUCTIONS).toContain('what the sources actually report')
     expect(ASSESSMENT_INSTRUCTIONS).toContain('never refer to "the context"')
     expect(ASSESSMENT_INSTRUCTIONS.endsWith('Australian English.')).toBe(true)
+  })
+})
+
+describe('questions from reference lists (D1-20)', () => {
+  it('recognises a bibliography entry', () => {
+    expect(isReferenceQuote(
+      'Kurowski BG, Hugentobler J, Quatman-Yates C, et al. Aerobic exercise for adolescents. J Head Trauma Rehabil. 2017;32(2):79-89.',
+    )).toBe(true)
+    expect(isReferenceQuote('Hutcheson JD, Setola V, Roth BL, et al. (2011) Serotonin receptors'))
+      .toBe(
+        true,
+      )
+    expect(isReferenceQuote('doi:10.1111/epi.17263')).toBe(true)
+    expect(isReferenceQuote(
+      'In the study by Kurowski et al. on aerobic exercise for adolescents, what design was used?',
+    )).toBe(true)
+    expect(isReferenceQuote('In the EXPERIENCE study, what was 12-month retention?')).toBe(false)
+    expect(
+      isReferenceQuote(
+        'Retention on PER treatment at 3, 6, and 12 months was 90.5%, 79.8%, and 64.2%',
+      ),
+    )
+      .toBe(false)
+  })
+
+  it('attributeQuiz drops such questions and counts them', () => {
+    const out = attributeQuiz({
+      questions: [
+        {
+          question: 'What design did Kurowski et al. use?',
+          options: ['A', 'B', 'C', 'D'],
+          correct_index: 0,
+          explanation: 'x',
+          topic: 't',
+          source_quote: 'Kurowski BG, et al. J Head Trauma Rehabil. 2017;32(2):79-89.',
+        },
+        {
+          question: 'What was 12-month retention on perampanel?',
+          options: ['64.2%', '71.1%', '79.8%', '90.5%'],
+          correct_index: 0,
+          explanation: 'x',
+          topic: 't',
+          source_quote: 'Retention on PER treatment at 12 months was 64.2%',
+        },
+      ],
+    }, sources)
+    expect((out.questions as unknown[]).length).toBe(1)
+    expect(out.omitted_questions).toBe(1)
+  })
+
+  it('drops a question whose quote came from a passage the retrieval layer calls a reference list', () => {
+    const out = attributeQuiz(
+      {
+        questions: [{
+          question: 'Which trial design did the sepsis fluid trial use?',
+          options: ['A', 'B', 'C', 'D'],
+          correct_index: 0,
+          explanation: 'x',
+          topic: 't',
+          source_quote:
+            'Design of clinical trials in acute kidney injury: report from an NIDDK workshop',
+        }],
+      },
+      sources,
+      {
+        r1: [
+          '12. Palevsky PM, et al. Design of clinical trials in acute kidney injury: report from an NIDDK workshop on trial methodology. Clin J Am Soc Nephrol. 2012;7(5):844-850.',
+        ],
+      },
+      () => true,
+    )
+    expect((out.questions as unknown[]).length).toBe(0)
+    expect(out.omitted_questions).toBe(1)
   })
 })

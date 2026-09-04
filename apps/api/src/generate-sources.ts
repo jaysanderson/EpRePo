@@ -129,8 +129,9 @@ export const ASSESSMENT_INSTRUCTIONS =
   'value or claim a specialist could mistake for the answer, never an obviously absurd option. ' +
   'Write each stem as a question a reader would be asked in a clinic or a journal club: name ' +
   'the study, cohort, drug or measure it concerns, and never refer to "the context", "the ' +
-  'passage", "the provided text" or "the document" - the reader cannot see them. ' +
-  'Australian English.'
+  'passage", "the provided text" or "the document" - the reader cannot see them. Never write ' +
+  'a question from a reference list, a citation entry or a bibliography: only from what a ' +
+  'passage itself reports. Australian English.'
 
 const normalise = (value: string): string => value.toLowerCase().replace(/\s+/g, ' ').trim()
 
@@ -372,6 +373,26 @@ export function cleanQuizProse(text: string): string {
 }
 
 /**
+ * Whether a quote was lifted from a reference list rather than a passage: an
+ * "et al." with a year, a DOI, or a volume-and-pages tail. A question written
+ * from a bibliography entry tests nothing the corpus reports.
+ */
+export function isReferenceQuote(quote: string): boolean {
+  const q = quote.trim()
+  if (!q) return false
+  // "the study by Kurowski et al." - a stem written about a cited paper.
+  if (
+    /\b(?:stud(?:y|ies)|report|trial|review|paper|workshop|article|work)\s+(?:by|from|of)\s+[A-Z][\w'\u2019-]+(?:\s+(?:and|&)\s+[A-Z][\w'\u2019-]+)?\s+et\s+al\b/
+      .test(q)
+  ) {
+    return true
+  }
+  return /\bet al\.?,?\s*(?:\(?(?:19|20)\d\d\)?|[A-Z][\w .&]+\.\s*(?:19|20)\d\d)/.test(q) ||
+    /\bdoi:|\bhttps?:\/\/doi\.org|\bvol\.\s*\d|\b\d{1,4}\s*[(:]\s*\d+\s*[):]\s*\d+/.test(q) ||
+    /\b(?:19|20)\d\d;\s*\d+/.test(q)
+}
+
+/**
  * Attribute quiz questions: `source` (the model's title) becomes
  * `source_resource_id` plus `source_title` when it resolves; otherwise both
  * are null and the question stands without an attribution rather than with
@@ -381,9 +402,39 @@ export function attributeQuiz(
   object: { questions?: unknown } & Record<string, unknown>,
   sources: Pick<ScoredResource, 'id' | 'title' | 'sourceName'>[],
   passagesByResource: Record<string, string[]> = {},
+  /** Whether a grounding passage is a reference list (the retrieval layer's detector). */
+  isReferencePassage: (passage: string) => boolean = () => false,
 ): Record<string, unknown> {
   const raw = Array.isArray(object.questions) ? object.questions as QuizQuestionIn[] : []
-  const questions = raw.map((question, position) => {
+  // A question written from a reference-list entry - its stem names a cited
+  // paper, its quote is a bibliography line, or the passage its quote came
+  // from is a reference list - is dropped, and counted, rather than asked.
+  const passageOf = (quote: string): string | undefined => {
+    const words = contentWords(quote)
+    if (words.size < 4) return undefined
+    let best: { passage: string; overlap: number } | null = null
+    for (const passages of Object.values(passagesByResource)) {
+      for (const passage of passages) {
+        const have = contentWords(passage)
+        let hits = 0
+        for (const w of words) if (have.has(w)) hits++
+        const overlap = hits / words.size
+        if (overlap >= MIN_QUOTE_OVERLAP && (!best || overlap > best.overlap)) {
+          best = { passage, overlap }
+        }
+      }
+    }
+    return best?.passage
+  }
+  const fromReferenceList = (q: QuizQuestionIn): boolean => {
+    const quote = typeof q.source_quote === 'string' ? q.source_quote : ''
+    const stem = typeof q.question === 'string' ? q.question : ''
+    if ((quote && isReferenceQuote(quote)) || (stem && isReferenceQuote(stem))) return true
+    const passage = quote ? passageOf(quote) : undefined
+    return passage !== undefined && isReferencePassage(passage)
+  }
+  const fromReferences = raw.filter(fromReferenceList).length
+  const questions = raw.filter((q) => !fromReferenceList(q)).map((question, position) => {
     const label = typeof question.source === 'string' ? question.source : ''
     const quote = typeof question.source_quote === 'string' ? question.source_quote : ''
     let match = label ? resolveSource(label, sources) : null
@@ -406,5 +457,5 @@ export function attributeQuiz(
       source_quote: quote || null,
     }
   })
-  return { ...object, questions }
+  return { ...object, questions, omitted_questions: fromReferences }
 }
