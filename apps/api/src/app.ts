@@ -3336,7 +3336,7 @@ export function buildApp(opts: BuildAppOptions): Hono {
           )
           if (found.resources.length > 0 && found.best < GROUNDING_FLOOR) {
             await send({ type: 'sources', resources: nearest })
-            const decline = corpusDecline(nearest.map((r) => r.title), found.best * 100)
+            const decline = corpusDecline(nearestTitles(nearest), found.best * 100)
             await send({ type: 'delta', text: decline })
             await send({ type: 'done', refused: true, text: decline })
             recordDecline()
@@ -3403,9 +3403,7 @@ export function buildApp(opts: BuildAppOptions): Hono {
       const finishRefused = async () => {
         finished = true
         record.refused = true
-        const text = documentScope
-          ? documentDecline()
-          : corpusDecline(lastSources.slice(0, 3).map((r) => r.title))
+        const text = documentScope ? documentDecline() : corpusDecline(nearestTitles(lastSources))
         // A refusal always shows what retrieval found, labelled by the
         // surface as the closest matches, not used - never an empty panel
         // beside "no answer".
@@ -3553,7 +3551,7 @@ export function buildApp(opts: BuildAppOptions): Hono {
                 // guard covers the other failure, weak matches that would be
                 // answered over.
                 await send({ type: 'sources', resources: shaped })
-                const decline = corpusDecline(shaped.map((r) => r.title), bestRelevance * 100)
+                const decline = corpusDecline(nearestTitles(shaped), bestRelevance * 100)
                 await send({ type: 'delta', text: decline })
                 await send({ type: 'done', refused: true, text: decline })
                 record.refused = true
@@ -3661,7 +3659,14 @@ export function buildApp(opts: BuildAppOptions): Hono {
   })
 
   return app
-} /** The same SSE response with an explicit UTF-8 charset on its content type. */
+}
+
+/** The strongest matches first: what a decline names as the closest the corpus holds. */
+function nearestTitles(resources: readonly ScoredResource[]): string[] {
+  return [...resources].sort((a, b) => b.relevance - a.relevance).slice(0, 3).map((r) => r.title)
+}
+
+/** The same SSE response with an explicit UTF-8 charset on its content type. */
 function withUtf8EventStream(res: Response): Response {
   try {
     res.headers.set('content-type', 'text/event-stream; charset=utf-8')

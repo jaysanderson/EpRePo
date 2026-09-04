@@ -1705,8 +1705,8 @@ describe('POST /api/t/:slug/ask refusals and sentinels', () => {
         yield {
           type: 'sources',
           resources: [
-            { ...resourceOne, relevance: 0.6, citedCount: 0 },
             { ...resourceTwo, relevance: 0.4, citedCount: 0 },
+            { ...resourceOne, relevance: 0.6, citedCount: 0 },
           ],
         }
         yield {
