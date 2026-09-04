@@ -74,10 +74,13 @@ import {
 import { matchStudies } from './study-guard.ts'
 import {
   authorLine,
+  isCatalogueAuthor,
   lookupOf,
   metadataHit,
+  researcherLabel,
   resolveAuthor,
   resolveIdentifier,
+  retypeResearchers,
 } from './catalog-lookup.ts'
 import {
   corpusDecline,
@@ -534,6 +537,8 @@ const migrateBodySchema = z.object({ from: z.string().min(1), to: z.string().min
 const generateBodySchema = z.object({
   kind: GenerateKindSchema,
   query: z.string().min(3).max(2000),
+  /** Topic ids to keep retrieval within (an assessment built on one knowledge area). */
+  topics: z.string().min(1).max(80).array().max(8).optional(),
 })
 const hexColour = z.string().regex(/^#[0-9a-fA-F]{6}$/)
 const renameTenantSchema = z.object({
@@ -657,6 +662,8 @@ export interface BuildAppOptions {
   /** Documentation readiness probe (docs-health.ts); reported on /api/health as `docs`. */
   docsHealth?: Pick<DocsHealth, 'snapshot' | 'ok' | 'checkTenant'>
   buildSha?: string
+  /** The web bundle's stamp (commit and build time), from `deno task build:web`. */
+  webBuild?: { sha: string; builtAt: string }
   /** Where uploaded branding assets live; overridable in tests. Defaults to BRANDING_PATH or ./data/branding. */
   brandingPath?: string
   branding?: BrandingAssetStore
@@ -928,6 +935,8 @@ export function buildApp(opts: BuildAppOptions): Hono {
         ok: web,
         web,
         version: opts.buildSha ?? process.env.BUILD_SHA ?? 'dev',
+        // The bundle actually served, so a stale build is visible (D1-21).
+        ...(opts.webBuild ? { build: opts.webBuild } : {}),
         ...(docs ? { docs, docsOk } : {}),
       },
       web ? 200 : 503,
@@ -1470,10 +1479,16 @@ export function buildApp(opts: BuildAppOptions): Hono {
     const includeBuiltin = ['true', '1'].includes(
       (c.req.query('includeBuiltin') ?? '').trim().toLowerCase(),
     )
-    const graph = await opts.management.relationsGraph(config, {
-      ...(entity ? { entity, topK: 150 } : {}),
-      ...(includeBuiltin ? { includeBuiltin } : {}),
-    })
+    const [graph, catalogue] = await Promise.all([
+      opts.management.relationsGraph(config, {
+        ...(entity ? { entity, topK: 150 } : {}),
+        ...(includeBuiltin ? { includeBuiltin } : {}),
+      }),
+      provider.listResources(config).catch(() => []),
+    ])
+    // The graph agent types people by the sentence it met them in; the
+    // catalogue's author lists say who the researchers are (D1-25).
+    graph.nodes = retypeResearchers(graph.nodes, catalogue, researcherLabel(config.entityTypes))
     // An empty graph with a registered agent means extraction is in flight -
     // the page should say so rather than telling users to configure it.
     let extracting = false
@@ -1541,9 +1556,14 @@ export function buildApp(opts: BuildAppOptions): Hono {
         : parsed.data.kind === 'assessment'
         ? ASSESSMENT_INSTRUCTIONS
         : undefined
+      // Only the portal's own topics can scope retrieval; anything else is ignored.
+      const topicIds = (parsed.data.topics ?? []).filter((id) =>
+        config.topics.some((topic) => topic.id === id)
+      )
       const result = await opts.management.askStructured(config, schema, parsed.data.query, {
         requireGrounding: true,
         ...(instructions ? { instructions } : {}),
+        ...(topicIds.length > 0 ? { topicIds } : {}),
       })
       // Merchandise the answer surface's own sources the same way /search,
       // /catalog and /resources are - see BUG 1: the enrichment store lives
@@ -1739,13 +1759,16 @@ export function buildApp(opts: BuildAppOptions): Hono {
     // Relations scoped to the entity itself (the platform's path filter), not
     // filtered out of the corpus-wide slice - a gene outside the top 120 used
     // to read as "no connections" while the map showed it.
-    const [graph, results] = await Promise.all([
+    const [graph, results, catalogue] = await Promise.all([
       opts.management.relationsGraph(config, { entity: name, topK: 150 }).catch(() => ({
         nodes: [],
         edges: [],
       })),
       provider.search(config, name, { mode: 'hybrid', pageSize: 12 }).catch(() => null),
+      provider.listResources(config).catch(() => []),
     ])
+    const researcher = researcherLabel(config.entityTypes)
+    graph.nodes = retypeResearchers(graph.nodes, catalogue, researcher)
     const lower = name.toLowerCase()
     const neighbourIds = new Set<string>()
     const edges = graph.edges.filter((e) => {
@@ -1764,11 +1787,13 @@ export function buildApp(opts: BuildAppOptions): Hono {
     if (edges.length === 0 && resources.length === 0) {
       return c.json({ error: 'unknown_entity', name, unknown: true }, 404)
     }
-    return c.json({
-      name,
-      relations: { nodes: graph.nodes.filter((n) => neighbourIds.has(n.id)), edges },
-      resources,
-    })
+    const nodes = graph.nodes.filter((n) => neighbourIds.has(n.id))
+    // An author with no graph relations still reads as a researcher, not as
+    // an untyped name, when the catalogue lists them.
+    if (!nodes.some((n) => n.id.toLowerCase() === lower) && isCatalogueAuthor(catalogue, name)) {
+      nodes.push({ id: name, group: researcher, weight: 0 })
+    }
+    return c.json({ name, relations: { nodes, edges }, resources })
   })
 
   // --- Research-trail sessions, synced server-side per anonymous client ----

@@ -1,11 +1,15 @@
 import { describe, it } from '@std/testing/bdd'
 import { expect } from '@std/expect'
 import {
+  ASSESSMENT_INSTRUCTIONS,
   attributeBriefing,
   attributeQuiz,
+  cleanQuizProse,
   resolveByQuote,
   resolveSource,
   rotateOptions,
+  stripCitationLabels,
+  traceTakeaway,
 } from './generate-sources.ts'
 
 const sources = [
@@ -176,5 +180,133 @@ describe('attributeQuiz', () => {
     expect(out.questions[1]?.source_resource_id).toBeNull()
     expect(out.questions[1]?.source).toBeUndefined()
     expect(out.questions[2]?.source_title).toBeNull()
+  })
+})
+
+describe('briefing references (D1-10)', () => {
+  const records = [
+    {
+      id: 'r1',
+      title: 'Rituximab use for relapse prevention in anti-NMDAR encephalitis',
+      journal: 'Neurol Neuroimmunol Neuroinflamm',
+      published: '2025-05-30',
+      authors: ['Broadley J', "D'Souza W"],
+    },
+    { id: 'r2', title: 'Immune treatment in anti-LGI1 encephalitis', year: '2024' },
+  ]
+
+  it('strips the free-text labels the model writes and leaves figures alone', () => {
+    expect(stripCitationLabels(
+      'Rituximab reduces relapse risk (Journal of Neurology, 2024). Relapse rates range from 14% to 35% (Broadley et al.).',
+    )).toBe('Rituximab reduces relapse risk. Relapse rates range from 14% to 35%.')
+    expect(
+      stripCitationLabels('HR 0.11 (95% CI 0.03 to 0.41) in the EXPERIENCE cohort (n = 1644).'),
+    )
+      .toBe('HR 0.11 (95% CI 0.03 to 0.41) in the EXPERIENCE cohort (n = 1644).')
+    expect(stripCitationLabels('Smith and Jones (2021) reported 28% (Smith and Jones, 2021).'))
+      .toBe('Smith and Jones reported 28%.')
+  })
+
+  it('numbers references from the resource record, in order of first citation', () => {
+    const out = attributeBriefing({
+      title: 'Autoimmune encephalitis',
+      executive_summary: 'Rituximab prevents relapse (Journal of Neurology, 2024).',
+      sections: [
+        {
+          heading: 'Relapse prevention',
+          content: 'Rituximab gave HR 0.11 for relapse (Broadley et al., 2025).',
+          sources: ['Rituximab use for relapse prevention in anti-NMDAR encephalitis'],
+        },
+        {
+          heading: 'LGI1',
+          content: 'Early immunotherapy improved outcomes in anti-LGI1 encephalitis.',
+          sources: [
+            'Immune treatment in anti-LGI1 encephalitis',
+            'Rituximab use for relapse prevention in anti-NMDAR encephalitis',
+          ],
+        },
+      ],
+      key_takeaways: [
+        'Rituximab reduces relapse risk, HR 0.11 (Journal of Neurology, 2024).',
+        'Corticosteroids improve outcomes in FBDS but carry long-term risks.',
+      ],
+    }, records)
+    expect(out.references).toEqual([
+      {
+        index: 1,
+        resourceId: 'r1',
+        title: 'Rituximab use for relapse prevention in anti-NMDAR encephalitis',
+        journal: 'Neurol Neuroimmunol Neuroinflamm',
+        year: '2025',
+        authors: ['Broadley J', "D'Souza W"],
+      },
+      {
+        index: 2,
+        resourceId: 'r2',
+        title: 'Immune treatment in anti-LGI1 encephalitis',
+        year: '2024',
+      },
+    ])
+    expect(out.sections.map((s) => s.refs)).toEqual([[1], [2, 1]])
+    expect(out.sections[0]?.content).toBe('Rituximab gave HR 0.11 for relapse.')
+    expect(out.executive_summary).toBe('Rituximab prevents relapse.')
+    expect(out.key_takeaways).toEqual([
+      'Rituximab reduces relapse risk, HR 0.11.',
+      'Corticosteroids improve outcomes in FBDS but carry long-term risks.',
+    ])
+    // The first takeaway restates section 1; the second is stated nowhere.
+    expect(out.takeaway_refs).toEqual([[1], []])
+  })
+
+  it('traceTakeaway needs a real share of the takeaway in one section', () => {
+    const sections = [{
+      heading: 'A',
+      content: 'Retention at 12 months was 71.1% in 1644 patients.',
+      refs: [3],
+    }]
+    expect(traceTakeaway('Twelve-month retention was 71.1% (1644 patients).', sections)).toEqual([
+      3,
+    ])
+    expect(traceTakeaway('Perampanel seizure freedom was 23.2%.', sections)).toEqual([])
+  })
+})
+
+describe('quiz prose (D1-20)', () => {
+  it('removes prompt-speak from stems and explanations', () => {
+    expect(cleanQuizProse(
+      'What is a significant challenge in the diagnosis of epilepsy according to the context?',
+    )).toBe('What is a significant challenge in the diagnosis of epilepsy?')
+    expect(cleanQuizProse(
+      'What is a critical aspect of machine learning in epilepsy management as discussed in the context?',
+    )).toBe('What is a critical aspect of machine learning in epilepsy management?')
+    expect(cleanQuizProse('Based on the provided text, what was the 12-month retention rate?'))
+      .toBe('What was the 12-month retention rate?')
+    expect(cleanQuizProse('The context states that retention was 71.1%.')).toBe(
+      'Retention was 71.1%.',
+    )
+    expect(cleanQuizProse('In the EXPERIENCE analysis, what was the retention rate?')).toBe(
+      'In the EXPERIENCE analysis, what was the retention rate?',
+    )
+  })
+
+  it('attributeQuiz cleans every question it returns', () => {
+    const out = attributeQuiz({
+      questions: [{
+        question: 'According to the context, which drug was studied?',
+        options: ['A', 'B', 'C', 'D'],
+        correct_index: 0,
+        explanation: 'The passage mentions brivaracetam, as stated in the context.',
+        topic: 'x',
+      }],
+    }, sources)
+    const question = out.questions as { question: string; explanation: string }[]
+    expect(question[0]?.question).toBe('Which drug was studied?')
+    expect(question[0]?.explanation).toBe('The passage mentions brivaracetam.')
+  })
+
+  it('the instruction reaches the model whole and forbids referring to the context', () => {
+    expect(ASSESSMENT_INSTRUCTIONS).toContain('what the sources actually report')
+    expect(ASSESSMENT_INSTRUCTIONS).toContain('never refer to "the context"')
+    expect(ASSESSMENT_INSTRUCTIONS.endsWith('Australian English.')).toBe(true)
   })
 })

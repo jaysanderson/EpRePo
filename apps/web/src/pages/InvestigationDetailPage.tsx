@@ -15,7 +15,14 @@ import {
   updateInvestigation,
 } from '../api/client.ts'
 import { MakeCurrentToggle } from '../components/SaveEvidence.tsx'
-import { EmptyState, ErrorCard, Skeleton } from '../components/ui.tsx'
+import {
+  EmptyState,
+  ErrorCard,
+  ExportNotice,
+  savedFileNotice,
+  Skeleton,
+  useExportNotice,
+} from '../components/ui.tsx'
 import type { TenantOutletContext } from './TenantLayout.tsx'
 
 // ---------------------------------------------------------------------------
@@ -655,7 +662,8 @@ function synthesisCoverage(evidence: EvidenceItem[]): {
   return {
     excluded: evidence.filter((item) => item.verdict === 'not-relevant'),
     contradicting: evidence.filter((item) => item.verdict === 'contradicts').length,
-    unjudged: evidence.filter((item) => item.verdict === null).length,
+    // Unjudged is "no verdict", whether the record stores null or omits it.
+    unjudged: evidence.filter((item) => item.verdict == null).length,
   }
 }
 
@@ -929,7 +937,8 @@ function slugOrDate(title: string): string {
   return slug.length > 0 ? slug.slice(0, 60) : new Date().toISOString().slice(0, 10)
 }
 
-function exportInvestigationToWord(investigation: Investigation) {
+/** Downloads the investigation as a Word-compatible .doc and returns the file name. */
+function exportInvestigationToWord(investigation: Investigation): string {
   const { title, bodyHtml } = investigationToHtml(investigation)
   const html = wordDocumentHtml(title, bodyHtml)
   const blob = new Blob(['﻿', html], { type: 'application/msword' })
@@ -941,6 +950,7 @@ function exportInvestigationToWord(investigation: Investigation) {
   link.click()
   document.body.removeChild(link)
   URL.revokeObjectURL(url)
+  return link.download
 }
 
 // --- Tags: v1's stand-in for claims/hypotheses - group and filter evidence -
@@ -1156,6 +1166,7 @@ export function InvestigationDetailPage() {
   // first says what it would do and offers judging first.
   const coverage = synthesisCoverage(sortedEvidence)
   const needsWarning = coverage.unjudged > 0 || coverage.contradicting > 0
+  const { notice: exportNotice, announce: announceExport } = useExportNotice()
   const startSynthesis = () => {
     if (needsWarning && !synthesisWarning) {
       setSynthesisWarning(true)
@@ -1215,11 +1226,15 @@ export function InvestigationDetailPage() {
                 <button
                   type='button'
                   disabled={sortedEvidence.length === 0}
-                  onClick={() => exportInvestigationToWord(investigation)}
+                  onClick={() =>
+                    announceExport(
+                      savedFileNotice(exportInvestigationToWord(investigation), 'Word document'),
+                    )}
                   className='rp-btn rp-btn-outline disabled:cursor-not-allowed'
                 >
                   Export to Word
                 </button>
+                <ExportNotice notice={exportNotice} />
               </div>
             </div>
 

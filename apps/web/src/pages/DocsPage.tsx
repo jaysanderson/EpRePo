@@ -8,7 +8,8 @@ import {
   docPageById,
   docPagesByCategory,
 } from '@research-portal/core'
-import { streamDocsAsk } from '../api/client.ts'
+import { getHealth, streamDocsAsk } from '../api/client.ts'
+import { useQuery } from '@tanstack/react-query'
 import { ConfidenceIndicator, type QualityScores } from '../components/QualityGauge.tsx'
 import { LiveStatus } from '../components/ui.tsx'
 import { normaliseAnswerBullets } from '../lib/answer-text.ts'
@@ -538,6 +539,39 @@ function Article({ page }: { page: DocPage }) {
 }
 
 // ---------------------------------------------------------------------------
+// Build stamp - which bundle the browser is running, so a stale build is
+// obvious to anyone reading Help (D1-21).
+// ---------------------------------------------------------------------------
+
+function buildLine(build: { sha: string; builtAt: string }): string {
+  const when = new Date(build.builtAt)
+  const stamp = Number.isNaN(when.getTime()) ? build.builtAt : when.toLocaleString('en-AU', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+  return `Portal build ${build.sha} - built ${stamp}`
+}
+
+function BuildStamp() {
+  const { data } = useQuery({
+    queryKey: ['health'],
+    queryFn: getHealth,
+    staleTime: 60_000,
+    retry: false,
+  })
+  if (!data) return null
+  const text = data.build ? buildLine(data.build) : `Portal build ${data.version}`
+  return (
+    <p className='mt-10 border-t border-line pt-4 text-xs text-ink-3' data-testid='build-stamp'>
+      {text}
+    </p>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 
@@ -613,6 +647,7 @@ export function DocsPage() {
         </aside>
         <div className='min-w-0'>
           <Article page={activePage} />
+          <BuildStamp />
         </div>
       </div>
     </main>

@@ -57,7 +57,7 @@ export function RouteChip(
         }`}
         aria-haspopup={onOverride ? 'menu' : undefined}
         aria-expanded={onOverride ? open : undefined}
-        className='rp-chip rp-focus inline-flex h-7 items-center gap-1.5 text-xs'
+        className='rp-chip rp-focus inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap text-xs'
       >
         <svg
           viewBox='0 0 24 24'

@@ -4,7 +4,7 @@ import { Link, useOutletContext, useSearchParams } from 'react-router-dom'
 import type { GenerateKind, ResourceSummary } from '@research-portal/core'
 import { generateArtifact } from '../api/client.ts'
 import { CurrencyNote } from '../components/CurrencyNote.tsx'
-import { EmptyState } from '../components/ui.tsx'
+import { EmptyState, ExportNotice, savedFileNotice, useExportNotice } from '../components/ui.tsx'
 import { SaveArtefactButton } from '../components/SaveEvidence.tsx'
 import { suggestedTopicChips } from '../lib/generate-suggestions.ts'
 import { tenantCopy } from '../lib/tenant-copy.ts'
@@ -70,14 +70,69 @@ type ComparisonItem = { name: string; ratings: Rating[] }
 type ComparisonObject = { dimensions: string[]; items: ComparisonItem[] }
 
 type BriefingSource = { resourceId: string; title: string }
-type BriefingSection = { heading: string; content: string; sources?: BriefingSource[] }
+type BriefingSection = {
+  heading: string
+  content: string
+  sources?: BriefingSource[]
+  /** Reference numbers into `references`, in citation order. */
+  refs?: number[]
+}
+/** A numbered reference, built by the server from the resource record. */
+type BriefingReference = {
+  index: number
+  resourceId: string
+  title: string
+  journal?: string
+  year?: string
+  authors?: string[]
+}
 type BriefingObject = {
   title: string
   executive_summary: string
   sections: BriefingSection[]
   key_takeaways: string[]
+  /** Reference numbers per takeaway, parallel to `key_takeaways`. */
+  takeaway_refs?: number[][]
+  references?: BriefingReference[]
   /** Headings the server withheld because no retrieved source supported them. */
   omitted_sections?: string[]
+}
+
+/** "Broadley et al., Neurol Neuroimmunol Neuroinflamm, 2025" - the record's own citation line. */
+function referenceLine(reference: BriefingReference): string {
+  const first = reference.authors?.[0]
+  const surname = first ? first.replace(/[,\s]+[A-Z.\s-]*$/, '').trim() || first : ''
+  const author = surname ? (reference.authors?.length ?? 0) > 1 ? `${surname} et al.` : surname : ''
+  return [author, reference.journal, reference.year].filter(Boolean).join(', ')
+}
+
+/** Numbered citation markers, each linking to the reference it names. */
+function RefMarkers({ refs, references, slug }: {
+  refs: number[]
+  references: BriefingReference[]
+  slug: string
+}) {
+  if (refs.length === 0) return null
+  return (
+    <sup className='ml-0.5 whitespace-nowrap'>
+      {refs.map((n) => {
+        const reference = references.find((r) => r.index === n)
+        return (
+          <Link
+            key={n}
+            to={reference
+              ? `/t/${slug}/library/${encodeURIComponent(reference.resourceId)}`
+              : `/t/${slug}/generate`}
+            className='rp-focus inline-block min-h-6 min-w-6 px-0.5 text-center font-semibold no-underline'
+            style={{ color: 'var(--rp-accent-fg)' }}
+            title={reference ? `Reference ${n} - ${reference.title}` : `Reference ${n}`}
+          >
+            [{n}]
+          </Link>
+        )
+      })}
+    </sup>
+  )
 }
 
 type TimelineEvent = { date: string; title: string; description: string }
@@ -271,6 +326,10 @@ function ComparisonTable({ data }: { data: ComparisonObject }) {
 
 function BriefingDoc({ data, slug }: { data: BriefingObject; slug: string }) {
   const omitted = data.omitted_sections ?? []
+  const references = data.references ?? []
+  const takeawayRefs = data.takeaway_refs ?? []
+  const untraced = data.key_takeaways.filter((_, i) => (takeawayRefs[i] ?? []).length === 0)
+    .length
   return (
     <div className='rounded-[calc(var(--rp-radius)+4px)] border border-line bg-surface p-6 shadow-sm sm:p-8'>
       <h2 className='text-xl font-semibold tracking-tight text-ink'>{data.title}</h2>
@@ -285,10 +344,22 @@ function BriefingDoc({ data, slug }: { data: BriefingObject; slug: string }) {
             {data.key_takeaways.map((t, i) => (
               <li key={i} className='flex gap-2 text-sm text-ink'>
                 <span aria-hidden='true' className='text-ink-3'>&bull;</span>
-                <span>{t}</span>
+                <span>
+                  {t}
+                  <RefMarkers refs={takeawayRefs[i] ?? []} references={references} slug={slug} />
+                </span>
               </li>
             ))}
           </ul>
+          {references.length > 0 && untraced > 0
+            ? (
+              <p className='mt-2 text-xs leading-relaxed text-ink-3'>
+                {untraced === 1 ? 'One takeaway carries' : `${untraced} takeaways carry`}{' '}
+                no marker because no section of this briefing states it - treat{' '}
+                {untraced === 1 ? 'it' : 'them'} as unverified.
+              </p>
+            )
+            : null}
         </div>
       )}
 
@@ -296,8 +367,11 @@ function BriefingDoc({ data, slug }: { data: BriefingObject; slug: string }) {
         {data.sections.map((s, i) => (
           <div key={i}>
             <h3 className='text-sm font-semibold text-ink'>{s.heading}</h3>
-            <p className='mt-1.5 text-sm leading-relaxed text-ink-2'>{s.content}</p>
-            {s.sources && s.sources.length > 0 && (
+            <p className='mt-1.5 text-sm leading-relaxed text-ink-2'>
+              {s.content}
+              <RefMarkers refs={s.refs ?? []} references={references} slug={slug} />
+            </p>
+            {(s.refs ?? []).length === 0 && s.sources && s.sources.length > 0 && (
               <p className='mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-3'>
                 <span>Sources:</span>
                 {s.sources.map((src) => (
@@ -316,6 +390,31 @@ function BriefingDoc({ data, slug }: { data: BriefingObject; slug: string }) {
           </div>
         ))}
       </div>
+
+      {references.length > 0 && (
+        <div className='mt-6 border-t border-line pt-4'>
+          <p className='text-xs font-semibold uppercase tracking-wide text-ink-3'>References</p>
+          <ol className='mt-2 space-y-1.5 text-sm'>
+            {references.map((reference) => {
+              const line = referenceLine(reference)
+              return (
+                <li key={reference.index} className='flex gap-2 leading-relaxed text-ink-2'>
+                  <span className='shrink-0 tabular-nums text-ink-3'>[{reference.index}]</span>
+                  <span className='min-w-0'>
+                    <Link
+                      to={`/t/${slug}/library/${encodeURIComponent(reference.resourceId)}`}
+                      className='rp-focus font-medium text-ink underline-offset-2 hover:underline'
+                    >
+                      {reference.title}
+                    </Link>
+                    {line ? <span className='text-ink-3'>{` - ${line}`}</span> : null}
+                  </span>
+                </li>
+              )
+            })}
+          </ol>
+        </div>
+      )}
 
       {omitted.length > 0 && (
         <p className='mt-5 border-t border-line pt-4 text-xs leading-relaxed text-ink-3'>
@@ -657,19 +756,26 @@ function artifactToHtml(
       `<table><thead><tr><th>Dimension</th>${headerCells}</tr></thead><tbody>${rows}</tbody></table>`
   } else if (kind === 'briefing' && isBriefing(object)) {
     title = object.title
+    const references = object.references ?? []
+    const markers = (refs: number[] | undefined) =>
+      refs && refs.length > 0 ? ` <sup>${refs.map((n) => `[${n}]`).join('')}</sup>` : ''
+    const takeawayRefs = object.takeaway_refs ?? []
     const takeaways = object.key_takeaways.length > 0
       ? `<h2>Key takeaways</h2><ul>${
-        object.key_takeaways.map((t) => `<li>${escapeHtml(t)}</li>`).join('')
+        object.key_takeaways.map((t, i) => `<li>${escapeHtml(t)}${markers(takeawayRefs[i])}</li>`)
+          .join('')
       }</ul>`
       : ''
     const sections = object.sections
       .map((s) => {
-        const sourceLine = s.sources && s.sources.length > 0
+        const sourceLine = (s.refs ?? []).length === 0 && s.sources && s.sources.length > 0
           ? `<p><small>Sources: ${
             s.sources.map((src) => escapeHtml(src.title)).join('; ')
           }</small></p>`
           : ''
-        return `<h2>${escapeHtml(s.heading)}</h2><p>${escapeHtml(s.content)}</p>${sourceLine}`
+        return `<h2>${escapeHtml(s.heading)}</h2><p>${escapeHtml(s.content)}${
+          markers(s.refs)
+        }</p>${sourceLine}`
       })
       .join('')
     const omitted = object.omitted_sections && object.omitted_sections.length > 0
@@ -677,7 +783,17 @@ function artifactToHtml(
         object.omitted_sections.map(escapeHtml).join('; ')
       }</small></p>`
       : ''
-    contentHtml = `<p>${escapeHtml(object.executive_summary)}</p>${takeaways}${sections}${omitted}`
+    const referenceList = references.length > 0
+      ? `<h2>References</h2><ol>${
+        references.map((r) => {
+          const line = referenceLine(r)
+          return `<li>${escapeHtml(r.title)}${line ? ` - ${escapeHtml(line)}` : ''}</li>`
+        }).join('')
+      }</ol>`
+      : ''
+    contentHtml = `<p>${
+      escapeHtml(object.executive_summary)
+    }</p>${takeaways}${sections}${omitted}${referenceList}`
   } else if (kind === 'timeline' && isTimeline(object)) {
     title = object.title
     contentHtml = `<ol>${
@@ -817,7 +933,8 @@ function slugOrDate(title: string): string {
   return slug.length > 0 ? slug.slice(0, 60) : new Date().toISOString().slice(0, 10)
 }
 
-function exportToWord(kind: GenerateKind, object: unknown, sourceTitles: string[]) {
+/** Downloads the artefact as a Word-compatible .doc and returns the file name. */
+function exportToWord(kind: GenerateKind, object: unknown, sourceTitles: string[]): string {
   const { title, bodyHtml } = artifactToHtml(kind, object, sourceTitles)
   const html = wordDocumentHtml(title, bodyHtml)
   const blob = new Blob(['﻿', html], { type: 'application/msword' })
@@ -829,6 +946,7 @@ function exportToWord(kind: GenerateKind, object: unknown, sourceTitles: string[
   link.click()
   document.body.removeChild(link)
   URL.revokeObjectURL(url)
+  return link.download
 }
 
 /** Opens a print-ready view in a new window and triggers the browser's print dialog.
@@ -854,6 +972,7 @@ function ExportRow(
   },
 ) {
   const [popupBlocked, setPopupBlocked] = useState(false)
+  const { notice, announce } = useExportNotice()
   const disabled = object === undefined || object === null
 
   return (
@@ -873,7 +992,8 @@ function ExportRow(
       <button
         type='button'
         disabled={disabled}
-        onClick={() => exportToWord(kind, object, sourceTitles)}
+        onClick={() =>
+          announce(savedFileNotice(exportToWord(kind, object, sourceTitles), 'Word document'))}
         className='rp-btn rp-btn-outline disabled:cursor-not-allowed'
       >
         Export to Word
@@ -881,11 +1001,20 @@ function ExportRow(
       <button
         type='button'
         disabled={disabled}
-        onClick={() => setPopupBlocked(!exportToPdf(kind, object, sourceTitles))}
+        onClick={() => {
+          const opened = exportToPdf(kind, object, sourceTitles)
+          setPopupBlocked(!opened)
+          if (opened) {
+            announce(
+              'Opened a print-ready copy in a new tab - save it as PDF from the print dialog',
+            )
+          }
+        }}
         className='rp-btn rp-btn-outline disabled:cursor-not-allowed'
       >
         Export to PDF
       </button>
+      <ExportNotice notice={notice} />
       {popupBlocked
         ? (
           <p className='text-sm' style={{ color: 'var(--rp-bad-ink)' }}>

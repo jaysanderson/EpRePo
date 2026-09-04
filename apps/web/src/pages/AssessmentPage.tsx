@@ -176,11 +176,18 @@ export function AssessmentPage() {
   const topicCounts = facets?.topic ?? {}
 
   const mutation = useMutation({
-    mutationFn: (vars: { query: string }) => generateArtifact(slug, 'assessment', vars.query),
+    mutationFn: (vars: { query: string; topicIds?: string[] }) =>
+      generateArtifact(slug, 'assessment', vars.query, { topicIds: vars.topicIds }),
   })
 
+  // A knowledge-area tile scopes retrieval to the resources filed under that
+  // topic, so a question cannot be seeded by an off-topic source; a typed
+  // topic has no such scope and searches the whole corpus.
   const generate = (topic: Topic, nextCount: QuestionCount, nextDepth: Depth) => {
-    mutation.mutate({ query: buildAssessmentQuery(topic.label, nextCount, nextDepth) })
+    mutation.mutate({
+      query: buildAssessmentQuery(topic.label, nextCount, nextDepth),
+      ...(topic.id !== CUSTOM_TOPIC_ID ? { topicIds: [topic.id] } : {}),
+    })
   }
 
   const currentView: 'areas' | 'build' | 'results' = !selectedTopic

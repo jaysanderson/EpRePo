@@ -2071,6 +2071,8 @@ export class AragProvider implements RetrievalProvider {
       model?: string
       /** System-prompt instructions for the generation (how to write, what to include). */
       instructions?: string
+      /** Restrict retrieval to resources filed under any of these topics. */
+      topicIds?: string[]
     } = {},
   ): Promise<{
     object: unknown
@@ -2095,6 +2097,12 @@ export class AragProvider implements RetrievalProvider {
       // resource_filters the per-document chat uses. Verified live: it grounds
       // the answer on exactly that resource.
       ...(opts.resourceId ? { resource_filters: [opts.resourceId] } : {}),
+      // A topic scope (an assessment on one knowledge area) keeps retrieval
+      // to the resources filed under it, so an off-topic passage cannot seed
+      // a question.
+      ...(opts.topicIds?.length
+        ? { filters: opts.topicIds.map((t) => `/classification.labels/topic/${t}`) }
+        : {}),
       // Run a cheap, high-volume job (per-document openers) on the fast tier
       // instead of the box's default model. Omitted -> the box default.
       ...(opts.model ? { generative_model: opts.model } : {}),
