@@ -58,6 +58,19 @@ export interface AskOptions {
    */
   pinnedResourceIds?: string[]
   /**
+   * The clauses of a multi-part question, each run against the pinned
+   * resources as its own retrieval pass, so a two-part question about one
+   * named paper reads the paragraphs that answer each part.
+   */
+  pinnedQueries?: string[]
+  /**
+   * Paragraph budget for retrieval, overriding the stored configuration's
+   * (an author-scoped review over forty papers needs more than twenty
+   * paragraphs). With a budget set, whole-resource grounding gives way to
+   * neighbouring paragraphs: the two do not fit in one context.
+   */
+  topK?: number
+  /**
    * Scope the answer to the in-app documentation ONLY (the Help assistant).
    * Selects the documentation-scoped stored search config and applies the
    * citation-vs-filter cross-check that withholds any answer grounded outside

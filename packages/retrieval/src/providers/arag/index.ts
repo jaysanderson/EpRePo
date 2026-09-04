@@ -589,26 +589,48 @@ export function intentFilterExpression(
 /** The platform caps a prequeries strategy at ten queries. */
 export const MAX_PREQUERIES = 10
 
+/** Paragraph budget of a pinned resource's own retrieval pass. */
+export const PINNED_TOP_K = 20
+/** Paragraph budget of a clause pass against a pinned resource. */
+export const PINNED_CLAUSE_TOP_K = 10
+
 /**
  * The extra retrieval passes that join an ask's grounding set, in priority
- * order: a pass per pinned resource (a paper the question names), one pass
- * restricted to the labels the intent prefers (a data question's
- * supplements beside its papers), then the caller's sub-questions. Verified
- * live: a prequery request is a full find request, so `resource_filters`
- * and label `filters` scope it.
+ * order: a pass per pinned resource (a paper the question names, or the
+ * top paper per named entity) with a wider paragraph budget and a heavier
+ * weight than the main query, a pass per question clause against the
+ * first pinned resources (so a two-part question reads the paragraphs that
+ * answer each part), one pass restricted to the labels the intent prefers
+ * (a data question's supplements beside its papers), then the caller's
+ * sub-questions. Verified live: a prequery request is a full find request,
+ * so `resource_filters`, `top_k` and label `filters` scope it.
  */
 export function groundingPrequeries(
   query: string,
   opts: {
     pinnedResourceIds?: readonly string[]
+    pinnedQueries?: readonly string[]
     prefer?: readonly LabelRef[]
     prequeries?: readonly string[]
   },
 ): Record<string, unknown>[] {
   const features = ['keyword', 'semantic']
   const out: Record<string, unknown>[] = []
-  for (const id of (opts.pinnedResourceIds ?? []).slice(0, 3)) {
-    out.push({ request: { query, features, resource_filters: [id] }, weight: 1 })
+  const pinned = (opts.pinnedResourceIds ?? []).slice(0, 4)
+  for (const id of pinned) {
+    out.push({
+      request: { query, features, resource_filters: [id], top_k: PINNED_TOP_K },
+      weight: 2,
+    })
+  }
+  for (const id of pinned.slice(0, 2)) {
+    for (const clause of (opts.pinnedQueries ?? []).slice(0, 2)) {
+      if (out.length >= MAX_PREQUERIES - 1) break
+      out.push({
+        request: { query: clause, features, resource_filters: [id], top_k: PINNED_CLAUSE_TOP_K },
+        weight: 1,
+      })
+    }
   }
   const prefer = opts.prefer ?? []
   if (prefer.length > 0) {
@@ -626,6 +648,18 @@ export function groundingPrequeries(
     out.push({ request: { query: q, features }, weight: 1 })
   }
   return out.slice(0, MAX_PREQUERIES)
+}
+
+/**
+ * The tail of a streamed chunk that may be the start of a `[n]` marker the
+ * next chunk completes ("[", "[1", "[1, 2"). Held back so a marker split
+ * across chunks is never shown half-stripped; the held text is prepended
+ * to the next chunk.
+ */
+export function splitPartialMarker(text: string): { emit: string; hold: string } {
+  const m = /\s*\[\d{0,3}(?:\s*,\s*\d{0,3})*$/.exec(text)
+  if (!m) return { emit: text, hold: '' }
+  return { emit: text.slice(0, m.index), hold: text.slice(m.index) }
 }
 
 /** The portal half of an intent's retrieval: grounding strategies. */
@@ -2073,6 +2107,16 @@ export class AragProvider implements RetrievalProvider {
       instructions?: string
       /** Restrict retrieval to resources filed under any of these topics. */
       topicIds?: string[]
+      /** Restrict retrieval to these resources (a briefing's chosen papers). */
+      resourceIds?: string[]
+      /**
+       * Passages the application adds to the grounding context (a briefing's
+       * section-filtered paragraphs and data-augmentation fields), beside
+       * what retrieval finds. Plain text, trimmed to size by the caller.
+       */
+      extraContext?: string[]
+      /** Paragraph budget for the platform's own retrieval, when the caller supplies the context. */
+      topK?: number
     } = {},
   ): Promise<{
     object: unknown
@@ -2096,7 +2140,15 @@ export class AragProvider implements RetrievalProvider {
       // Scope generation to one resource (per-resource enrichment) - the same
       // resource_filters the per-document chat uses. Verified live: it grounds
       // the answer on exactly that resource.
-      ...(opts.resourceId ? { resource_filters: [opts.resourceId] } : {}),
+      ...(opts.resourceId
+        ? { resource_filters: [opts.resourceId] }
+        : opts.resourceIds?.length
+        ? { resource_filters: opts.resourceIds.slice(0, 40) }
+        : {}),
+      ...(opts.extraContext?.length
+        ? { extra_context: opts.extraContext.filter((t) => t.trim().length > 0).slice(0, 12) }
+        : {}),
+      ...(opts.topK && opts.topK > 0 ? { top_k: Math.min(Math.floor(opts.topK), 100) } : {}),
       // A topic scope (an assessment on one knowledge area) keeps retrieval
       // to the resources filed under it, so an off-topic passage cannot seed
       // a question.
@@ -3343,7 +3395,7 @@ export class AragProvider implements RetrievalProvider {
     // walk the knowledge graph from entities detected in the query (uses the
     // box's graph extraction agent). Degrades gracefully if unsupported.
     const depth = intent?.answer.depth === 'deep' ? 'deep' : opts.depth
-    const strategies: Record<string, unknown>[] = intent
+    let strategies: Record<string, unknown>[] = intent
       ? intentStrategies(intent)
       : depth === 'deep'
       ? [{ name: 'full_resource' }]
@@ -3351,8 +3403,23 @@ export class AragProvider implements RetrievalProvider {
         { name: 'neighbouring_paragraphs', before: 2, after: 2 },
         { name: 'graph_beta', hops: 2, agentic_graph_only: true },
       ]
+    if (opts.topK && opts.topK > 0) {
+      // A request-level paragraph budget wins over the stored
+      // configuration's (verified for /find; the author-scoped review
+      // needs more than twenty paragraphs across forty papers). Whole
+      // resources and a wide budget do not fit one context, so the full
+      // text strategy gives way to neighbouring paragraphs.
+      body.top_k = Math.min(Math.floor(opts.topK), 100)
+      if (strategies.some((st) => st.name === 'full_resource')) {
+        strategies = [
+          { name: 'neighbouring_paragraphs', before: 1, after: 1 },
+          ...strategies.filter((st) => st.name !== 'full_resource'),
+        ]
+      }
+    }
     const prequeries = groundingPrequeries(query, {
       pinnedResourceIds: opts.pinnedResourceIds,
+      pinnedQueries: opts.pinnedQueries,
       prefer: intent?.retrieval.prefer,
       prequeries: opts.prequeries,
     })
@@ -3368,6 +3435,9 @@ export class AragProvider implements RetrievalProvider {
     let refusalPossible = true
     let generating = false
     let emitted = false
+    // The start of a marker the next chunk completes, held back from the
+    // provisional text (see splitPartialMarker).
+    let heldTail = ''
     // See MIN_REFUSAL_OVERRIDE_RELEVANCE: at most one retry when the model
     // refuses despite a genuinely relevant retrieved source - never more,
     // so a true out-of-corpus question (no strong source to trigger it)
@@ -3396,6 +3466,14 @@ export class AragProvider implements RetrievalProvider {
         let passage: string | undefined
         let page: number | undefined
         let matchedField: 'body' | 'summary' = 'body'
+        // The best paragraph that is not a reference-list chunk: papers in
+        // one group cite each other, so an author-scoped question's top hit
+        // in a paper is often its bibliography. A paper with any body hit
+        // shows that hit and is never a reference hit (D1-05).
+        let bodyBest = -1
+        let bodyPassage: string | undefined
+        let bodyPage: number | undefined
+        let bodyField: 'body' | 'summary' = 'body'
         // Every body paragraph retrieval returned, best first: the evidence
         // card chooses among them for the paragraph that carries the claim.
         const paged: { score: number; text: string; page?: number }[] = []
@@ -3412,16 +3490,33 @@ export class AragProvider implements RetrievalProvider {
                 ...(paragraphPage ? { page: paragraphPage } : {}),
               })
             }
-            if ((paragraph.score ?? 0) >= best) {
-              best = paragraph.score ?? 0
+            const score = paragraph.score ?? 0
+            if (score >= best) {
+              best = score
               passage = paragraph.text ?? passage
               page = (paragraph as { position?: { page_number?: number } }).position?.page_number
               matchedField = isGeneratedField(fieldKey) ? 'summary' : 'body'
             }
+            if (paragraph.text && score >= bodyBest && !looksLikeReferenceChunk(paragraph.text)) {
+              bodyBest = score
+              bodyPassage = paragraph.text
+              bodyPage = (paragraph as { position?: { page_number?: number } }).position
+                ?.page_number
+              bodyField = isGeneratedField(fieldKey) ? 'summary' : 'body'
+            }
           }
         }
+        let swapped = false
+        if (
+          passage !== undefined && bodyPassage !== undefined && looksLikeReferenceChunk(passage)
+        ) {
+          passage = bodyPassage
+          page = bodyPage
+          matchedField = bodyField
+          swapped = true
+        }
         const reference = passage ? looksLikeReferenceChunk(passage) : false
-        const shown = reference ? best * 0.4 : best
+        const shown = reference ? best * 0.4 : swapped ? bodyBest : best
         const passages = paged
           .sort((a, b) => b.score - a.score)
           .slice(0, 12)
@@ -3453,6 +3548,7 @@ export class AragProvider implements RetrievalProvider {
         fullAnswer = ''
         refusalPossible = true
         generating = false
+        heldTail = ''
         citationsMapAccum = {}
         validSourceIds.clear()
         excludedSourceIds.clear()
@@ -3526,12 +3622,18 @@ export class AragProvider implements RetrievalProvider {
               // shown mid-stream. The authoritative, correctly-bound text
               // (spliced from the platform's own char-offsets) replaces this
               // once generation and citation binding both finish - see the
-              // `done` event below.
-              yield { type: 'delta', text: stripInlineMarkers(fullAnswer) }
+              // `done` event below. A marker split across chunks is held
+              // back until the chunk that completes it (D2-14).
+              const first = splitPartialMarker(fullAnswer)
+              heldTail = first.hold
+              yield { type: 'delta', text: stripInlineMarkers(first.emit) }
               continue
             }
             emitted = true
-            yield { type: 'delta', text: stripInlineMarkers(item.text) }
+            const chunk = splitPartialMarker(heldTail + item.text)
+            heldTail = chunk.hold
+            const visible = stripInlineMarkers(chunk.emit)
+            if (visible) yield { type: 'delta', text: visible }
           } else if (item.type === 'citations' && item.citations) {
             // Accumulate only - numbering and marker placement need the
             // complete map plus the complete answer text, computed once the
@@ -3601,6 +3703,11 @@ export class AragProvider implements RetrievalProvider {
         // text on an unlucky chunk boundary. This is the one place `refused`
         // and the reader-facing refusal message are decided, so `done.text`
         // (BUG 3) and the retry gates above always agree with it.
+        if (heldTail && !isGuardrailRefusal(fullAnswer)) {
+          const tail = stripInlineMarkers(heldTail)
+          heldTail = ''
+          if (tail) yield { type: 'delta', text: tail }
+        }
         let refused = false
         let refusalMessage: string | undefined
         // Withhold an answer grounded ONLY in excluded content (docs/ARAG-DEV.md:

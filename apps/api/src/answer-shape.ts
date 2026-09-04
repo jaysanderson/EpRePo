@@ -312,8 +312,14 @@ export function looksLikeProviderDecline(text: string): boolean {
 export function corpusDecline(
   nearestTitles: readonly string[],
   bestMatchPct?: number,
+  opts: {
+    /** No resource clears the grounding gate on meaning: say so instead of naming near misses. */
+    noCloseMatch?: boolean
+  } = {},
 ): string {
-  const titles = nearestTitles.map((t) => t.trim()).filter((t) => t.length > 0).slice(0, 3)
+  const titles = opts.noCloseMatch
+    ? []
+    : nearestTitles.map((t) => t.trim()).filter((t) => t.length > 0).slice(0, 3)
   const strength = typeof bestMatchPct === 'number'
     ? ` The closest passages found were only weakly related (best match ${
       Math.round(bestMatchPct)
@@ -321,7 +327,9 @@ export function corpusDecline(
     : ''
   const lead = "This portal's sources do not answer this question directly, so no answer has " +
     `been generated.${strength}`
-  const nearest = titles.length > 0
+  const nearest = opts.noCloseMatch
+    ? ' No source in the corpus comes close to this question, so none is listed as a match.'
+    : titles.length > 0
     ? ` The closest matches in the corpus are ${
       titles.map((t) => `*${t}*`).join(titles.length === 2 ? ' and ' : ', ')
     } - listed below but not used.`

@@ -1503,15 +1503,66 @@ describe('POST /api/t/:slug/ask grounding gate', () => {
     expect(response.status).toBe(200)
     const events = await sseEvents(response)
     expect(askCalls).toBe(0)
+    // Nothing clears the gate on meaning either: no near miss is named or
+    // shown as a closest match (D2-10).
     const sources = events.find((e) => e.type === 'sources')
-    expect(sources && sources.type === 'sources' ? sources.resources.length : 0).toBeGreaterThan(0)
+    expect(sources && sources.type === 'sources' ? sources.resources.length : 0).toBe(0)
     const deltas = events.filter((e) => e.type === 'delta').map((e) =>
       e.type === 'delta' ? e.text : ''
     )
     expect(deltas.join('')).toContain('only weakly related (best match 20%)')
+    expect(deltas.join('')).toContain('No source in the corpus comes close to this question')
     const done = events.find((e) => e.type === 'done')
     expect(done && done.type === 'done' ? done.refused : false).toBe(true)
     expect(events.some((e) => e.type === 'citation')).toBe(false)
+  })
+
+  it('names the closest matches from the semantic ranking on a decline, dropping conference proceedings', async () => {
+    class NearProvider extends StubProvider {
+      override async search(
+        tenant: TenantConfig,
+        query: string,
+        opts?: { mode?: string },
+      ): Promise<SearchResults> {
+        const found = await super.search(tenant, query)
+        if (opts?.mode === 'semantic') {
+          const first = found.resources[0]!
+          return {
+            ...found,
+            resources: [
+              {
+                ...first,
+                id: 'meeting',
+                title: '7th Drug hypersensitivity meeting: part two',
+                relevance: 0.9,
+              },
+              {
+                ...first,
+                id: 'near',
+                title: 'Ten-year projection of adult epilepsy burden',
+                relevance: 0.55,
+              },
+            ],
+          }
+        }
+        return { ...found, resources: found.resources.map((r) => ({ ...r, relevance: 0.2 })) }
+      }
+    }
+    const app = buildApp({ provider: new NearProvider(), tenants: freshTenants() })
+    const response = await app.request('/api/t/frdc/ask', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ query: 'What is the abalone harvest quota on Mars?' }),
+    })
+    const events = await sseEvents(response)
+    const sources = events.find((e) => e.type === 'sources')
+    expect(sources && sources.type === 'sources' ? sources.resources.map((r) => r.id) : [])
+      .toEqual(['near'])
+    const text = events.filter((e) => e.type === 'delta').map((e) =>
+      e.type === 'delta' ? e.text : ''
+    ).join('')
+    expect(text).toContain('*Ten-year projection of adult epilepsy burden*')
+    expect(text).not.toContain('hypersensitivity')
   })
 
   it('falls back from a supplements-only intent to the general configuration when it finds nothing', async () => {

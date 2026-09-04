@@ -1,0 +1,187 @@
+import { describe, it } from '@std/testing/bdd'
+import { expect } from '@std/expect'
+import type { ScoredResource } from '@research-portal/core'
+import {
+  comparisonEntities,
+  entityPins,
+  entityQuery,
+  isConferenceTitle,
+  pickEntityPaper,
+  pinnedAddendum,
+  questionClauses,
+  rankClosest,
+} from './ask-entities.ts'
+
+const LEXICON = ['perampanel', 'brivaracetam', 'levetiracetam', 'lamotrigine', 'Lennox-Gastaut']
+
+const scored = (id: string, title: string, passage?: string): ScoredResource => ({
+  id,
+  title,
+  type: 'pdf',
+  summary: '',
+  keyFacts: [],
+  topicIds: [],
+  relevance: 0.9,
+  citedCount: 0,
+  ...(passage ? { matchedPassage: passage } : {}),
+})
+
+describe('questionClauses', () => {
+  it('splits a two-part question at ", and what"', () => {
+    expect(
+      questionClauses(
+        'What are the ILAE diagnostic criteria for Lennox-Gastaut syndrome, and what proportion of the real-world Australian cohort met all of them?',
+      ),
+    ).toEqual([
+      'What are the ILAE diagnostic criteria for Lennox-Gastaut syndrome',
+      'what proportion of the real-world Australian cohort met all of them',
+    ])
+  })
+  it('splits at "and how many" and drops short fragments', () => {
+    expect(
+      questionClauses(
+        'In the EXPERIENCE analysis, what was the seizure freedom rate for brivaracetam, and how many patients were in each group?',
+      ),
+    ).toEqual([
+      'In the EXPERIENCE analysis, what was the seizure freedom rate for brivaracetam',
+      'how many patients were in each group',
+    ])
+  })
+  it('yields nothing for a single-clause question', () => {
+    expect(questionClauses('What was the retention rate for perampanel at 12 months?')).toEqual([])
+  })
+})
+
+describe('comparisonEntities', () => {
+  it('finds the drugs and study acronyms a question names, in order', () => {
+    expect(
+      comparisonEntities(
+        'What 12-month retention should I assume for adjunctive perampanel versus brivaracetam?',
+        LEXICON,
+      ),
+    ).toEqual(['perampanel', 'brivaracetam'])
+    expect(comparisonEntities('Compare PERMIT with the EXPERIENCE analysis', LEXICON)).toEqual([
+      'PERMIT',
+      'EXPERIENCE',
+    ])
+  })
+  it('does not treat a syndrome or a generic acronym as an entity', () => {
+    expect(comparisonEntities('ILAE criteria for Lennox-Gastaut syndrome', LEXICON)).toEqual([])
+  })
+})
+
+describe('entityQuery', () => {
+  it('removes the other entities and leads with the entity', () => {
+    expect(
+      entityQuery(
+        'what 12-month retention rate should I assume for adjunctive perampanel versus brivaracetam in real-world cohorts',
+        'perampanel',
+        ['perampanel', 'brivaracetam'],
+      ),
+    ).toBe(
+      'perampanel: what 12-month retention rate should I assume for adjunctive perampanel in real-world cohorts',
+    )
+  })
+})
+
+describe('pickEntityPaper', () => {
+  const results = [
+    scored('supp', 'Supplementary material 1: PERMIT study', 'perampanel retention'),
+    scored('brv', 'EXPERIENCE: brivaracetam pooled analysis', 'compared with perampanel'),
+    scored('per', 'PERMIT study: perampanel in routine practice', 'retention on PER'),
+  ]
+  it('prefers an article whose title names the entity over a passage mention or an attachment', () => {
+    expect(pickEntityPaper(results, 'perampanel')?.id).toBe('per')
+  })
+  it('falls back to a passage mention and returns nothing when neither matches', () => {
+    expect(pickEntityPaper(results.slice(0, 2), 'perampanel')?.id).toBe('brv')
+    expect(pickEntityPaper(results, 'cenobamate')).toBeUndefined()
+  })
+})
+
+describe('entityPins', () => {
+  it('runs one search per entity not already pinned and merges the top paper for each', async () => {
+    const searched: string[] = []
+    const pins = await entityPins(
+      'retention for perampanel versus brivaracetam',
+      ['perampanel', 'brivaracetam'],
+      [{ id: 'exp', title: 'EXPERIENCE: brivaracetam pooled analysis' }],
+      (text) => {
+        searched.push(text)
+        return Promise.resolve([scored('per', 'PERMIT study: perampanel in routine practice')])
+      },
+    )
+    expect(searched).toEqual(['perampanel: retention for perampanel'])
+    expect(pins.map((p) => ({ entity: p.entity, id: p.id, title: p.title }))).toEqual([{
+      entity: 'perampanel',
+      id: 'per',
+      title: 'PERMIT study: perampanel in routine practice',
+    }])
+    expect(pins[0]?.paper.id).toBe('per')
+  })
+  it('needs two entities and survives a failed search', async () => {
+    expect(await entityPins('perampanel retention', ['perampanel'], [], () => Promise.reject()))
+      .toEqual([])
+    expect(
+      await entityPins(
+        'a vs b',
+        ['perampanel', 'brivaracetam'],
+        [],
+        () => Promise.reject(new Error('x')),
+      ),
+    ).toEqual([])
+  })
+})
+
+describe('isConferenceTitle', () => {
+  it('recognises meeting and proceedings collections and leaves papers alone', () => {
+    expect(isConferenceTitle('7th Drug hypersensitivity meeting: part two')).toBe(true)
+    expect(isConferenceTitle('25th Annual Computational Neuroscience Meeting: CNS-2016')).toBe(true)
+    expect(isConferenceTitle('Ten-year projection of adult epilepsy burden in Australia')).toBe(
+      false,
+    )
+  })
+})
+
+describe('pinnedAddendum', () => {
+  it('names the pinned papers and asks for a partial answer over a decline', () => {
+    const text = pinnedAddendum(['PERMIT study'])
+    expect(text).toContain('"PERMIT study"')
+    expect(text).toContain('name the figure or table')
+    expect(text).not.toContain(' - ')
+  })
+})
+
+describe('rankClosest', () => {
+  const r = (id: string, title: string, relevance: number, kind?: string, summary?: string) => ({
+    id,
+    title,
+    relevance,
+    ...(kind ? { kind } : {}),
+    ...(summary ? { summary } : {}),
+  })
+  it('moves on-topic papers up and drops a preclinical paper for a question about people', () => {
+    const ranked = rankClosest(
+      [
+        r('rat', 'Epilepsy phenotype after traumatic brain injury in rats', 0.95, 'preclinical'),
+        r('ptr', 'Management of post-traumatic epilepsy: an evidence review', 0.79),
+        r(
+          'proj',
+          'Ten-year projection of adult epilepsy burden in Australia',
+          0.73,
+          'cohort-study',
+          'Incidence and prevalence of epilepsy in Australians to 2033.',
+        ),
+      ],
+      'What is the incidence of epilepsy in Aboriginal and Torres Strait Islander Australians?',
+    )
+    expect(ranked.map((x) => x.id)).toEqual(['proj', 'ptr'])
+  })
+  it('keeps a preclinical paper for a question about a model', () => {
+    const ranked = rankClosest(
+      [r('rat', 'Epilepsy phenotype after traumatic brain injury in rats', 0.95, 'preclinical')],
+      'Which rat model of post-traumatic epilepsy is reproducible?',
+    )
+    expect(ranked.map((x) => x.id)).toEqual(['rat'])
+  })
+})

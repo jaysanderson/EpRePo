@@ -1,7 +1,13 @@
 import { describe, it } from '@std/testing/bdd'
 import { expect } from '@std/expect'
 import type { ResourceSummary } from '@research-portal/core'
-import { isAttachmentTitle, matchStudies, quotedTitles, studyAcronyms } from './study-guard.ts'
+import {
+  distinctiveTerms,
+  isAttachmentTitle,
+  matchStudies,
+  quotedTitles,
+  studyAcronyms,
+} from './study-guard.ts'
 
 const resource = (id: string, title: string, year = '2024'): ResourceSummary => ({
   id,
@@ -48,7 +54,33 @@ const catalogue: ResourceSummary[] = [
   ...['a', 'b', 'c', 'd'].map((n) => resource(`ilae-${n}`, `ILAE classification paper ${n}`)),
   ...['a', 'b', 'c', 'd', 'e'].map((n) => resource(`sudep-${n}`, `SUDEP risk paper ${n}`)),
   resource('scn1a', 'SCN1A variants in Dravet syndrome'),
+  resource(
+    'lgs',
+    'Applying the ILAE diagnostic criteria for Lennox-Gastaut syndrome in the real-world setting',
+  ),
+  resource('lgs-supp', 'Supplementary material 1: ILAE criteria for Lennox-Gastaut syndrome'),
+  resource(
+    'lgs-fen-a',
+    'Efficacy and Safety of Fenfluramine for Seizures Associated With Lennox-Gastaut Syndrome',
+  ),
+  resource(
+    'lgs-fen-b',
+    'Fenfluramine reduces drop seizures in patients with Lennox-Gastaut syndrome',
+  ),
+  resource(
+    'lgs-fen-c',
+    'Practical considerations for fenfluramine in Dravet or Lennox-Gastaut syndrome',
+  ),
+  resource('lgs-fen-d', 'Transitioning from fenfluramine in Lennox-Gastaut syndrome'),
+  resource(
+    'ltg',
+    'Risk of SUDEP with lamotrigine and other sodium channel-modulating ASMs',
+    '2023',
+  ),
+  ...['a', 'b', 'c', 'd'].map((n) => resource(`lev-${n}`, `Levetiracetam in pregnancy ${n}`)),
 ]
+
+const LEXICON = ['lamotrigine', 'levetiracetam', 'Lennox-Gastaut', 'Dravet']
 
 describe('studyAcronyms', () => {
   it('keeps upper-case tokens that could name a study and drops generic acronyms, genes and ids', () => {
@@ -102,6 +134,35 @@ describe('matchStudies', () => {
     expect(matchStudies('ILAE classification of SUDEP in SCN1A', catalogue)).toEqual([])
   })
 
+  it('pins the article an eponym or a lexicon term titles, never a term that titles many', () => {
+    // Five Lennox-Gastaut papers: the question's other words single out the criteria paper.
+    const lgs = matchStudies(
+      'What are the ILAE diagnostic criteria for Lennox-Gastaut syndrome in the real-world setting, and what proportion met them?',
+      catalogue,
+      LEXICON,
+    )
+    expect(lgs.map((m) => m.id)).toEqual(['lgs'])
+    expect(lgs[0]).toMatchObject({ term: 'Lennox-Gastaut', kind: 'term' })
+    // A question about the topic pins nothing.
+    expect(matchStudies('Which drugs help in Lennox-Gastaut syndrome?', catalogue, LEXICON))
+      .toEqual([])
+    expect(
+      matchStudies('Does lamotrigine increase SUDEP risk?', catalogue, LEXICON).map((m) => m.id),
+    )
+      .toEqual(['ltg'])
+    // Four levetiracetam papers make the drug a topic, not a study.
+    expect(matchStudies('levetiracetam in pregnancy', catalogue, LEXICON).map((m) => m.id))
+      .toEqual([])
+  })
+
+  it('keeps acronym pins ahead of term pins', () => {
+    expect(
+      matchStudies('In EXPERIENCE, did lamotrigine co-medication matter?', catalogue, LEXICON).map(
+        (m) => m.id,
+      ),
+    ).toEqual(['exp', 'ltg'])
+  })
+
   it('pins the resources a quoted title fragment names, article before attachment, capped', () => {
     const matches = matchStudies(
       'What does "Breathing control training as a treatment for functional seizures" conclude?',
@@ -118,5 +179,14 @@ describe('matchStudies', () => {
     )
     expect(matches.length).toBe(3)
     expect(new Set(matches.map((m) => m.id)).size).toBe(3)
+  })
+})
+
+describe('distinctiveTerms', () => {
+  it('finds capitalised eponyms and whole-word lexicon terms, not generic acronyms', () => {
+    expect(distinctiveTerms('ILAE criteria for Lennox-Gastaut syndrome on lamotrigine', LEXICON))
+      .toEqual(['Lennox-Gastaut', 'lamotrigine'])
+    expect(distinctiveTerms('EEG-fMRI and anti-NMDAR', LEXICON)).toEqual([])
+    expect(distinctiveTerms('lamotrigines are not lamotrigine', LEXICON)).toEqual(['lamotrigine'])
   })
 })
