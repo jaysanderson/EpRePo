@@ -139,3 +139,22 @@ Other timings:
 | Generate briefing | 25.2 s |
 | Help assistant | 13.1 s |
 | Investigations, sessions, watches API | under 10 ms each |
+
+---
+
+## Loop 1 fixes (merged 5 September 2026, PRs #7, #8 and #9 into `feat/eprepo-portal`)
+
+| Finding | Outcome |
+|---|---|
+| D1-01, D1-02, D1-03, D1-11 | The Supplementary-data intent now retrieves papers plus supplements (stored configuration re-ensured), the classifier may only choose it for questions that name a table, supplement, protocol document, peer review or raw data, figure questions route to the papers by rule, a study named in the question is pinned into the grounding set, and an answer whose every marker is stripped becomes the honest decline. BREATHS and UMPIRE now answer correctly with citations. |
+| D1-07, D1-18 | Search runs the rule stage server-side, renders the chip from the results, never waits on the classifier and shows no inline answer for a lookup; paragraph budget raised so a single paper cannot crowd out results. |
+| D1-09 | Ask routes by rule synchronously and runs the classifier in parallel with retrieval; SUDEP question first word 6.9 s (was 27.5 s). |
+| D1-04 | Truncated endings trimmed to the last complete sentence with a notice and "Ask again". |
+| D1-05 | A named author scopes retrieval to that author's papers; "X and colleagues" is corrected when the cited paper lacks X. |
+| D1-08 | Evidence cards quote the paragraph holding the cited figure and the reader link carries its page. |
+| D1-12, D1-13 | Figure matcher handles abbreviations, enumerations and units; confidence is led by the audit; badge confirmed on every finished answer. |
+| D1-14, D1-15, D1-16, D1-17, D1-24 | Denominators required and audited, study design named in the clinical variant, secondary citations get a boundary sentence, higher topK, model reference lines stripped, hedges rendered as marks only. |
+| D1-06 | Rule-first study-design kinds from title, abstract, keywords and MeSH; RCT count 110 to 12; EXPERIENCE and PERMIT are pooled analyses, SUDEP is case-control, BREATHS is a protocol. |
+| D1-10, D1-19, D1-20, D1-21, D1-22, D1-23, D1-25, D1-26, D1-27 | Briefing references from resource metadata, Library aliases, Assessment sources and prompt-speak removed, build stamp on health and Help, chip and rail layout, 24 px tap targets, authors typed as researchers, Generate help page, shared export notice and interstitial. |
+
+Left for loop 2: a many-drug comparison sentence can still keep a marker to a review listing the same drugs; sub-5 s first token is bounded by the platform's own ask time; the box's own `kind` labelset is untouched (display now derives the kind).
