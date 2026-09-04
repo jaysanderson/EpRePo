@@ -284,6 +284,14 @@ export interface AskRequest {
  * event, delta text chunks, citation events, optionally usage, then done (or
  * error). Returns when the stream closes; abort via the signal.
  */
+
+/**
+ * Copy for an HTTP 429 from the ask and route endpoints. Matches
+ * `RATE_LIMIT_MESSAGE` in apps/api/src/rate-limit.ts word for word.
+ */
+export const RATE_LIMIT_MESSAGE =
+  'You are asking faster than the portal can answer - please wait a moment and try again.'
+
 export async function streamAsk(
   slug: string,
   body: AskRequest,
@@ -292,12 +300,17 @@ export async function streamAsk(
 ): Promise<void> {
   const res = await fetch(`/api/t/${encodeURIComponent(slug)}/ask`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', 'x-rp-client': clientId() },
     body: JSON.stringify(body),
     signal,
   })
   if (!res.ok || !res.body) {
-    throw new ApiError(res.status, res.statusText || 'The answer service is unavailable')
+    throw new ApiError(
+      res.status,
+      res.status === 429
+        ? RATE_LIMIT_MESSAGE
+        : res.statusText || 'The answer service is unavailable',
+    )
   }
   const reader = res.body.getReader()
   const decoder = new TextDecoder()
@@ -1659,7 +1672,7 @@ export async function routeIntent(
 ): Promise<RouteDecision> {
   const res = await fetch(`/api/t/${encodeURIComponent(slug)}/route`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', 'x-rp-client': clientId() },
     body: JSON.stringify({ query, surface }),
     signal,
   })

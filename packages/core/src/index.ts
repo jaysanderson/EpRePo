@@ -981,6 +981,18 @@ export const AskEventSchema = z.discriminatedUnion('type', [
     text: z.string().optional(),
   }),
   z.object({ type: z.literal('error'), message: z.string() }),
+  /**
+   * The routed intent's retrieval found nothing usable (a supplements-only
+   * configuration with no strong match), so the answer was generated from
+   * the general configuration instead. Sent before any delta so the surface
+   * can relabel the route chip.
+   */
+  z.object({
+    type: z.literal('fallback'),
+    from: z.string(),
+    to: z.string().nullable(),
+    reason: z.string(),
+  }),
 ])
 
 // ---------------------------------------------------------------------------

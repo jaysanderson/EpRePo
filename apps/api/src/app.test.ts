@@ -1088,3 +1088,182 @@ describe('rate limiting on anonymous LLM-spend routes', () => {
     }
   })
 })
+
+// ---------------------------------------------------------------------------
+// Grounding gate, intent fallback and answer shaping on POST /ask
+// ---------------------------------------------------------------------------
+
+const sseEvents = async (response: Response): Promise<AskEvent[]> =>
+  (await response.text())
+    .split('\n')
+    .filter((chunk) => chunk.startsWith('data: '))
+    .map((chunk) => AskEventSchema.parse(JSON.parse(chunk.slice('data: '.length))))
+
+describe('POST /api/t/:slug/ask grounding gate', () => {
+  it('declines before generating when the pre-flight find is weak, showing the closest matches', async () => {
+    let askCalls = 0
+    class WeakProvider extends StubProvider {
+      override async search(tenant: TenantConfig, query: string): Promise<SearchResults> {
+        const found = await super.search(tenant, query)
+        return {
+          ...found,
+          resources: found.resources.map((r) => ({ ...r, relevance: 0.2 })),
+        }
+      }
+      override ask(tenant: TenantConfig, query: string): AsyncIterable<AskEvent> {
+        askCalls += 1
+        return super.ask(tenant, query)
+      }
+    }
+    const app = buildApp({ provider: new WeakProvider(), tenants: freshTenants() })
+    const response = await app.request('/api/t/frdc/ask', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ query: 'What is the abalone harvest quota on Mars?' }),
+    })
+    expect(response.status).toBe(200)
+    const events = await sseEvents(response)
+    expect(askCalls).toBe(0)
+    const sources = events.find((e) => e.type === 'sources')
+    expect(sources && sources.type === 'sources' ? sources.resources.length : 0).toBeGreaterThan(0)
+    const deltas = events.filter((e) => e.type === 'delta').map((e) =>
+      e.type === 'delta' ? e.text : ''
+    )
+    expect(deltas.join('')).toContain('only weakly related (best match 20%)')
+    const done = events.find((e) => e.type === 'done')
+    expect(done && done.type === 'done' ? done.refused : false).toBe(true)
+    expect(events.some((e) => e.type === 'citation')).toBe(false)
+  })
+
+  it('falls back from a supplements-only intent to the general configuration when it finds nothing', async () => {
+    const seen: (string | undefined)[] = []
+    class SupplementAwareProvider extends StubProvider {
+      override async search(
+        tenant: TenantConfig,
+        query: string,
+        opts?: { intent?: string },
+      ): Promise<SearchResults> {
+        seen.push(opts?.intent)
+        if (opts?.intent === 'data') return { query, resources: [], relatedQuestions: [] }
+        return super.search(tenant, query)
+      }
+      override ask(tenant: TenantConfig, query: string, opts?: { intent?: string }) {
+        seen.push(`ask:${opts?.intent ?? 'none'}`)
+        return super.ask(tenant, query)
+      }
+    }
+    const app = buildApp({ provider: new SupplementAwareProvider(), tenants: freshTenants() })
+    const response = await app.request('/api/t/eprepo/ask', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        query: 'What seizure freedom rates are reported after thermocoagulation?',
+        intent: 'data',
+      }),
+    })
+    expect(response.status).toBe(200)
+    const events = await sseEvents(response)
+    const fallback = events.find((e) => e.type === 'fallback')
+    expect(fallback && fallback.type === 'fallback' ? fallback.from : null).toBe('data')
+    expect(seen).toEqual(['data', undefined, 'ask:none'])
+    expect(events.some((e) => e.type === 'done' && !e.refused)).toBe(true)
+  })
+
+  it('withholds a model-authored reference list from the stream and the bound text', async () => {
+    class ReferencingProvider extends StubProvider {
+      override async *ask(): AsyncIterable<AskEvent> {
+        yield { type: 'sources', resources: [{ ...resourceOne, relevance: 0.9, citedCount: 1 }] }
+        yield { type: 'delta', text: 'Abalone stocks are recovering [1].' }
+        yield { type: 'delta', text: '\n\n---\n\n**References:**\n' }
+        yield { type: 'delta', text: '1. Study on abalone recovery.\n2. Study on stressors.' }
+        yield {
+          type: 'citation',
+          citation: { index: 1, resourceId: resourceOne.id, title: resourceOne.title },
+        }
+        yield {
+          type: 'done',
+          text:
+            'Abalone stocks are recovering.[1]\n\n---\n\n**References:**\n1. Study on abalone recovery.',
+        }
+      }
+    }
+    const app = buildApp({ provider: new ReferencingProvider(), tenants: freshTenants() })
+    const response = await app.request('/api/t/frdc/ask', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ query: 'Are abalone stocks recovering?' }),
+    })
+    const events = await sseEvents(response)
+    const streamed = events.filter((e) => e.type === 'delta').map((e) =>
+      e.type === 'delta' ? e.text : ''
+    )
+      .join('')
+    expect(streamed).toBe('Abalone stocks are recovering [1].')
+    const done = events.find((e) => e.type === 'done')
+    expect(done && done.type === 'done' ? done.text : null).toBe(
+      'Abalone stocks are recovering.[1]',
+    )
+  })
+})
+
+describe('rate limiting per browser id', () => {
+  it('keys the ask limit on x-rp-client so callers behind one address get their own budget', async () => {
+    const app = buildApp({
+      provider: new StubProvider(),
+      tenants: freshTenants(),
+      rateLimitAskPerMin: 1,
+      rateLimitAskPerMinPerIp: 2,
+    })
+    const askAs = (client: string) =>
+      app.request('/api/t/frdc/ask', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'fly-client-ip': '203.0.113.9',
+          'x-rp-client': client,
+        },
+        body: JSON.stringify({ query: 'What is known about abalone stock health?' }),
+      })
+
+    expect((await askAs('client-aaaaaaaa')).status).toBe(200)
+    expect((await askAs('client-aaaaaaaa')).status).toBe(429)
+    expect((await askAs('client-bbbbbbbb')).status).toBe(200)
+    // The wider per-address bucket still caps a caller that mints new ids.
+    expect((await askAs('client-cccccccc')).status).toBe(429)
+  })
+})
+
+describe('POST /api/t/:slug/ask refusal fallback', () => {
+  it('re-asks on the general configuration when a supplements-only intent refuses outright', async () => {
+    const seen: string[] = []
+    class RefusingOnDataProvider extends StubProvider {
+      override async *ask(
+        tenant: TenantConfig,
+        query: string,
+        opts?: { intent?: string },
+      ): AsyncIterable<AskEvent> {
+        seen.push(`ask:${opts?.intent ?? 'none'}`)
+        if (opts?.intent === 'data') {
+          yield { type: 'sources', resources: [{ ...resourceOne, relevance: 0.9, citedCount: 0 }] }
+          yield { type: 'delta', text: 'This portal does not hold enough material to answer.' }
+          yield { type: 'done', refused: true }
+          return
+        }
+        yield* super.ask(tenant, query)
+      }
+    }
+    const app = buildApp({ provider: new RefusingOnDataProvider(), tenants: freshTenants() })
+    const response = await app.request('/api/t/eprepo/ask', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ query: 'What seizure freedom is reported?', intent: 'data' }),
+    })
+    const events = await sseEvents(response)
+    expect(seen).toEqual(['ask:data', 'ask:none'])
+    expect(events.filter((e) => e.type === 'fallback').length).toBe(1)
+    const dones = events.filter((e) => e.type === 'done')
+    expect(dones.length).toBe(1)
+    expect(dones[0] && dones[0].type === 'done' ? dones[0].refused : true).toBeFalsy()
+    expect(events.some((e) => e.type === 'citation')).toBe(true)
+  })
+})

@@ -112,6 +112,23 @@ export function clientIp(c: Context): string {
   return 'unknown'
 }
 
+/** Shape of the anonymous per-browser id the web app sends as `x-rp-client`. */
+const CLIENT_ID = /^[A-Za-z0-9_-]{8,64}$/
+
+/**
+ * The caller's rate-limit key: the web app's per-browser `x-rp-client` id
+ * when it presents a well-formed one, otherwise the IP. Ten clinicians
+ * behind one hospital NAT then each get their own budget instead of sharing
+ * one, while a caller that omits the header is still limited by address.
+ * Pair with an IP-keyed bucket at a higher limit so a single address cannot
+ * mint unlimited ids to escape the limit altogether.
+ */
+export function clientKey(c: Context): string {
+  const id = c.req.header('x-rp-client')?.trim()
+  if (id && CLIENT_ID.test(id)) return `client:${id}`
+  return `ip:${clientIp(c)}`
+}
+
 /**
  * User-facing copy for a 429, for the frontend to show when it sees
  * `error: 'rate_limited'` - Australian English, no em dashes. Not sent in
@@ -135,6 +152,25 @@ export function rateLimit(
     if (!allowed) {
       c.header('Retry-After', String(retryAfterSec))
       return c.json({ error: 'rate_limited' }, 429)
+    }
+    await next()
+  }
+}
+
+/**
+ * Several limiters checked in order on one request - per browser id, then
+ * per address - so the first that is over its window answers with the 429.
+ */
+export function rateLimitLayered(
+  layers: readonly { limiter: SlidingWindowLimiter; keyFn: (c: Context) => string }[],
+): MiddlewareHandler {
+  return async (c, next) => {
+    for (const { limiter, keyFn } of layers) {
+      const { allowed, retryAfterSec } = limiter.check(keyFn(c))
+      if (!allowed) {
+        c.header('Retry-After', String(retryAfterSec))
+        return c.json({ error: 'rate_limited' }, 429)
+      }
     }
     await next()
   }
