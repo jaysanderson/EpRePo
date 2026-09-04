@@ -66,9 +66,12 @@ import {
   decideFromClassifier,
   defaultDecision,
   extractEntities,
+  isResultsQuestion,
   parseIdentifier,
   routeByRules,
+  type RouteContext,
 } from './intent-router.ts'
+import { matchStudies } from './study-guard.ts'
 import {
   authorLine,
   lookupOf,
@@ -344,6 +347,12 @@ const askBodySchema = z.object({
   topicIds: z.string().array().max(12).optional(),
   depth: z.enum(['default', 'deep']).optional(),
   prequeries: z.string().min(3).array().max(8).optional(),
+  /**
+   * 'auto': the server routes the question itself (rules at once, the
+   * classifier in parallel with retrieval) and reports the decision as a
+   * `route` event, instead of the caller routing first and passing `intent`.
+   */
+  route: z.literal('auto').optional(),
 })
 /** The Help assistant: a question about using the portal, optional prior turns. */
 const docsAskBodySchema = z.object({
@@ -687,6 +696,86 @@ export function buildApp(opts: BuildAppOptions): Hono {
   const CLASSIFIER_CACHE_TTL_MS = 10 * 60_000
   const CLASSIFIER_CACHE_MAX = 500
   const classifierCache = new Map<string, { at: number; decision: RouteDecision }>()
+  /** The tenant's routing context for a surface (docs/INTENT-ROUTING.md). */
+  const routeContext = (config: TenantConfig, surface?: 'ask' | 'search'): RouteContext => {
+    const intents = config.intents ?? []
+    return {
+      intents,
+      defaultIntent: config.defaultIntent ?? intents[0]?.id ?? 'general',
+      lexicon: config.entityTerms ?? [],
+      ...(surface ? { surface } : {}),
+    }
+  }
+  /**
+   * Stage 2 of routing, shared by /route and an auto-routed /ask. The
+   * platform's ask API silently ignores unknown top-level keys, so a
+   * temperature or seed cannot be verified to reach the model; the
+   * classifier is made deterministic here instead: the same question on
+   * the same surface reuses its first decision for a while, and rules and
+   * identifiers never reach the classifier at all.
+   */
+  const classify = async (
+    config: TenantConfig,
+    query: string,
+    ctx: RouteContext,
+    entities: string[],
+  ): Promise<RouteDecision> => {
+    const key = `${config.slug}|${ctx.surface ?? 'ask'}|${
+      query.trim().toLowerCase().replace(/\s+/g, ' ')
+    }`
+    const remembered = classifierCache.get(key)
+    if (remembered && Date.now() - remembered.at < CLASSIFIER_CACHE_TTL_MS) {
+      return { ...remembered.decision, entities }
+    }
+    if (!opts.management) return defaultDecision(ctx, 'No routing rule matched', entities)
+    try {
+      const allowed = classifierIntents(ctx, query).map((i) => i.id)
+      const raw = await Promise.race([
+        opts.management.augmentationModel(config).then((model) =>
+          opts.management!.classifyIntent(config, query, { model, allowed })
+        ),
+        new Promise<Record<string, never>>((resolve) => setTimeout(() => resolve({}), 12000)),
+      ])
+      const decision = decideFromClassifier(raw, ctx, entities, undefined, query)
+      if (decision.stage === 'classifier') {
+        if (classifierCache.size >= CLASSIFIER_CACHE_MAX) {
+          const oldest = classifierCache.keys().next().value
+          if (oldest !== undefined) classifierCache.delete(oldest)
+        }
+        classifierCache.set(key, { at: Date.now(), decision })
+      }
+      return decision
+    } catch {
+      return defaultDecision(
+        ctx,
+        'Classifier unavailable, using the default configuration',
+        entities,
+      )
+    }
+  }
+  /** Every routing decision is logged; logging never blocks routing. */
+  const recordRoute = (
+    config: TenantConfig,
+    query: string,
+    decision: RouteDecision,
+    latencyMs: number,
+  ) => {
+    try {
+      routing.record(config.slug, {
+        ts: new Date().toISOString(),
+        questionHash: questionHash(query),
+        questionLength: query.length,
+        intent: decision.intent,
+        stage: decision.stage,
+        confidence: decision.confidence,
+        rationale: decision.rationale,
+        configuration: decision.configuration,
+        latencyMs,
+      })
+    } catch {
+      // logging never blocks routing
+    }
+  }
   // Suggested-question generations in flight, so a page that is opened twice
   // while its openers are being written costs one generation, not two.
   const questionsInFlight = new Map<string, Promise<string[]>>()
@@ -945,10 +1034,23 @@ export function buildApp(opts: BuildAppOptions): Hono {
     const mode = modeRaw === 'semantic' || modeRaw === 'keyword' ? modeRaw : 'hybrid'
     const topicIds = (c.req.query('topics') ?? '').split(',').filter(Boolean)
     const kindIds = (c.req.query('kinds') ?? '').split(',').filter(Boolean)
+    const intents = config.intents ?? []
     const intentParam = c.req.query('intent') || undefined
-    if (intentParam && !(config.intents ?? []).some((i) => i.id === intentParam)) {
+    if (intentParam && !intents.some((i) => i.id === intentParam)) {
       return c.json({ error: 'unknown_intent' }, 400)
     }
+    // Routing for a listing is the rule stage alone, run here: an exact
+    // lookup (an identifier, a gene symbol, a lexicon term) is decided in
+    // microseconds and the results never wait on a classifier, which chose
+    // a supplements-only configuration for plain searches and emptied the
+    // list. Only the hybrid mode takes a rule - a stored configuration's
+    // features would make the mode switch inert.
+    const ctx = routeContext(config, 'search')
+    const listing = intents.find((i) => i.answer.strategy === 'none')
+    const byRule = intents.length > 0 && !intentParam && mode === 'hybrid'
+      ? routeByRules(parsed.data.q, ctx)
+      : null
+    let route = byRule && byRule.intent !== ctx.defaultIntent ? byRule : undefined
     // Identifiers and author surnames resolve against catalogue metadata
     // before any retrieval: a DOI names one document or nothing, and the
     // platform has no author index of its own.
@@ -967,28 +1069,56 @@ export function buildApp(opts: BuildAppOptions): Hono {
         ),
         relatedQuestions: [],
         lookup: lookupOf(identifier.kind, identifier.value, hits.length > 0),
+        ...(route ? { route } : {}),
       }))
     }
-    const results = await provider.search(config, parsed.data.q, {
-      mode,
-      topicIds,
-      kindIds,
-      ...(intentParam ? { intent: intentParam } : {}),
-    })
     const catalogue = await provider.listResources(config).catch(() => [])
     const byAuthor = resolveAuthor(catalogue, parsed.data.q)
+    const searchIntent = intentParam ?? route?.intent
+    const searchWith = (intent: string | undefined) =>
+      provider.search(config, parsed.data.q, {
+        mode,
+        topicIds,
+        kindIds,
+        ...(intent ? { intent } : {}),
+      })
+    let results = await searchWith(searchIntent)
+    // An intent narrower than the default that finds nothing is not an
+    // answer for a listing: the default configuration lists what the
+    // corpus holds. An exact lookup keeps its honest empty result.
+    if (searchIntent && searchIntent !== listing?.id && results.resources.length === 0) {
+      results = await searchWith(undefined)
+      route = undefined
+    }
     if (byAuthor) {
       const already = new Set(results.resources.map((r) => r.id))
       const authored = byAuthor.matches
         .filter((r) => !already.has(r.id))
         .map((r) => metadataHit(r, authorLine(r)))
+      // The author's papers are a catalogue lookup, decided without the
+      // box: the chip says so, and the surface lists rather than answers.
+      const authorRoute: RouteDecision | undefined = listing
+        ? {
+          intent: listing.id,
+          confidence: 1,
+          stage: 'rule',
+          rationale: `${listing.label}: papers by ${byAuthor.surname} from the catalogue`,
+          configuration: 'catalogue',
+          entities: [byAuthor.surname],
+          rule: 'author',
+        }
+        : undefined
       return c.json(merchandiseSearchResults(enrichments, config.slug, {
         ...results,
         resources: [...authored, ...results.resources],
         lookup: lookupOf('author', byAuthor.surname, true),
+        ...(authorRoute ? { route: authorRoute } : {}),
       }))
     }
-    return c.json(merchandiseSearchResults(enrichments, config.slug, results))
+    return c.json(merchandiseSearchResults(enrichments, config.slug, {
+      ...results,
+      ...(route ? { route } : {}),
+    }))
   })
 
   // Intent routing: which stored search configuration should answer this
@@ -1000,73 +1130,16 @@ export function buildApp(opts: BuildAppOptions): Hono {
     const parsed = routeBodySchema.safeParse(await c.req.json().catch(() => null))
     if (!parsed.success) return c.json({ error: 'invalid_query' }, 400)
     const intents = config.intents ?? []
-    const defaultIntent = config.defaultIntent ?? intents[0]?.id ?? 'general'
-    const ctx = {
-      intents,
-      defaultIntent,
-      lexicon: config.entityTerms ?? [],
-      surface: parsed.data.surface,
-    }
+    const ctx = routeContext(config, parsed.data.surface)
     const started = Date.now()
     let decision = intents.length > 0 ? routeByRules(parsed.data.query, ctx) : null
     if (!decision && intents.length > 0) {
       const entities = extractEntities(parsed.data.query, ctx.lexicon)
-      // The platform's ask API silently ignores unknown top-level keys, so a
-      // temperature or seed cannot be verified to reach the model. The
-      // classifier is made deterministic here instead: the same question on
-      // the same surface reuses its first decision for a while, and rules
-      // and identifiers never reach the classifier at all.
-      const classifierKey = `${config.slug}|${parsed.data.surface ?? 'ask'}|${
-        parsed.data.query.trim().toLowerCase().replace(/\s+/g, ' ')
-      }`
-      const remembered = classifierCache.get(classifierKey)
-      if (remembered && Date.now() - remembered.at < CLASSIFIER_CACHE_TTL_MS) {
-        decision = { ...remembered.decision, entities }
-      } else if (opts.management) {
-        try {
-          const allowed = classifierIntents(ctx).map((i) => i.id)
-          const raw = await Promise.race([
-            opts.management.augmentationModel(config).then((model) =>
-              opts.management!.classifyIntent(config, parsed.data.query, { model, allowed })
-            ),
-            new Promise<Record<string, never>>((resolve) => setTimeout(() => resolve({}), 12000)),
-          ])
-          decision = decideFromClassifier(raw, ctx, entities)
-          if (decision.stage === 'classifier') {
-            if (classifierCache.size >= CLASSIFIER_CACHE_MAX) {
-              const oldest = classifierCache.keys().next().value
-              if (oldest !== undefined) classifierCache.delete(oldest)
-            }
-            classifierCache.set(classifierKey, { at: Date.now(), decision })
-          }
-        } catch {
-          decision = defaultDecision(
-            ctx,
-            'Classifier unavailable, using the default configuration',
-            entities,
-          )
-        }
-      } else {
-        decision = defaultDecision(ctx, 'No routing rule matched', entities)
-      }
+      decision = await classify(config, parsed.data.query, ctx, entities)
     }
     if (!decision) decision = defaultDecision(ctx, 'This portal has no intents configured')
     const latencyMs = Date.now() - started
-    try {
-      routing.record(config.slug, {
-        ts: new Date().toISOString(),
-        questionHash: questionHash(parsed.data.query),
-        questionLength: parsed.data.query.length,
-        intent: decision.intent,
-        stage: decision.stage,
-        confidence: decision.confidence,
-        rationale: decision.rationale,
-        configuration: decision.configuration,
-        latencyMs,
-      })
-    } catch {
-      // logging never blocks routing
-    }
+    recordRoute(config, parsed.data.query, decision, latencyMs)
     return c.json({ ...decision, latencyMs })
   })
 
@@ -3205,19 +3278,118 @@ export function buildApp(opts: BuildAppOptions): Hono {
     if (!config) return c.json({ error: 'unknown_tenant' }, 404)
     const parsed = askBodySchema.safeParse(await c.req.json().catch(() => null))
     if (!parsed.success) return c.json({ error: 'invalid_query' }, 400)
-    const intentDef = parsed.data.intent
-      ? (config.intents ?? []).find((i) => i.id === parsed.data.intent)
+    const intents = config.intents ?? []
+    let intentDef = parsed.data.intent
+      ? intents.find((i) => i.id === parsed.data.intent)
       : undefined
     if (parsed.data.intent && !intentDef) return c.json({ error: 'unknown_intent' }, 400)
     // The finished response declares UTF-8 (the streaming helper sets its own
     // content type); a Latin-1-assuming API client otherwise sees mojibake.
     return withUtf8EventStream(streamSSE(c, async (stream) => {
-      const { query, ...askOpts } = parsed.data
+      const { query, route: routeMode, ...askOpts } = parsed.data
       const settings = tenants.promptsFor(config.slug)
       const lexicon = config.entityTerms ?? []
-      const variant = intentDef?.answer.promptVariant
       const documentScope = Boolean(askOpts.resourceId)
+      const firstTurn = !askOpts.context?.length
       const send = (event: unknown) => stream.writeSSE({ data: JSON.stringify(event) })
+      // Automatic routing (docs/INTENT-ROUTING.md). The rule stage is
+      // synchronous and answers at once; when no rule fires the classifier
+      // runs in parallel with the retrieval probe and the decomposition
+      // below rather than ahead of them, so a classified question costs
+      // the slowest of the three, not their sum. The decision is reported
+      // as a `route` event before any delta.
+      const ctx = routeContext(config, 'ask')
+      const autoRoute = routeMode === 'auto' && !askOpts.intent && !documentScope && firstTurn &&
+        intents.length > 0
+      let classifierPending: Promise<RouteDecision> | null = null
+      if (autoRoute) {
+        const started = Date.now()
+        const byRule = routeByRules(query, ctx)
+        if (byRule) {
+          intentDef = intents.find((i) => i.id === byRule.intent)
+          askOpts.intent = byRule.intent
+          recordRoute(config, query, byRule, Date.now() - started)
+          await send({ type: 'route', decision: byRule })
+        } else {
+          classifierPending = classify(config, query, ctx, extractEntities(query, lexicon))
+            .then((decision) => {
+              recordRoute(config, query, decision, Date.now() - started)
+              return decision
+            })
+        }
+      }
+      // The study-name guard: a paper the question names ("the BREATHS
+      // trial", "UMPIRE", a quoted title) is pinned into the grounding set
+      // and leads the sources, whatever retrieval ranks first.
+      const pinned = !documentScope && firstTurn
+        ? matchStudies(query, await provider.listResources(config).catch(() => []))
+        : []
+      const pinnedIds = pinned.map((p) => p.id)
+      const pinnedFirst = (resources: ScoredResource[]): ScoredResource[] =>
+        pinnedIds.length === 0
+          ? resources
+          : [...resources].sort((a, b) =>
+            Number(pinnedIds.includes(b.id)) - Number(pinnedIds.includes(a.id))
+          )
+      // Evidence-seeking questions get decomposed by default: broad questions
+      // otherwise miss decisive passages that narrower phrasings retrieve.
+      // Skipped for follow-up turns, when the caller already decomposed, and
+      // for a results question (one figure from one paper is narrow already,
+      // and the decomposition would cost more than the answer). Started
+      // now, awaited only once the intent's own sub-questions are known.
+      const evidenceSeeking =
+        /\b(evidence|safe|safety|risk|risks|effect|effects|impact|impacts|compare|comparison|versus|\bvs\b|harm|cause|caused)\b/i
+          .test(query)
+      const decompositionPending =
+        evidenceSeeking && !isResultsQuestion(query) && !askOpts.prequeries?.length && firstTurn &&
+          opts.management
+          ? Promise.race([
+            opts.management.askStructured(
+              config,
+              SUBQUERIES_SCHEMA,
+              `Break this research question into 3 to 5 focused sub-questions that together cover it fully. Sub-questions must be answerable from the corpus and phrased as standalone questions: ${query}`,
+            ),
+            new Promise<null>((resolve) => setTimeout(() => resolve(null), 16000)),
+          ]).catch(() => null)
+          : null
+      // Grounding gate BEFORE generation. The platform's stream reports its
+      // retrieval after the answer tokens, so a floor applied to that event
+      // can only append a decline under an answer that already streamed. A
+      // find on the routed configuration costs well under a second and lets
+      // the portal decline (or change configuration) before a word is
+      // generated. Two outcomes: an intent whose configuration is restricted
+      // to supplements and finds nothing strong falls back to the general
+      // configuration (a "what rate" question misrouted to data sheets is
+      // otherwise answered from the wrong table); a weak best match on the
+      // final configuration is declined outright with the closest matches
+      // shown as sources, never answered over. The probe starts under the
+      // intent known so far and runs while the classifier thinks; a pinned
+      // paper gets its own targeted find beside it.
+      const GROUNDING_FLOOR = 0.3
+      /** A best match this strong with a refusal is the generator, not the corpus, saying no. */
+      const STRONG_MATCH = 0.9
+      /** Closest matches previewed before generation, and named in a decline. */
+      const NEAREST_SHOWN = 8
+      const probe = async (intent: string | undefined) => {
+        const found = await provider.search(config, query, { intent, pageSize: 8 })
+        const best = found.resources.reduce((m, r) => Math.max(m, r.relevance), 0)
+        return { resources: found.resources, best }
+      }
+      const probedIntent = askOpts.intent
+      const probePending = !documentScope && firstTurn ? probe(probedIntent) : null
+      const pinnedPending = pinnedIds.length > 0
+        ? provider.search(config, query, { resourceIds: pinnedIds, pageSize: 8 }).then(
+          (found) => found.resources,
+          () => [] as ScoredResource[],
+        )
+        : null
+      if (classifierPending) {
+        const decision = await classifierPending
+        intentDef = intents.find((i) => i.id === decision.intent)
+        askOpts.intent = decision.intent
+        await send({ type: 'route', decision })
+      }
+      const variant = intentDef?.answer.promptVariant
       // An intent's mandatory sub-questions (a safety check for a treatment
       // decision, a recency probe) join whatever the caller sent - but only
       // the ones that fit: a drug-safety probe fires for medication entities
@@ -3232,53 +3404,19 @@ export function buildApp(opts: BuildAppOptions): Hono {
           await send({ type: 'searched', queries: combined })
         }
       }
-      // Evidence-seeking questions get decomposed by default: broad questions
-      // otherwise miss decisive passages that narrower phrasings retrieve.
-      // Skipped for follow-up turns and when the caller already decomposed.
-      const evidenceSeeking =
-        /\b(evidence|safe|safety|risk|risks|effect|effects|impact|impacts|compare|comparison|versus|\bvs\b|harm|cause|caused)\b/i
-          .test(query)
-      if (
-        evidenceSeeking && !askOpts.prequeries?.length && !askOpts.context?.length &&
-        opts.management
-      ) {
-        try {
-          const decomposition = await Promise.race([
-            opts.management.askStructured(
-              config,
-              SUBQUERIES_SCHEMA,
-              `Break this research question into 3 to 5 focused sub-questions that together cover it fully. Sub-questions must be answerable from the corpus and phrased as standalone questions: ${query}`,
-            ),
-            new Promise<null>((resolve) => setTimeout(() => resolve(null), 16000)),
-          ])
-          const questions = decomposition
-            ? ((decomposition.object as { questions?: unknown }).questions ?? []) as string[]
-            : []
-          const cleaned = questions
-            .filter((q) => typeof q === 'string' && q.trim().length > 3)
-            .slice(0, 5)
-          if (cleaned.length > 0) {
-            askOpts.prequeries = cleaned
-            await send({ type: 'searched', queries: cleaned })
-          }
-        } catch {
-          // Decomposition is best-effort - the plain ask still runs.
+      if (decompositionPending && !askOpts.prequeries?.length) {
+        const decomposition = await decompositionPending
+        const questions = decomposition
+          ? ((decomposition.object as { questions?: unknown }).questions ?? []) as string[]
+          : []
+        const cleaned = questions
+          .filter((q) => typeof q === 'string' && q.trim().length > 3)
+          .slice(0, 5)
+        if (cleaned.length > 0) {
+          askOpts.prequeries = cleaned
+          await send({ type: 'searched', queries: cleaned })
         }
       }
-      // Grounding gate BEFORE generation. The platform's stream reports its
-      // retrieval after the answer tokens, so a floor applied to that event
-      // can only append a decline under an answer that already streamed. A
-      // find on the routed configuration costs well under a second and lets
-      // the portal decline (or change configuration) before a word is
-      // generated. Two outcomes: an intent whose configuration is restricted
-      // to supplements and finds nothing strong falls back to the general
-      // configuration (a "what rate" question misrouted to data sheets is
-      // otherwise answered from the wrong table); a weak best match on the
-      // final configuration is declined outright with the closest matches
-      // shown as sources, never answered over.
-      const GROUNDING_FLOOR = 0.3
-      /** A best match this strong with a refusal is the generator, not the corpus, saying no. */
-      const STRONG_MATCH = 0.9
       let intentForAsk = askOpts.intent
       let preflightRan = false
       // The closest resources the pre-flight found: named in a decline, and
@@ -3305,15 +3443,15 @@ export function buildApp(opts: BuildAppOptions): Hono {
           // insights are best-effort
         }
       }
-      if (!documentScope && !askOpts.context?.length) {
-        const probe = async (intent: string | undefined) => {
-          const found = await provider.search(config, query, { intent, pageSize: 8 })
-          const best = found.resources.reduce((m, r) =>
-            Math.max(m, r.relevance), 0)
-          return { resources: found.resources, best }
-        }
+      if (probePending) {
         try {
-          let found = await probe(intentForAsk)
+          let found = await probePending
+          // The classifier chose a supplements-only configuration after the
+          // probe ran on the default: probe that configuration now so its
+          // fallback below is judged on its own retrieval.
+          if (intentForAsk !== probedIntent && supplementsOnly) {
+            found = await probe(intentForAsk)
+          }
           preflightRan = true
           if (
             intentDef && supplementsOnly &&
@@ -3329,19 +3467,34 @@ export function buildApp(opts: BuildAppOptions): Hono {
             )
             found = await probe(undefined)
           }
+          const pinnedFound = pinnedPending ? await pinnedPending : []
+          const pinnedBest = pinnedFound.reduce((m, r) =>
+            Math.max(m, r.relevance), 0)
+          const seen = new Set(pinnedFound.map((r) => r.id))
+          // The pinned papers, then the probe's closest matches: a preview
+          // of the grounding set, capped so it reads as a shortlist.
           nearest = merchandiseSources(
             enrichments,
             config.slug,
-            withoutReferencePassages(found.resources),
-          )
-          if (found.resources.length > 0 && found.best < GROUNDING_FLOOR) {
+            withoutReferencePassages([
+              ...pinnedFound,
+              ...found.resources.filter((r) => !seen.has(r.id)),
+            ]),
+          ).slice(0, NEAREST_SHOWN)
+          const best = Math.max(found.best, pinnedBest)
+          if (nearest.length > 0 && best < GROUNDING_FLOOR) {
             await send({ type: 'sources', resources: nearest })
-            const decline = corpusDecline(nearestTitles(nearest), found.best * 100)
+            const decline = corpusDecline(nearestTitles(nearest), best * 100)
             await send({ type: 'delta', text: decline })
             await send({ type: 'done', refused: true, text: decline })
             recordDecline()
             return
           }
+          // What retrieval found, shown before generation starts: the
+          // platform reports its own grounding set only after the answer
+          // tokens, and a reader watching an empty panel for ten seconds
+          // cannot tell progress from a hang. The grounded set replaces it.
+          if (nearest.length > 0) await send({ type: 'sources', resources: nearest })
         } catch {
           // The gate is best-effort: a failed probe streams the plain ask,
           // which keeps the in-stream floor below as its fallback.
@@ -3466,6 +3619,15 @@ export function buildApp(opts: BuildAppOptions): Hono {
             // platform's own binding.
           }
         }
+        // An answer that states figures with no citation left to carry
+        // them is not an answer: the binding stripped every marker because
+        // no cited passage held the claims, and bare prose with numbers in
+        // it would read as fact. The honest decline stands in its place,
+        // with the closest matches shown, not used.
+        if (!documentScope && citations.length === 0 && /\d/.test(text)) {
+          await finishRefused()
+          return
+        }
         // Evidence cards never show a bibliography paragraph as a passage,
         // and an uncited reference-list hit is not evidence at all.
         const citedIds = new Set(citations.map((c) => c.resourceId))
@@ -3506,6 +3668,7 @@ export function buildApp(opts: BuildAppOptions): Hono {
               ...askOpts,
               intent: current.intent,
               prequeries: current.prequeries,
+              ...(pinnedIds.length > 0 ? { pinnedResourceIds: pinnedIds } : {}),
               ...(settings.ask ? { systemPrompt: settings.ask } : {}),
               ...(settings.images ? { images: true } : {}),
               ...(extraContext ? { extraContext } : {}),
@@ -3539,11 +3702,11 @@ export function buildApp(opts: BuildAppOptions): Hono {
               // The provider clears its sources on a refusal; the refusal
               // path here re-sends the closest matches instead.
               if (event.resources.length === 0) continue
-              const shaped = merchandiseSources(
+              const shaped = pinnedFirst(merchandiseSources(
                 enrichments,
                 config.slug,
                 withoutReferencePassages(event.resources),
-              )
+              ))
               lastSources = shaped
               bestRelevance = shaped.reduce((m, r) => Math.max(m, r.relevance), 0)
               if (!documentScope && !preflightRan && bestRelevance < GROUNDING_FLOOR) {
