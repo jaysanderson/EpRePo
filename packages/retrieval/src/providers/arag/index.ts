@@ -51,6 +51,14 @@ import {
   sortCatalogItems,
   untaggedFilterExpression,
 } from './catalog-browse.ts'
+import {
+  chooseSnippet,
+  extractDoi,
+  isCitationNoise,
+  isExactTermMatch,
+  matchesDoi,
+  type ScoredParagraph,
+} from './snippet.ts'
 
 const CATALOG_TTL_MS = 60_000
 /** Identical search queries return the identical list for this long. */
@@ -1279,13 +1287,22 @@ export class AragProvider implements RetrievalProvider {
     else if (mode === 'hybrid') body.search_configuration = SEARCH_CONFIG_RESEARCH_FIND
     const searchIntent = opts.intent ? tenant.intents?.find((i) => i.id === opts.intent) : undefined
     if (searchIntent && !opts.docScope && searchIntent.answer.surfaces.includes('search')) {
-      // The stored configuration carries the intent's features and filter;
-      // it overrides request features, so they are dropped rather than sent.
+      // The stored configuration carries the intent's features and filter and
+      // overrides request features - but `findWithFallback` sheds the
+      // configuration on a zero result, and a retry with no features at all
+      // is the platform's fuzzy default. Sending the intent's own features
+      // keeps a keyword-only lookup keyword-only on that retry.
       body.search_configuration = intentConfigurationName(tenant, searchIntent.id, 'find')
-      delete body.features
+      body.features = searchIntent.retrieval.features
       body.reranker = searchIntent.retrieval.reranker
       body.page_size = opts.pageSize ?? searchIntent.retrieval.topK
     }
+    // An exact lookup (a bare identifier or term on the keyword
+    // configuration) promises the documents that contain it, never near
+    // misses; a DOI names one document. Both are enforced below.
+    const exactLookup = searchIntent !== undefined && !opts.docScope &&
+      !searchIntent.answer.surfaces.includes('ask')
+    const wantedDoi = opts.docScope ? undefined : extractDoi(trimmed)
     const filters = [
       ...(opts.topicIds ?? []).map((t) => `/classification.labels/topic/${t}`),
       ...(opts.kindIds ?? []).map((k) => `/classification.labels/kind/${k}`),
@@ -1310,36 +1327,57 @@ export class AragProvider implements RetrievalProvider {
     const MIN_SCORE = 0.1
     const scored = entries
       .map(([id, raw]) => {
-        let best = 0
-        let passage: string | undefined
-        let page: number | undefined
-        let matchedField: 'body' | 'summary' = 'body'
+        const paragraphs: ScoredParagraph[] = []
         for (const [fieldKey, field] of Object.entries(raw.fields ?? {})) {
           for (const paragraph of Object.values(field.paragraphs ?? {})) {
-            const score = paragraph.score ?? 0
-            if (score >= best) {
-              best = score
-              passage = paragraph.text ?? passage
-              page = (paragraph as { position?: { page_number?: number } }).position?.page_number
-              matchedField = isGeneratedField(fieldKey) ? 'summary' : 'body'
-            }
+            paragraphs.push({
+              score: paragraph.score ?? 0,
+              text: paragraph.text ?? '',
+              page: (paragraph as { position?: { page_number?: number } }).position?.page_number,
+              fieldKey,
+            })
           }
         }
-        const reference = passage ? looksLikeReferenceChunk(passage) : false
-        // A reference-list match is citation-title noise - keep it findable
-        // but never let it outrank body text.
+        // The snippet is the best BODY paragraph whenever one matched: a
+        // reference-list line, a first-page title/author block or a DOI
+        // fragment never outranks or stands in for body text. A resource
+        // whose only matches are such noise stays findable, flagged, at a
+        // fraction of its score.
+        const choice = chooseSnippet(
+          paragraphs,
+          MIN_SCORE,
+          (text) => looksLikeReferenceChunk(text) || isCitationNoise(text),
+        )
+        const passage = choice.passage?.text || undefined
+        const summaryDoi = byId.get(id)?.doi
+        const texts = paragraphs.map((p) => p.text)
+        // A DOI query matches one document; the resource that records it is
+        // a certain match whatever its paragraph scores say.
+        const doiHit = wantedDoi !== undefined && matchesDoi(wantedDoi, { doi: summaryDoi, texts })
         return {
           id,
           title: raw.title,
           raw,
-          best: reference ? best * 0.4 : best,
+          best: doiHit && summaryDoi ? Math.max(choice.score, 1) : choice.score,
           passage,
-          page,
-          reference,
-          matchedField,
+          page: choice.passage?.page,
+          reference: choice.reference,
+          matchedField: choice.passage?.fieldKey && isGeneratedField(choice.passage.fieldKey)
+            ? 'summary' as const
+            : 'body' as const,
+          texts,
+          doiHit,
         }
       })
       .filter((s) => s.best >= MIN_SCORE)
+      // A DOI names one document: nothing else - least of all a reference
+      // list citing a neighbouring DOI - is a result for it.
+      .filter((s) => wantedDoi === undefined || s.doiHit)
+      // An exact lookup returns only documents that contain every term.
+      .filter((s) =>
+        !exactLookup || wantedDoi !== undefined ||
+        isExactTermMatch(trimmed, { title: s.title, texts: s.texts })
+      )
     // Near-duplicate suppression: crawled pages repeat nav/footer chrome, so
     // two results opening with the same 120 characters are the same content.
     const seenSignatures = new Set<string>()
