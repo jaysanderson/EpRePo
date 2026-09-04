@@ -3288,7 +3288,11 @@ export class AragProvider implements RetrievalProvider {
               'documentation at claim level with a bracketed marker like [1] after each step or ' +
               'fact - the application assigns the real citation numbers itself. If the ' +
               'documentation does not cover the question, say so plainly and suggest where in the ' +
-              'portal to look; never invent a feature that is not described in the documentation.'
+              'portal to look; never invent a feature that is not described in the documentation. ' +
+              'Call the material "the documentation" or "the Help pages", never "the context" ' +
+              'or "the provided context" - a reader never sees a context. Never write "Not ' +
+              'enough data to answer this": when the documentation does not describe something, ' +
+              'say that in plain words and name the nearest feature it does describe.'
             : `You are a research analyst for ${tenant.branding.organisation}. Always answer the ` +
               'question using the provided context. Synthesise across sources even when the ' +
               'context is partial - surface what IS known and be specific. Never reply that there ' +
