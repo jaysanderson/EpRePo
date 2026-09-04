@@ -106,20 +106,40 @@ Notes on the choices:
 
 Two stages, cheapest first, and the decision is always visible.
 
+**Stage 0, identifiers and citations (before any rule).** A DOI (`10.xxxx/...`, with or
+without a `doi:` or `doi.org` prefix), a PMCID (`PMC1234567`) or a PMID (`PMID: 12345678`,
+or seven to eight bare digits) is the strongest signal there is: it names one document. The
+router sends it to the listing intent with `rule: identifier:<kind>`, and the search route
+resolves it against catalogue metadata (`doi`, `pmcid`, `pmid`, the PMC id in `originUrl`)
+before any retrieval - the result is exactly that resource (article first, its supplements
+after it) or an honest "no resource carries this identifier" (`lookup.matched: false`),
+never five unrelated papers whose reference lists share a DOI prefix. A bare author surname
+("Vajda"), or a citation-shaped "Surname YYYY topic" ("Seery 2025 rituximab"), is resolved
+the same way against the catalogue's `authors` field: on Search the author's papers lead the
+results (`lookup.kind: author`), and on Ask the citation runs on the default configuration
+rather than letting the year read as "recent" (`rule: author-year`).
+
 **Stage 1, rules (deterministic, explainable, free).** Run in order; the first match wins.
 
-1. `lookup`: the query is at most three tokens and matches an identifier pattern: `^PMC\d+$`,
-   a gene symbol (`^[A-Z][A-Z0-9]{2,7}$`), a known drug name from the corpus keywords, or a
-   single capitalised term with no verb.
+1. `lookup`: one or two bare tokens, and only when one of them is a recognised entity - a
+   gene-symbol shape (upper case with a digit: `SCN1A`, `DEPDC5`; a digitless epilepsy gene
+   such as `PTEN`; a rodent symbol such as `Scn1a`) or a term from the tenant's
+   `entityTerms` lexicon (medications, syndromes). Two arbitrary words ("Okafor
+   recurrence"), a hyphenated compound ("EEG-fMRI") and acronyms (`EEG`, `AUC`, `URL`,
+   `C57BL`) never fire it. The intent is `rulesOnly`: the classifier may not choose it.
 2. `data`: contains `supplement`, `data sheet`, `table S`, `appendix`, `protocol`, `peer review`,
    `sample size`, `raw data`.
-3. `latest`: contains `latest`, `newest`, `recent`, `this year`, a year at or after the current
-   year minus one, `since 20`.
-4. `clinical`: contains a drug or gene entity **and** a decision verb or noun: `dose`, `dosing`,
-   `start`, `titrate`, `avoid`, `contraindicat`, `safe`, `should I`, `which ASM`, `first line`,
-   `add-on`, `switch`, `interaction`, `pregnan`.
+3. `latest`: contains a recency word - `latest`, `newest`, `most recent`, `recent(ly)`,
+   `this year`, `since 20xx`, `in/from/published in 2025+`, `2025+ papers/studies`. A bare
+   year is not recency (see stage 0).
+4. `clinical`: contains a decision verb or noun (`dose`, `dosing`, `start`, `titrate`, `avoid`,
+   `contraindicat`, `safe`, `should I`, `which ASM`, `first line`, `add-on`, `switch`,
+   `interaction`, `pregnan`, `monitor`) **and** names a medication or syndrome from the
+   lexicon (`requireLexiconEntity`). A gene symbol or a mouse strain is not a medication:
+   "What selenate dose was given to SCN1A mice?" is a methods question and stays general.
 5. `review`: contains `compare`, `synthesis`, `what is known`, `evidence for`, `overview`,
-   `across studies`, `mechanism`, or is longer than 25 tokens.
+   `across studies`, `mechanism`. Length is not a rule: a 26-word fitness-to-drive lookup is
+   not a review, and the classifier reads the question instead.
 
 **Stage 2, classifier (only when no rule fires).** One call to the platform's `/ask` with an
 `answer_json_schema` (name `route_intent`, properties `intent` enum of the tenant's intent ids,
@@ -131,7 +151,15 @@ Pin `generative_model` to the augmentation tier model already used for enrichmen
 
 **Threshold.** Rules return confidence 1.0. The classifier's answer is accepted at confidence
 0.6 or above; below that the intent is `general` with rationale "no confident match, using the
-default configuration".
+default configuration". Intents marked `rulesOnly` (the listing intent) are left out of the
+classifier's menu altogether.
+
+**Determinism.** The platform's `/ask` silently accepts unknown top-level keys (a `zzz_probe`
+field returns 200, verified live 2026-09-04), so a `temperature` or seed cannot be confirmed
+to reach the model and is not sent. The classifier is made deterministic on the portal side
+instead: identifiers, citations and rules never reach it, and a classifier decision is
+remembered per tenant, surface and normalised question for ten minutes, so the same question
+routes the same way on every load.
 
 **Transparency.** The Ask page shows a route chip beside the question: "Clinical decision ·
 contraindications check added" with the rationale on hover. The chip is a menu: any other intent
