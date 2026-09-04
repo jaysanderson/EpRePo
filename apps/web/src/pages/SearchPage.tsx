@@ -95,8 +95,14 @@ function RelevanceMeter(
 /** Deep link into the reader, carrying the matched passage and (for PDFs) the page it sits on. */
 function resourceLink(slug: string, resource: ScoredResource): string {
   const params = new URLSearchParams()
-  if (resource.matchedPassage) params.set('passage', resource.matchedPassage.slice(0, 300))
-  if (resource.matchedPage) params.set('page', String(resource.matchedPage))
+  if (resource.matchedField === 'summary') {
+    // Generated text is not in the document, so there is nothing to
+    // highlight; the reader says so rather than landing on page one.
+    params.set('matched', 'summary')
+  } else {
+    if (resource.matchedPassage) params.set('passage', resource.matchedPassage.slice(0, 300))
+    if (resource.matchedPage) params.set('page', String(resource.matchedPage))
+  }
   const query = params.toString()
   return `/t/${slug}/library/${resource.id}${query ? `?${query}` : ''}`
 }

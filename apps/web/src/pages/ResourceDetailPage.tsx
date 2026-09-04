@@ -43,10 +43,12 @@ import {
   blocksWithinBudget,
   buildRelatedQuery,
   type DocBlock,
+  isGeneratedTextField,
   parseDocBlocks,
   selectRecommendations,
   selectViewerVariant,
 } from '../lib/resource-view.ts'
+import { plainDashes } from '../lib/display-title.ts'
 import type { TenantOutletContext } from './TenantLayout.tsx'
 import { useResizableRail } from '../components/useResizableRail.ts'
 
@@ -531,6 +533,50 @@ function MatchedPassageCard({ passage, page }: { passage: string; page: number |
   )
 }
 
+/**
+ * Shown in place of the matched-passage quote when the match came from the
+ * generated summary: that text is not in the document, so there is nothing
+ * to highlight, and quoting generated prose as a "matched passage" would
+ * present it as the document's own words.
+ */
+function SummaryMatchNotice() {
+  return (
+    <div
+      role='status'
+      className='rounded-[var(--rp-radius)] border px-4 py-3 text-sm leading-relaxed'
+      style={{
+        borderColor: 'var(--rp-warn-line)',
+        background: 'var(--rp-warn-bg)',
+        color: 'var(--rp-warn-ink)',
+      }}
+    >
+      <p className='font-semibold'>This match came from the generated summary</p>
+      <p className='mt-0.5'>
+        The matching text is a summary written about this document, not a passage in it, so the PDF
+        cannot be highlighted. The summary is shown under its own heading below.
+      </p>
+    </div>
+  )
+}
+
+/** The DA page summary under its own heading - labelled as generated, never as document text. */
+function GeneratedSummary({ text }: { text: string }) {
+  return (
+    <section
+      aria-labelledby='generated-summary-heading'
+      className='rounded-[var(--rp-radius)] border border-line bg-surface-2 p-4'
+    >
+      <h3 id='generated-summary-heading' className='rp-eyebrow text-ink-3'>
+        Generated summary
+      </h3>
+      <p className='rp-measure mt-2 text-sm leading-relaxed text-ink-2'>{plainDashes(text)}</p>
+      <p className='mt-2 text-[11px] text-ink-3'>
+        Written by the portal from the document's text. Check it against the document itself.
+      </p>
+    </section>
+  )
+}
+
 /** A prominent link to download or open the original stored file. */
 function OriginalFileActions(
   { fileUrl, label }: { fileUrl: string; label: string },
@@ -617,12 +663,14 @@ function OfficeBody(
 
 /** Dispatches to the type-aware primary viewer for the resource's content. */
 function ResourceViewer(
-  { slug, content, blocks, passage, page, flashIndex, hasTextMatches }: {
+  { slug, content, blocks, passage, page, summaryMatch = false, flashIndex, hasTextMatches }: {
     slug: string
     content: ResourceContent
     blocks: DocBlock[]
     passage: string | null
     page: number | null
+    /** The link that opened this page matched the generated summary, not the document. */
+    summaryMatch?: boolean
     flashIndex: number | null
     hasTextMatches: boolean
   },
@@ -631,11 +679,13 @@ function ResourceViewer(
   const fileUrl = primaryFile ? resourceFileUrl(slug, content.id, primaryFile.fieldId) : undefined
   const variant = selectViewerVariant(content.kind)
   const mediaRef = useRef<HTMLMediaElement | null>(null)
+  const generated = content.pageSummary?.trim()
 
   switch (variant) {
     case 'pdf':
       return (
         <div className='space-y-4'>
+          {summaryMatch ? <SummaryMatchNotice /> : null}
           {passage ? <MatchedPassageCard passage={passage} page={page} /> : null}
           {fileUrl
             ? (
@@ -652,12 +702,22 @@ function ResourceViewer(
                 description='The original file could not be loaded. The extracted text below is a machine reading of the document.'
               />
             )}
-          {blocks.length > 0
+          {blocks.length > 0 || generated
             ? (
-              <details className='rp-card p-5' open={passage != null || hasTextMatches}>
+              <details
+                className='rp-card p-5'
+                open={passage != null || hasTextMatches || summaryMatch}
+              >
                 <summary className='rp-eyebrow cursor-pointer text-ink-3'>
                   Extracted text
                 </summary>
+                {generated
+                  ? (
+                    <div className='mt-3'>
+                      <GeneratedSummary text={generated} />
+                    </div>
+                  )
+                  : null}
                 <div className='mt-3'>
                   <DocumentReader
                     key={content.id}
@@ -738,9 +798,11 @@ function ResourceViewer(
       // (a non-office attachment) gets a download action above the reader.
       return (
         <div className='space-y-4'>
+          {summaryMatch ? <SummaryMatchNotice /> : null}
           {content.kind === 'file' && fileUrl
             ? <OriginalFileActions fileUrl={fileUrl} label='Download file' />
             : null}
+          {generated ? <GeneratedSummary text={generated} /> : null}
           <DocumentReader
             key={content.id}
             blocks={blocks}
@@ -1355,6 +1417,8 @@ export function ResourceDetailPage() {
   const qParam = searchParams.get('q')
   const pageParam = Number(searchParams.get('page'))
   const page = Number.isInteger(pageParam) && pageParam > 0 ? pageParam : null
+  // The link came from a match on the generated summary, not the document.
+  const summaryMatch = searchParams.get('matched') === 'summary'
 
   const contentRef = useRef<HTMLDivElement | null>(null)
   const [selection, setSelection] = useState<{ text: string; top: number; left: number } | null>(
@@ -1394,8 +1458,13 @@ export function ResourceDetailPage() {
 
   const notFound = error instanceof ApiError && error.status === 404
 
+  // Generated fields (the DA page summary) are not document text: they get
+  // their own heading in the viewer, never the opening block of the body.
   const blocks = useMemo(() => {
-    const joined = (content?.texts ?? []).map((t) => t.text).join('\n\n')
+    const joined = (content?.texts ?? [])
+      .filter((t) => !isGeneratedTextField(t.fieldId))
+      .map((t) => t.text)
+      .join('\n\n')
     return parseDocBlocks(joined)
   }, [content])
   const blockTexts = useMemo(() => blocks.map(blockPlainText), [blocks])
@@ -1533,8 +1602,9 @@ export function ResourceDetailPage() {
                             slug={config.slug}
                             content={content}
                             blocks={blocks}
-                            passage={passage}
-                            page={page}
+                            passage={summaryMatch ? null : passage}
+                            page={summaryMatch ? null : page}
+                            summaryMatch={summaryMatch}
                             flashIndex={flashIndex}
                             hasTextMatches={matchIndices.length > 0}
                           />

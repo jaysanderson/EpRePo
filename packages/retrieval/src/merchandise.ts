@@ -161,7 +161,9 @@ export function overlayEnrichment(
 export function extractPageSummary(
   texts: { fieldId: string; text: string }[],
 ): string | undefined {
-  const hit = texts.find((t) => /(^|\/)da-[a-z0-9]*summary[a-z0-9]*-f-/i.test(t.fieldId))
+  // `-f-` on a file ingest, `-t-` on a text ingest: the agent writes its
+  // field beside whichever field it summarised.
+  const hit = texts.find((t) => /(^|\/)da-[a-z0-9]*summary[a-z0-9]*-[a-z]-/i.test(t.fieldId))
   const text = hit?.text?.trim()
   return text && text.length > 0 ? text : undefined
 }

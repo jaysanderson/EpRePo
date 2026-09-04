@@ -188,6 +188,14 @@ export function PdfReader(
   const effectiveScaleRef = useRef(1)
   const [highlightRects, setHighlightRects] = useState<HighlightRect[]>([])
   const [highlightPage, setHighlightPage] = useState<number | null>(null)
+  /**
+   * A deep link named a page but the passage is not on it (the citation's
+   * page index was off, or the text layer differs). Said out loud, with a
+   * way to search the document, rather than landing there in silence.
+   */
+  const [highlightMissing, setHighlightMissing] = useState(false)
+  const [scanRequested, setScanRequested] = useState(false)
+  const [scanOutcome, setScanOutcome] = useState<'idle' | 'searching' | 'not-found'>('idle')
   /** Guards the one-off passage scan so paging never re-triggers it. */
   const scannedForRef = useRef<string | null>(null)
 
@@ -337,10 +345,17 @@ export function PdfReader(
             }
             setHighlightRects(rects)
             setHighlightPage(pageNumber)
+            setHighlightMissing(false)
             if (rects.length > 0) setAnnouncement(`Cited passage highlighted on page ${pageNumber}`)
           } else {
             setHighlightRects([])
             setHighlightPage(null)
+            // The deep-linked page (clamped: a citation can name a page the
+            // file does not have) is on screen and the passage is not on it.
+            if (initialPage && pageNumber === Math.min(initialPage, numPages || initialPage)) {
+              setHighlightMissing(true)
+              setAnnouncement(`Highlight not found on page ${pageNumber}`)
+            }
           }
         }
       } catch (err) {
@@ -361,17 +376,20 @@ export function PdfReader(
     return () => {
       cancelled = true
     }
-  }, [status, pageNumber, zoomMode, containerWidth, getPage, highlight])
+  }, [status, pageNumber, zoomMode, containerWidth, getPage, highlight, initialPage, numPages])
 
-  // A citation with a passage but no page: find the page that carries it,
-  // once per document, scanning from the front within a sane limit.
+  // A citation with a passage but no page - or one whose page did not carry
+  // the passage and the reader asked for a search: find the page that
+  // carries it, once per document, scanning from the front within a sane
+  // limit.
   useEffect(() => {
-    if (status !== 'ready' || initialPage || !highlight) return
-    const key = `${fileUrl}::${highlight}`
+    if (status !== 'ready' || (initialPage && !scanRequested) || !highlight) return
+    const key = `${fileUrl}::${highlight}::${scanRequested}`
     if (scannedForRef.current === key) return
     scannedForRef.current = key
     if (passageNeedles(highlight).length === 0) return
     let cancelled = false
+    if (scanRequested) setScanOutcome('searching')
     ;(async () => {
       const limit = Math.min(numPages, PASSAGE_SCAN_LIMIT)
       for (let n = 1; n <= limit && !cancelled; n++) {
@@ -380,15 +398,23 @@ export function PdfReader(
         const content = await (await pagePromise).getTextContent()
         const runs = content.items as PositionedRun[]
         if (findPassageRange(runs.map((r) => ({ str: r.str ?? '' })), highlight)) {
-          if (!cancelled) setPageNumber(n)
+          if (!cancelled) {
+            setPageNumber(n)
+            setHighlightMissing(false)
+            setScanOutcome('idle')
+          }
           return
         }
+      }
+      if (!cancelled && scanRequested) {
+        setScanOutcome('not-found')
+        setAnnouncement(`The passage was not found in the first ${limit} pages`)
       }
     })()
     return () => {
       cancelled = true
     }
-  }, [status, initialPage, highlight, numPages, getPage, fileUrl])
+  }, [status, initialPage, scanRequested, highlight, numPages, getPage, fileUrl])
 
   function goToPage(n: number) {
     setPageNumber(Math.min(Math.max(1, n), Math.max(1, numPages)))
@@ -539,6 +565,40 @@ export function PdfReader(
       </div>
 
       <LiveStatus message={announcement} />
+
+      {highlightMissing && highlight
+        ? (
+          <div
+            role='status'
+            className='flex flex-wrap items-center gap-x-3 gap-y-1 border-b px-3 py-2 text-xs'
+            style={{
+              borderColor: 'var(--rp-warn-line)',
+              background: 'var(--rp-warn-bg)',
+              color: 'var(--rp-warn-ink)',
+            }}
+          >
+            <span className='font-medium'>Highlight not found on this page.</span>
+            {scanOutcome === 'searching'
+              ? <span>Searching the document for the passage…</span>
+              : scanOutcome === 'not-found'
+              ? (
+                <span>
+                  It was not found in the first {Math.min(numPages, PASSAGE_SCAN_LIMIT)}{' '}
+                  pages either - the cited text may differ from this file's text layer.
+                </span>
+              )
+              : (
+                <button
+                  type='button'
+                  onClick={() => setScanRequested(true)}
+                  className='rp-focus rounded-[var(--rp-radius-btn)] font-medium underline decoration-dotted underline-offset-2'
+                >
+                  Find it in the document
+                </button>
+              )}
+          </div>
+        )
+        : null}
 
       <div
         ref={containerRef}
