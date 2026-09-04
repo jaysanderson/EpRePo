@@ -593,6 +593,8 @@ export const MAX_PREQUERIES = 10
 export const PINNED_TOP_K = 20
 /** Paragraph budget of a clause pass against a pinned resource. */
 export const PINNED_CLAUSE_TOP_K = 10
+/** Paragraph budget of a scoped topic pass (an author's articles). */
+export const SCOPED_TOP_K = 30
 
 /**
  * The extra retrieval passes that join an ask's grounding set, in priority
@@ -610,12 +612,25 @@ export function groundingPrequeries(
   opts: {
     pinnedResourceIds?: readonly string[]
     pinnedQueries?: readonly string[]
+    scopedQueries?: readonly { query: string; resourceIds: readonly string[] }[]
     prefer?: readonly LabelRef[]
     prequeries?: readonly string[]
   },
 ): Record<string, unknown>[] {
   const features = ['keyword', 'semantic']
   const out: Record<string, unknown>[] = []
+  for (const scoped of (opts.scopedQueries ?? []).slice(0, 2)) {
+    if (!scoped.query.trim() || scoped.resourceIds.length === 0) continue
+    out.push({
+      request: {
+        query: scoped.query,
+        features,
+        resource_filters: scoped.resourceIds.slice(0, 80),
+        top_k: SCOPED_TOP_K,
+      },
+      weight: 2,
+    })
+  }
   const pinned = (opts.pinnedResourceIds ?? []).slice(0, 4)
   for (const id of pinned) {
     out.push({
@@ -3420,6 +3435,7 @@ export class AragProvider implements RetrievalProvider {
     const prequeries = groundingPrequeries(query, {
       pinnedResourceIds: opts.pinnedResourceIds,
       pinnedQueries: opts.pinnedQueries,
+      scopedQueries: opts.scopedQueries,
       prefer: intent?.retrieval.prefer,
       prequeries: opts.prequeries,
     })

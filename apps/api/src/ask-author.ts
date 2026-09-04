@@ -131,6 +131,41 @@ export function authorsNamed(
   return out
 }
 
+/**
+ * The retrieval text for an author-scoped question: the question with the
+ * attribution scaffolding removed ("What has D'Souza and colleagues
+ * published on seizure cycles?" becomes "seizure cycles"). Retrieval is
+ * already scoped to the author's articles, and the surname in the text
+ * otherwise matches the reference lists of their other papers rather than
+ * the papers' own findings (D1-05). Empty when nothing but scaffolding
+ * remains.
+ */
+export function authorTopicQuery(query: string, surnames: readonly string[]): string {
+  let text = query
+  for (const surname of surnames) {
+    text = text.replace(attributionPattern(surname), ' ')
+    text = text.replace(
+      new RegExp(
+        `\\b(?:the\\s+)?${
+          surname.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/['’]/g, "['’]")
+        }(?:['’]s)?\\b`,
+        'gi',
+      ),
+      ' ',
+    )
+  }
+  text = text
+    .replace(
+      /\b(?:what|which|where|when)\s+(?:has|have|had|did|does|do|is|are|was|were)\b|\b(?:has|have)\s+(?:been\s+)?(?:published|written|authored|reported|found|shown|studied|investigated)\b|\b(?:published|publish|publications?|papers?|work|works|studies|research|contributions?)\s+(?:on|about|into|regarding|concerning)\b|\b(?:their|his|her|the)\s+(?:work|research|papers?|publications?|studies)\b/gi,
+      ' ',
+    )
+    .replace(/^\s*(?:on|about|into|regarding|concerning)\b/i, ' ')
+    .replace(/[?.!]+\s*$/, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return text.split(/\s+/).filter((w) => w.length > 0).length >= 2 ? text : ''
+}
+
 /** "X and colleagues", "X et al.", "X and co-workers", "X's group", "the X group". */
 function attributionPattern(surname: string): RegExp {
   const name = surname.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/['’]/g, "['’]")

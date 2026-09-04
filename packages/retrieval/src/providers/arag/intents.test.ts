@@ -11,6 +11,7 @@ import {
   PINNED_CLAUSE_TOP_K,
   PINNED_TOP_K,
   researchExcludeFilterExpression,
+  SCOPED_TOP_K,
   shapeSourcesForIntent,
   splitPartialMarker,
 } from './index.ts'
@@ -188,6 +189,25 @@ describe('grounding prequeries', () => {
     // At most four pinned resources (named studies plus the top paper per
     // entity): a pinned set never crowds the window.
     expect(many.filter((q) => 'resource_filters' in (q.request as object)).length).toBe(4)
+  })
+  it("runs a scoped topic pass over an author's articles ahead of everything else", () => {
+    const queries = groundingPrequeries("What has D'Souza published on cycles?", {
+      scopedQueries: [{ query: 'seizure cycles', resourceIds: ['a', 'b'] }, {
+        query: '   ',
+        resourceIds: ['a'],
+      }],
+      prequeries: ['sub-question'],
+    })
+    expect(queries[0]).toEqual({
+      request: {
+        query: 'seizure cycles',
+        features: ['keyword', 'semantic'],
+        resource_filters: ['a', 'b'],
+        top_k: SCOPED_TOP_K,
+      },
+      weight: 2,
+    })
+    expect(queries.length).toBe(2)
   })
   it('holds back the start of a marker a later chunk completes', () => {
     expect(splitPartialMarker('relapse [')).toEqual({ emit: 'relapse', hold: ' [' })

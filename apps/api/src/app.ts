@@ -108,7 +108,7 @@ import {
 } from './answer-shape.ts'
 import { applicablePrequeries } from './ask-prequeries.ts'
 import { DOCS_DECLINE, DocsSentinelStream, rewriteDocsSentinels } from './docs-answer.ts'
-import { authorsNamed } from './ask-author.ts'
+import { authorsNamed, authorTopicQuery } from './ask-author.ts'
 import {
   type AuditEvent,
   bindAndAudit,
@@ -1674,6 +1674,41 @@ export function buildApp(opts: BuildAppOptions): Hono {
               'Library for coverage.',
             sources: result.sources,
           })
+        }
+        // A figure a section states that its source carries only in the
+        // introduction or discussion is that paper citing other studies:
+        // the section says so in one sentence, as the Ask surface does.
+        if (grounded && opts.management) {
+          const texts = new Map<string, string>()
+          await Promise.all(
+            attributed.sections.flatMap((section) => section.sources).map(async (source) => {
+              if (texts.has(source.resourceId)) return
+              try {
+                texts.set(
+                  source.resourceId,
+                  await extractionText(opts.management!, config, source.resourceId),
+                )
+              } catch {
+                // An unfetchable text is not judged.
+              }
+            }),
+          )
+          for (const section of attributed.sections) {
+            const byIndex = new Map<number, string>()
+            section.sources.forEach((source, i) => {
+              const text = texts.get(source.resourceId)
+              if (text) byIndex.set(i + 1, text)
+            })
+            const found = secondhandFigures(
+              [{ text: section.content, bound: [...byIndex.keys()] }],
+              byIndex,
+            )
+            if (found.length > 0) {
+              const figures = [...new Set(found.map((f) => f.figure))].join(', ')
+              section.content += ` (${figures}: quoted in the paper's introduction or ` +
+                'discussion from earlier studies, not its own result.)'
+            }
+          }
         }
         result.object = attributed
       }
@@ -3607,6 +3642,16 @@ export function buildApp(opts: BuildAppOptions): Hono {
       const authorTopK = resourceIds
         ? Math.max(intentDef?.retrieval.topK ?? 30, AUTHOR_SCOPE_TOP_K)
         : undefined
+      // The topic alone, searched within the author's articles: the surname
+      // in the retrieval text otherwise matches their other papers'
+      // reference lists, and a paper found only through its bibliography
+      // grounds nothing (D1-05).
+      const authorTopic = resourceIds
+        ? authorTopicQuery(query, namedAuthors.map((a) => a.surname))
+        : ''
+      const scopedQueries = resourceIds && authorTopic
+        ? [{ query: authorTopic, resourceIds }]
+        : undefined
       let intentForAsk = askOpts.intent
       let preflightRan = false
       // The closest resources the pre-flight found: named in a decline, and
@@ -3973,6 +4018,7 @@ export function buildApp(opts: BuildAppOptions): Hono {
               ...askOpts,
               ...(resourceIds ? { resourceIds } : {}),
               ...(authorTopK ? { topK: authorTopK } : {}),
+              ...(scopedQueries ? { scopedQueries } : {}),
               ...(current.resourceId ? { resourceId: current.resourceId } : {}),
               intent: current.intent,
               prequeries: current.prequeries,

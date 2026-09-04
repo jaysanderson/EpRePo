@@ -1,7 +1,13 @@
 import { describe, it } from '@std/testing/bdd'
 import { expect } from '@std/expect'
 import type { ResourceSummary } from '@research-portal/core'
-import { authorsNamed, correctAttributions, hasAuthor, surnameOf } from './ask-author.ts'
+import {
+  authorsNamed,
+  authorTopicQuery,
+  correctAttributions,
+  hasAuthor,
+  surnameOf,
+} from './ask-author.ts'
 
 const resource = (id: string, authors: string[]): ResourceSummary => ({
   id,
@@ -67,5 +73,24 @@ describe('correctAttributions', () => {
   it('leaves an unmarked sentence alone', () => {
     const text = "D'Souza and colleagues have contributed to this field."
     expect(correctAttributions(text, authors, citations, authorsOf).text).toBe(text)
+  })
+})
+
+describe('authorTopicQuery', () => {
+  it('keeps the topic and drops the attribution scaffolding', () => {
+    expect(
+      authorTopicQuery(
+        "What has D'Souza and colleagues published on seizure cycles and forecasting?",
+        [
+          "D'Souza",
+        ],
+      ),
+    ).toBe('seizure cycles and forecasting')
+    expect(authorTopicQuery('Summarise the Karoly group work on wearables', ['Karoly'])).toBe(
+      'Summarise wearables',
+    )
+  })
+  it('is empty when only scaffolding remains', () => {
+    expect(authorTopicQuery("What has D'Souza published?", ["D'Souza"])).toBe('')
   })
 })

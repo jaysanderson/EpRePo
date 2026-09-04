@@ -64,6 +64,12 @@ export interface AskOptions {
    */
   pinnedQueries?: string[]
   /**
+   * Extra retrieval passes restricted to a set of resources (an author's
+   * articles searched for the topic alone, without the author's name, which
+   * otherwise matches their other papers' reference lists).
+   */
+  scopedQueries?: { query: string; resourceIds: string[] }[]
+  /**
    * Paragraph budget for retrieval, overriding the stored configuration's
    * (an author-scoped review over forty papers needs more than twenty
    * paragraphs). With a budget set, whole-resource grounding gives way to
