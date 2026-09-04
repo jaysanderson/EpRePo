@@ -138,7 +138,7 @@ export function EntityPage() {
     <main className='mx-auto max-w-4xl px-6 py-8'>
       <Link
         to={`/t/${config.slug}/graph`}
-        className='text-sm font-medium text-[var(--rp-ink-3)] transition-colors duration-150 hover:text-[var(--rp-ink)]'
+        className='rp-focus inline-flex min-h-6 items-center rounded-[var(--rp-radius-btn)] text-sm font-medium text-[var(--rp-ink-3)] transition-colors duration-150 hover:text-[var(--rp-ink)]'
       >
         &larr; Back to graph
       </Link>

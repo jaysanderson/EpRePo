@@ -604,7 +604,7 @@ export function LibraryBrowser(
                       <button
                         type='button'
                         onClick={() => setSelectedTopics([])}
-                        className='text-xs font-medium text-[var(--rp-ink-3)] transition-colors duration-150 hover:text-[var(--rp-ink)]'
+                        className='inline-flex min-h-6 items-center text-xs font-medium text-[var(--rp-ink-3)] transition-colors duration-150 hover:text-[var(--rp-ink)]'
                       >
                         Clear
                       </button>
@@ -667,7 +667,7 @@ export function LibraryBrowser(
                             <button
                               type='button'
                               onClick={() => setSelectedKinds([])}
-                              className='text-xs font-medium text-[var(--rp-ink-3)] transition-colors duration-150 hover:text-[var(--rp-ink)]'
+                              className='inline-flex min-h-6 items-center text-xs font-medium text-[var(--rp-ink-3)] transition-colors duration-150 hover:text-[var(--rp-ink)]'
                             >
                               Clear
                             </button>
@@ -718,7 +718,7 @@ export function LibraryBrowser(
                                 setFormatTouched(true)
                                 setSelectedFormats([])
                               }}
-                              className='text-xs font-medium text-[var(--rp-ink-3)] transition-colors duration-150 hover:text-[var(--rp-ink)]'
+                              className='inline-flex min-h-6 items-center text-xs font-medium text-[var(--rp-ink-3)] transition-colors duration-150 hover:text-[var(--rp-ink)]'
                             >
                               Clear
                             </button>

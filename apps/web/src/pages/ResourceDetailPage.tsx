@@ -952,7 +952,7 @@ function ResourceHeader(
                         href={fact.href}
                         target='_blank'
                         rel='noopener noreferrer'
-                        className='rp-focus break-all font-medium underline decoration-dotted underline-offset-2'
+                        className='rp-focus break-all py-1 font-medium underline decoration-dotted underline-offset-2'
                         style={{ color: 'var(--rp-accent-fg)' }}
                       >
                         {fact.value}
@@ -974,7 +974,7 @@ function ResourceHeader(
               href={originUrl}
               target='_blank'
               rel='noopener noreferrer'
-              className='rp-focus rounded-[var(--rp-radius-btn)] text-xs font-medium underline decoration-dotted underline-offset-2'
+              className='rp-focus inline-flex min-h-6 items-center rounded-[var(--rp-radius-btn)] text-xs font-medium underline decoration-dotted underline-offset-2'
               style={{ color: 'var(--rp-accent-fg)' }}
             >
               View original source <span aria-hidden='true'>&rarr;</span>
