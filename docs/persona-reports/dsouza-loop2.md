@@ -183,3 +183,19 @@ Other timings:
 | Help assistant | 5.9 s (PDF question), 10.9 s (watch question) |
 | Investigations, sessions, watches API | under 15 ms each |
 | Page loads (networkidle, desktop / 390 px) | Explore 0.61 / 0.95 s; Library 0.97 / 0.57 s; Library with Kind 0.77 / 0.59 s; Search 0.55 / 0.55 s; Resource 0.75 / 0.73 s; Ask 0.57 / 0.55 s; Investigations 0.55 / 0.54 s; Generate 0.56 / 0.55 s; Assessment 0.56 / 0.58 s; Graph 0.57 / 0.99 s ("Knowledge map ready" on load); Entity 0.74 / 0.57 s; Tools 0.54 / 0.55 s; Help 0.55 / 0.57 s; dark mode within 0.05 s of light on every page |
+
+---
+
+## Loop 2 fixes (merged 5 September 2026, PRs #10, #11 and #12 into `feat/eprepo-portal`)
+
+| Finding | Outcome |
+|---|---|
+| D2-01, D2-02, D2-03, D2-04, D2-12, D2-13, D1-16 | The figure audit is now a gate: a sentence whose figure the cited paragraph does not carry beside its outcome noun and population or entity is removed (with a note) or inherits the marker of the passage that holds it; a question-named cohort, drug or study must appear in the cited text before a figure is attributed to it; markers must match the sentence's entity, not only the number. N11 no longer attributes the fenfluramine SUDEP rate to the Melbourne cohort; N06 keeps only the LGI1 79% of 55; N09 gives PERMIT 64.2% (2698/4201) and EXPERIENCE 71.1% (n = 1644); N01 drops the drug-resistance 31%. |
+| D2-07 | Matcher handles number words, PDF hyphenation, "N (P%)" table cells, abbreviated units, clock times and paragraph-bounded windows; denominators pair only with proportions in the same sentence. Offline replay of all 30 loop 2 streams: zero false flags, every wrong figure caught. |
+| D2-09, D2-11 (D1-15), D2-15, D2-17 | Effect sizes with CI stated when the passage carries them; study-design lead on every intent for modelling and preclinical papers; audit-led confidence where the platform quality signal can lower but never raise; a "Checking N figures" state and REMi started before `done` with an 8 s cap. |
+| D2-05, D2-08, D2-03 (retrieval) | A paper named in the question is pinned with its own `resource_filters` prequery and, if the ask refuses or loses every citation, retried document-scoped with that paper's Abstract, Results, Methods and Conclusion as extra context; comparison questions retrieve once per named drug or study. N04 lists the five ILAE criteria verbatim with 48% (n = 60); N02 answers the EXPERIENCE subgroup from the paper that carries it. |
+| D2-06, D1-10, D2-16 | Briefings ground each section in Abstract, Results, Methods and Conclusion paragraphs plus the data-augmentation key takeaways and summary; synthesis carries every n or a/b, gaps only for uncovered points, unused references listed as not used. The rituximab and LGI1 briefing now carries HR 0.11 and 0.10 with cohort sizes. |
+| D2-10, D2-14, D2-23, D1-05 | Closest matches on refusal come from the semantic ranking with proceedings, attachments and (for human questions) preclinical papers dropped; the Search inline answer numbers citations by resource and applies the second-hand note; author scope counts and retrieves articles only (42) with a larger paragraph budget. |
+| D2-18 (D1-26), D2-19, D2-20, D2-21, D2-22 (D1-23), D1-27 | Help assistant no longer leaks template or "provided context" and documents both exports; sessions rail refreshes at `done`; lookup cards carry no byline quote; four kind rules added and pooled analysis narrowed; the five sub-24 px controls padded; briefing export notice verified. |
+
+Left for loop 3: N11's generator-worded decline still carries a marker; the gate can only inherit from texts the platform cited; two of the author's papers are reachable only through bibliography paragraphs; N02's group sizes sit in the main paper while the subgroup figures sit in the subgroup paper; the REMi tail can still reach 8 s when the platform does not answer.
