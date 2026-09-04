@@ -221,8 +221,8 @@ export const DOC_PAGES: DocPage[] = [
           'passages the answer was built from, and adds a short AI verdict on each source - ' +
           'whether it **Supports**, is **Partial** or is **Not relevant** to your question. ' +
           '(That judgement is only worked out when you open the journey, so it is never generated ' +
-          'for answers you do not choose to dig into.) **Show the pipeline** reveals the retrieve, ' +
-          'write and check stages behind it.\n\n' +
+          'for answers you do not choose to dig into.) Administrators additionally see **Show ' +
+          'the pipeline**, a developer view of the retrieve, write and check stages behind it.\n\n' +
           'When an answer comes back thinly grounded, Ask offers to **re-answer it ' +
           'deeply** - re-running your question against the full text of the matching documents ' +
           'rather than the retrieved passages alone - so a weak first pass has a one-tap path to a ' +
@@ -241,14 +241,18 @@ export const DOC_PAGES: DocPage[] = [
           'sub-questions, research each of them, and then answer with full-document grounding. ' +
           'It is slower but more thorough for broad or multi-part questions. Questions about ' +
           'risk, safety, effects or comparisons are broken down automatically so decisive ' +
-          'passages are not missed.',
+          'passages are not missed.\n\n' +
+          'The list of sub-questions shown above a deep answer is the multi-step view of that ' +
+          'research: each one was retrieved and answered on its way into the final answer, so ' +
+          'you can see how the question was broken down and which parts the corpus covered. ' +
+          'There is no separate "agentic" surface - the old /agentic address simply opens Ask.',
       },
       {
         heading: 'Feedback and watches',
         body:
           'Mark an answer **Helpful** or **Not helpful** to signal how well it landed. **Watch ' +
-          'this question** to keep an eye on it - the portal flags it when new results turn up ' +
-          'for it later.',
+          'this question** to keep an eye on it - the portal re-checks it daily and flags it in ' +
+          'Search when new results turn up. See **Watch a search** for how watches work.',
       },
     ],
   },
@@ -269,16 +273,21 @@ export const DOC_PAGES: DocPage[] = [
       {
         heading: 'The confidence signal',
         body:
-          'Every answer is scored for quality across three dimensions - how well it answers your ' +
-          'question (relevance), how firmly it is grounded in the sources (groundedness), and how ' +
-          'relevant the retrieved context was. Each is shown as a short, plain score you can read ' +
-          'at a glance, not just a coloured meter.\n\n' +
-          'When the sources only partly support an answer, a banner says so in plain language - ' +
-          'for example "Moderate confidence. The retrieved sources only partly support this ' +
-          'answer, check the citations before relying on it." A weakly supported answer is never ' +
-          'presented as authoritative; the banner is your cue to read the sources before you use ' +
-          'it.\n\n' +
-          'When confidence is low, Ask also offers to **re-answer the question deeply**, ' +
+          'Every finished answer carries a confidence control on its actions row, at the right ' +
+          'beneath the answer. It reads **High confidence**, **Moderate confidence**, **Low ' +
+          'confidence** or **Confidence not scored**, and it stays loud and labelled while the ' +
+          'news is bad: a low-confidence answer shows a warning you cannot miss, a high-confidence ' +
+          'one a quiet tick.\n\n' +
+          'Open the control to see what sits behind it. The answer is scored across three ' +
+          'dimensions - how well it answers your question (answer relevance), how firmly it is ' +
+          'grounded in the sources (groundedness), and how relevant the retrieved context was ' +
+          '(context relevance) - each shown as a plain score out of five with a one-line reading. ' +
+          'Groundedness is the deciding signal: a fluent answer built on weak grounding is still ' +
+          'marked low. When the scorer did not run, the control says so rather than guessing.\n\n' +
+          'Where an answer quotes figures, Ask also checks them against the cited passages and ' +
+          'shows the result beside the answer, so a number that does not appear in its source ' +
+          'is flagged rather than passed off as fact.\n\n' +
+          'When confidence is low, the same panel offers to **re-answer the question deeply**, ' +
           'against the full text of the matching documents, so a thinly grounded first answer has ' +
           'a direct path to a firmer one rather than leaving you at a dead end.',
       },
@@ -304,6 +313,46 @@ export const DOC_PAGES: DocPage[] = [
           'Passages the answer did not rely on are still listed under **Also retrieved**, and you ' +
           'can open any source in place. Together this lets you audit an answer rather than take ' +
           'it on trust.',
+      },
+    ],
+  },
+  {
+    id: 'watches',
+    category: 'Finding answers',
+    title: 'Watch a search',
+    summary: 'Save a search or a question and be told when the corpus has something new for it.',
+    sections: [
+      {
+        heading: 'What a watch is',
+        body: 'A watch is a saved search the portal keeps re-running for you. Use **Watch this ' +
+          'search** on Search, or **Watch this question** beneath an Ask answer, and the query ' +
+          'is saved as a watch. The button changes to **Watching** so you can see the search is ' +
+          'already covered; watching the same query twice keeps one watch, not two.',
+      },
+      {
+        heading: 'The daily re-check and the dot',
+        body: 'Once a day the portal re-runs every watch against the knowledge box and compares ' +
+          'the top results with those from the last run. The first run only sets the baseline. ' +
+          'When a later run finds that the results have changed - new documents have been ' +
+          'ingested, or the ranking has moved - the watch is flagged.\n\n' +
+          "The flag is a small accent-coloured **dot** on the watch's chip in the **Saved** " +
+          'strip at the top of Search (screen readers hear "has new results"). Open the watch to ' +
+          'see the current results; that clears the dot until the next change. There is no ' +
+          'email or push notification - the portal tells you the next time you look.',
+      },
+      {
+        heading: 'Where the list lives',
+        body: 'Your watches appear as chips in the **Saved** strip above the results on ' +
+          'Search. Choose a chip to run that search again, or its cross to remove the watch. A ' +
+          'watch saved from an Ask answer appears in the same strip, since it is the question ' +
+          'text that is watched.',
+      },
+      {
+        heading: 'Per browser, not per account',
+        body: 'Watches belong to the browser you created them in, not to a sign-in, so the same ' +
+          'portal opened on another device or in a private window starts with an empty strip. ' +
+          'Clearing site data for the portal forgets your watches. Each browser can hold up to ' +
+          'fifty watches per portal; the oldest is dropped when a new one would exceed that.',
       },
     ],
   },
@@ -515,7 +564,8 @@ export const DOC_PAGES: DocPage[] = [
           'content - a quick way to test your grasp of the material or to bring someone new up to ' +
           'speed. It builds in three steps:\n\n' +
           '1. **Choose a knowledge area** - pick one of the corpus topics (each card shows how ' +
-          'many sources sit behind it).\n' +
+          'many sources sit behind it), or type your own topic - a syndrome, a drug, a method - ' +
+          'into the topic box and choose **Build on this topic**.\n' +
           '2. **Set the shape** - choose how many questions (3, 5 or 10) and how deep to go ' +
           '(Foundational, Intermediate or Advanced).\n' +
           '3. **Generate the assessment** - the portal writes the questions from the sources in ' +
@@ -523,8 +573,11 @@ export const DOC_PAGES: DocPage[] = [
       },
       {
         heading: 'Taking it',
-        body: 'Answer the questions and see how you did, with the relevant sources to read up on ' +
-          'anything you missed. Use **Change area** to build another check on a different topic.',
+        body: 'Answer the questions and submit to see how you did. Each question then shows its ' +
+          'explanation and the **source** it was written from, linked to that document in the ' +
+          'Library, so you can read up on anything you missed. Intermediate and advanced checks ' +
+          'ask for the figures and comparisons in the sources rather than definitions. Use ' +
+          '**Change area** to build another check on a different topic.',
       },
     ],
   },
@@ -565,7 +618,12 @@ export const DOC_PAGES: DocPage[] = [
         heading: 'Synthesis and output',
         body:
           'When you have gathered enough, **Synthesise the evidence** draws the threads together ' +
-          '- grounded strictly on the evidence you have kept, not the whole corpus. From there ' +
+          '- grounded strictly on the evidence you have kept, not the whole corpus. Your verdicts, ' +
+          'tags and notes travel with each passage: evidence marked **Not relevant** is left out, ' +
+          'evidence marked **Contradicts** is reported as opposing evidence rather than support, ' +
+          'and a note that corrects a passage overrides what the passage appears to say. If some ' +
+          'evidence is still unjudged or contradicted, the portal says so before it synthesises ' +
+          'and lets you judge first. The finished synthesis lists what it excluded. From there ' +
           'you can **Export to Word** to take the whole case with you.',
       },
     ],

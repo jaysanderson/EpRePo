@@ -58,6 +58,7 @@ const grdc: TenantConfig = TenantConfigSchema.parse({
     },
   },
   searchPlaceholder: 'Search agronomy, crop protection, soils, farm business…',
+  assessmentHeading: 'Industry Knowledge Areas',
   // These ids must match the `topic` labelset on the bound knowledge box -
   // Explore intersects them with the box's facet counts, so an id that is not a
   // real label silently yields an empty portal. Read from the box on
@@ -110,6 +111,7 @@ const frdc: TenantConfig = TenantConfigSchema.parse({
     bannerImageUrl: '/brand/hero/frdc-frdcconnectbanner.jpg',
   },
   searchPlaceholder: 'Search fisheries, aquaculture, stock assessment, marine ecology…',
+  assessmentHeading: 'Industry Knowledge Areas',
   // These ids must match the `topic` labelset actually on the bound knowledge
   // box - Explore intersects them with the box's classification facet counts,
   // so an id that is not a real label silently yields an empty portal.
@@ -171,6 +173,7 @@ const eprepo: TenantConfig = TenantConfigSchema.parse({
     logoUrl: '/brand/eprepo-logo.svg',
   },
   searchPlaceholder: 'Search seizure forecasting, genetics, antiseizure medications, surgery…',
+  assessmentHeading: 'Research knowledge areas',
   // A global research initiative: the corpus is not organised by Australian
   // state, so Explore omits the regional discovery band.
   regionalDiscovery: false,
@@ -479,6 +482,7 @@ export interface TenantPatch {
   topics?: TenantConfig['topics']
   suggestedQuestions?: TenantConfig['suggestedQuestions']
   searchPlaceholder?: string
+  assessmentHeading?: string
   branding?: TenantConfig['branding']
   /** Portal-managed behaviour settings (system prompt, image grounding). */
   prompts?: { ask?: string; images?: boolean }

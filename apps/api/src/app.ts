@@ -30,6 +30,12 @@ import { type NewTenantInput, TenantStore, type TenantStoreApi } from './tenants
 import { BindingStore, type BindingStoreApi } from './bindings.ts'
 import { accountOpsAvailable, createKnowledgeBox, enableHiddenResources } from './arag-account.ts'
 import { GENERATE_SCHEMAS } from './generate-schemas.ts'
+import {
+  ASSESSMENT_INSTRUCTIONS,
+  attributeBriefing,
+  attributeQuiz,
+  BRIEFING_INSTRUCTIONS,
+} from './generate-sources.ts'
 import { analyseTenant } from './analyse.ts'
 import {
   type GraphStrategyInput,
@@ -77,6 +83,7 @@ import {
   popplerAvailable,
   profileResource,
 } from './extraction.ts'
+import type { DocsHealth } from './docs-health.ts'
 import {
   type EnrichmentCollisionPolicy,
   type EnrichmentRecords,
@@ -611,6 +618,8 @@ export interface BuildAppOptions {
   webDistPath?: string
   /** Runtime adapters that serve assets outside the local filesystem set this explicitly. */
   webAvailable?: boolean
+  /** Documentation readiness probe (docs-health.ts); reported on /api/health as `docs`. */
+  docsHealth?: Pick<DocsHealth, 'snapshot' | 'ok' | 'checkTenant'>
   buildSha?: string
   /** Where uploaded branding assets live; overridable in tests. Defaults to BRANDING_PATH or ./data/branding. */
   brandingPath?: string
@@ -780,8 +789,20 @@ export function buildApp(opts: BuildAppOptions): Hono {
   const webDistPath = opts.webDistPath ?? './apps/web/dist'
   app.get('/api/health', (c) => {
     const web = opts.webAvailable ?? existsSync(`${webDistPath}/index.html`)
+    // Documentation readiness (see docs-health.ts): a portal whose in-app
+    // documentation was never ingested answers every route fine while Help
+    // returns nothing. It is reported here, per portal, so a deploy without
+    // docs is visible - but it never fails liveness, so a missing help
+    // section cannot take a serving portal out of rotation.
+    const docs = opts.docsHealth?.snapshot()
+    const docsOk = opts.docsHealth?.ok() ?? true
     return c.json(
-      { ok: web, web, version: opts.buildSha ?? process.env.BUILD_SHA ?? 'dev' },
+      {
+        ok: web,
+        web,
+        version: opts.buildSha ?? process.env.BUILD_SHA ?? 'dev',
+        ...(docs ? { docs, docsOk } : {}),
+      },
       web ? 200 : 503,
     )
   })
@@ -1347,8 +1368,17 @@ export function buildApp(opts: BuildAppOptions): Hono {
       // ingested cleanly as a resource but is actually a bot-check page)
       // this refuses rather than producing a fluent, plausible artefact from
       // background knowledge with real-looking citations to junk sources.
+      // Briefings and quizzes carry writing instructions on the system
+      // prompt: concrete figures and a named source per section or question
+      // (generate-sources.ts). The other kinds keep the platform default.
+      const instructions = parsed.data.kind === 'briefing'
+        ? BRIEFING_INSTRUCTIONS
+        : parsed.data.kind === 'assessment'
+        ? ASSESSMENT_INSTRUCTIONS
+        : undefined
       const result = await opts.management.askStructured(config, schema, parsed.data.query, {
         requireGrounding: true,
+        ...(instructions ? { instructions } : {}),
       })
       // Merchandise the answer surface's own sources the same way /search,
       // /catalog and /resources are - see BUG 1: the enrichment store lives
@@ -1364,6 +1394,36 @@ export function buildApp(opts: BuildAppOptions): Hono {
           } on this topic. Try a broader topic or check the Library for coverage.`,
           sources: result.sources,
         })
+      }
+      // A briefing section stands only on sources that were actually
+      // retrieved: model-named titles resolve to resource ids, and a section
+      // nothing supports is withheld and listed as omitted (P6-07). A quiz
+      // question's source resolves the same way (P8-11).
+      if (parsed.data.kind === 'briefing' && result.object && typeof result.object === 'object') {
+        const attributed = attributeBriefing(
+          result.object as Record<string, unknown>,
+          result.sources,
+        )
+        if (attributed.sections.length === 0) {
+          return c.json({
+            kind: parsed.data.kind,
+            insufficientGrounding: true,
+            message: 'None of the briefing could be attributed to a retrieved source, so it was ' +
+              'withheld rather than presented unsourced. Try a narrower topic or check the ' +
+              'Library for coverage.',
+            sources: result.sources,
+          })
+        }
+        result.object = attributed
+      }
+      if (
+        parsed.data.kind === 'assessment' && result.object && typeof result.object === 'object'
+      ) {
+        result.object = attributeQuiz(
+          result.object as Record<string, unknown>,
+          result.sources,
+          result.passagesByResource,
+        )
       }
       // Comparison cells that came back empty get one targeted second look -
       // "Not specified" must mean the corpus is silent, not that retrieval
@@ -2648,6 +2708,9 @@ export function buildApp(opts: BuildAppOptions): Hono {
     try {
       const configs = await management!.ensureSearchConfigs(config).catch(() => [] as string[])
       const result = await management!.ingestDocumentation(config)
+      // Refresh the readiness signal so /api/health reflects the ingestion
+      // (best effort: a freshly ingested page can take a minute to index).
+      void opts.docsHealth?.checkTenant(config).catch(() => {})
       return c.json({ ok: true, searchConfigs: configs, ...result })
     } catch (err) {
       const handled = ingestErrorResponse(err)

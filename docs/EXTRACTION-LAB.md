@@ -10,6 +10,16 @@
 > buckets and streamed re-ingest, and the loader honouring the rules (a method must first be
 > registered on the production box; the lab registers on the sandbox only).
 
+> Update 2026-09-04 (roadmap R26, persona finding P4-10): the compare recommendation is now a
+> function of the profile class first - a `tables` document recommends the table-aware method,
+> an `image-only`, `garbled-text` or `long-scan` document the visual method - and the judge
+> only overrides that on a clear loss (its score at least 2 points below the best other method;
+> `JUDGE_OVERRIDE_MARGIN` in `apps/api/src/extraction.ts`). The `done` event carries a one-line
+> `reason`. `yieldVsDefault` is filled on every method's event once Default has landed, and the
+> before/after ask runs as a sandbox ask (`AskOptions.sandbox`): no stored search configuration
+> (the lab box has none - naming `portal-ask` there 400s "Search configuration not found"), a
+> zero retrieval score floor, and full-document grounding on the uploaded copy.
+
 > Design and solution architecture for the second horizontal demo on the EpRePo fork, written
 > 2026-09-03. A sibling to `docs/INTENT-ROUTING.md`: that demo shows what a knowledge box does
 > with a question; this one shows what a knowledge box can ever know, which is decided before

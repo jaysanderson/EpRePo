@@ -152,7 +152,12 @@ function CompareCard(
   const [stage, setStage] = useState<string | null>(null)
   const [results, setResults] = useState<MethodResult[]>([])
   const [done, setDone] = useState<
-    { recommended: string | null; purged: number; yields: Record<string, number> } | null
+    {
+      recommended: string | null
+      reason: string
+      purged: number
+      yields: Record<string, number>
+    } | null
   >(null)
   const [message, setMessage] = useState<Message | null>(null)
   const [busy, setBusy] = useState(false)
@@ -241,7 +246,12 @@ function CompareCard(
             text: event.method ? `${event.method}: ${event.message}` : event.message,
           })
         } else if (event.type === 'done') {
-          setDone({ recommended: event.recommended, purged: event.purged, yields: event.yields })
+          setDone({
+            recommended: event.recommended,
+            reason: event.reason,
+            purged: event.purged,
+            yields: event.yields,
+          })
           setStage(null)
         }
       }, controller.signal)
@@ -389,8 +399,15 @@ function CompareCard(
         ? (
           <p className='mt-3 text-xs text-ink-3'>
             {done.recommended
-              ? `Recommended for this document: ${done.recommended}.`
-              : 'No recommendation.'} Sandbox copies purged: {done.purged}.
+              ? (
+                <>
+                  <span className='font-medium text-ink-2'>
+                    Recommended for this document: {done.recommended}.
+                  </span>{' '}
+                  {done.reason}
+                </>
+              )
+              : done.reason} Sandbox copies purged: {done.purged}.
           </p>
         )
         : null}

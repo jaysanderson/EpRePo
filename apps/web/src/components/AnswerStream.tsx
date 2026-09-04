@@ -342,6 +342,8 @@ export function AnswerStream(
   const [usage, setUsage] = useState<UsageEvent | null>(null)
   const [quality, setQuality] = useState<QualityScores | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  /** The corpus (or, scoped, this document) could not answer; guidance was shown instead. */
+  const [refused, setRefused] = useState(false)
   const [retryToken, setRetryToken] = useState(0)
   const [activeStage, setActiveStage] = useState<AskStage | null>(null)
   const [seenStages, setSeenStages] = useState<Set<AskStage>>(() => new Set())
@@ -378,6 +380,7 @@ export function AnswerStream(
       setUsage(null)
       setQuality(null)
       setErrorMessage(null)
+      setRefused(false)
       return
     }
 
@@ -390,6 +393,7 @@ export function AnswerStream(
     setUsage(null)
     setQuality(null)
     setErrorMessage(null)
+    setRefused(false)
 
     streamAsk(slug, request, (event: AskEvent) => {
       switch (event.type) {
@@ -420,6 +424,7 @@ export function AnswerStream(
           // the model's unbound numbering, which is what a marker click would
           // have to trust. SearchAnswer and AskPage already do this.
           if (event.text !== undefined) setText(event.text)
+          setRefused(Boolean(event.refused))
           setStatus('done')
           break
         case 'error':
@@ -529,6 +534,26 @@ export function AnswerStream(
               statuses={statusesFor(activeStage, seenStages)}
               exiting={phase === 'handoff'}
             />
+          )
+          : scopedToResource && refused && status === 'done'
+          ? (
+            /* Document scope: the whole-corpus decline ("browse the Library")
+             * makes no sense when the question was checked against one
+             * document. Say that plainly and offer the corpus. */
+            <div className='rp-answer-in rounded-[var(--rp-radius)] border border-dashed border-line bg-surface-2 p-4'>
+              <p className='text-sm font-semibold text-ink'>This document does not answer that</p>
+              <p className='mt-1 text-sm leading-relaxed text-ink-2'>
+                The question was checked against this document only, and nothing in it addresses it.
+                Try asking about something the document covers, or put the question to the whole
+                corpus.
+              </p>
+              <Link
+                to={`/t/${slug}/ask?ask=${encodeURIComponent(request.query)}`}
+                className='rp-btn rp-btn-outline mt-3'
+              >
+                Ask the whole corpus
+              </Link>
+            </div>
           )
           : text.length > 0
           ? <div className='rp-answer-in'>{renderAnswerText(text, renderMarker)}</div>

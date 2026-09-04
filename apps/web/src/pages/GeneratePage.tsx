@@ -1,6 +1,6 @@
 import { type CSSProperties, type FormEvent, useMemo, useRef, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
-import { useOutletContext, useSearchParams } from 'react-router-dom'
+import { Link, useOutletContext, useSearchParams } from 'react-router-dom'
 import type { GenerateKind, ResourceSummary } from '@research-portal/core'
 import { generateArtifact } from '../api/client.ts'
 import { CurrencyNote } from '../components/CurrencyNote.tsx'
@@ -75,12 +75,15 @@ type Rating = { dimension: string; assessment: string; source?: string }
 type ComparisonItem = { name: string; ratings: Rating[] }
 type ComparisonObject = { dimensions: string[]; items: ComparisonItem[] }
 
-type BriefingSection = { heading: string; content: string }
+type BriefingSource = { resourceId: string; title: string }
+type BriefingSection = { heading: string; content: string; sources?: BriefingSource[] }
 type BriefingObject = {
   title: string
   executive_summary: string
   sections: BriefingSection[]
   key_takeaways: string[]
+  /** Headings the server withheld because no retrieved source supported them. */
+  omitted_sections?: string[]
 }
 
 type TimelineEvent = { date: string; title: string; description: string }
@@ -98,6 +101,9 @@ type AssessmentQuestion = {
   correct_index: number
   explanation: string
   topic: string
+  /** The retrieved resource the question was written from, when the server could resolve it. */
+  source_resource_id?: string | null
+  source_title?: string | null
 }
 type AssessmentObject = { questions: AssessmentQuestion[] }
 
@@ -138,8 +144,14 @@ function isBriefing(value: unknown): value is BriefingObject {
   ) {
     return false
   }
+  if (value.omitted_sections !== undefined && !isStringArray(value.omitted_sections)) return false
   return value.sections.every(
-    (s) => isRecord(s) && typeof s.heading === 'string' && typeof s.content === 'string',
+    (s) =>
+      isRecord(s) && typeof s.heading === 'string' && typeof s.content === 'string' &&
+      (s.sources === undefined ||
+        (Array.isArray(s.sources) && s.sources.every((src) =>
+          isRecord(src) && typeof src.resourceId === 'string' && typeof src.title === 'string'
+        ))),
   )
 }
 
@@ -192,7 +204,11 @@ function isAssessment(value: unknown): value is AssessmentObject {
       isStringArray(q.options) &&
       typeof q.correct_index === 'number' &&
       typeof q.explanation === 'string' &&
-      typeof q.topic === 'string',
+      typeof q.topic === 'string' &&
+      (q.source_resource_id === undefined || q.source_resource_id === null ||
+        typeof q.source_resource_id === 'string') &&
+      (q.source_title === undefined || q.source_title === null ||
+        typeof q.source_title === 'string'),
   )
 }
 
@@ -259,7 +275,8 @@ function ComparisonTable({ data }: { data: ComparisonObject }) {
   )
 }
 
-function BriefingDoc({ data }: { data: BriefingObject }) {
+function BriefingDoc({ data, slug }: { data: BriefingObject; slug: string }) {
+  const omitted = data.omitted_sections ?? []
   return (
     <div className='rounded-[calc(var(--rp-radius)+4px)] border border-line bg-surface p-6 shadow-sm sm:p-8'>
       <h2 className='text-xl font-semibold tracking-tight text-ink'>{data.title}</h2>
@@ -286,9 +303,34 @@ function BriefingDoc({ data }: { data: BriefingObject }) {
           <div key={i}>
             <h3 className='text-sm font-semibold text-ink'>{s.heading}</h3>
             <p className='mt-1.5 text-sm leading-relaxed text-ink-2'>{s.content}</p>
+            {s.sources && s.sources.length > 0 && (
+              <p className='mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-3'>
+                <span>Sources:</span>
+                {s.sources.map((src) => (
+                  <Link
+                    key={src.resourceId}
+                    to={`/t/${slug}/library/${encodeURIComponent(src.resourceId)}`}
+                    className='rp-focus max-w-[24rem] truncate font-medium underline-offset-2 hover:underline'
+                    style={{ color: 'var(--rp-accent-fg)' }}
+                    title={src.title}
+                  >
+                    {src.title}
+                  </Link>
+                ))}
+              </p>
+            )}
           </div>
         ))}
       </div>
+
+      {omitted.length > 0 && (
+        <p className='mt-5 border-t border-line pt-4 text-xs leading-relaxed text-ink-3'>
+          {omitted.length === 1 ? 'One section was' : `${omitted.length} sections were`}{' '}
+          left out because no retrieved source supported {omitted.length === 1 ? 'it' : 'them'}:
+          {' '}
+          {omitted.join('; ')}.
+        </p>
+      )}
     </div>
   )
 }
@@ -389,7 +431,7 @@ function FaqView({ data }: { data: FaqObject }) {
 }
 
 /** Interactive quiz - pick an answer per question, submit reveals correct/incorrect + a score. */
-function AssessmentQuiz({ data }: { data: AssessmentObject }) {
+function AssessmentQuiz({ data, slug }: { data: AssessmentObject; slug: string }) {
   const [selected, setSelected] = useState<Record<number, number>>({})
   const [submitted, setSubmitted] = useState(false)
 
@@ -467,6 +509,24 @@ function AssessmentQuiz({ data }: { data: AssessmentObject }) {
             {submitted && q.explanation && (
               <p className='mt-3 text-sm leading-relaxed text-ink-2'>{q.explanation}</p>
             )}
+            {submitted && (
+              <p className='mt-2 text-xs text-ink-3'>
+                {q.source_resource_id && q.source_title
+                  ? (
+                    <>
+                      Source:{' '}
+                      <Link
+                        to={`/t/${slug}/library/${encodeURIComponent(q.source_resource_id)}`}
+                        className='rp-focus font-medium underline-offset-2 hover:underline'
+                        style={{ color: 'var(--rp-accent-fg)' }}
+                      >
+                        {q.source_title}
+                      </Link>
+                    </>
+                  )
+                  : 'Source: not attributed - the question could not be tied to one retrieved document.'}
+              </p>
+            )}
           </div>
         ))}
       </div>
@@ -524,14 +584,18 @@ function SourcesRow({ sources }: { sources: ResourceSummary[] }) {
   )
 }
 
-function ArtifactBody({ kind, object }: { kind: GenerateKind; object: unknown }) {
+function ArtifactBody(
+  { kind, object, slug }: { kind: GenerateKind; object: unknown; slug: string },
+) {
   switch (kind) {
     case 'comparison':
       return isComparison(object)
         ? <ComparisonTable data={object} />
         : <RawFallback value={object} />
     case 'briefing':
-      return isBriefing(object) ? <BriefingDoc data={object} /> : <RawFallback value={object} />
+      return isBriefing(object)
+        ? <BriefingDoc data={object} slug={slug} />
+        : <RawFallback value={object} />
     case 'timeline':
       return isTimeline(object) ? <TimelineView data={object} /> : <RawFallback value={object} />
     case 'proscons':
@@ -540,7 +604,7 @@ function ArtifactBody({ kind, object }: { kind: GenerateKind; object: unknown })
       return isFaq(object) ? <FaqView data={object} /> : <RawFallback value={object} />
     case 'assessment':
       return isAssessment(object)
-        ? <AssessmentQuiz data={object} />
+        ? <AssessmentQuiz data={object} slug={slug} />
         : <RawFallback value={object} />
     default:
       return <RawFallback value={object} />
@@ -605,9 +669,21 @@ function artifactToHtml(
       }</ul>`
       : ''
     const sections = object.sections
-      .map((s) => `<h2>${escapeHtml(s.heading)}</h2><p>${escapeHtml(s.content)}</p>`)
+      .map((s) => {
+        const sourceLine = s.sources && s.sources.length > 0
+          ? `<p><small>Sources: ${
+            s.sources.map((src) => escapeHtml(src.title)).join('; ')
+          }</small></p>`
+          : ''
+        return `<h2>${escapeHtml(s.heading)}</h2><p>${escapeHtml(s.content)}</p>${sourceLine}`
+      })
       .join('')
-    contentHtml = `<p>${escapeHtml(object.executive_summary)}</p>${takeaways}${sections}`
+    const omitted = object.omitted_sections && object.omitted_sections.length > 0
+      ? `<p><small>Left out for want of a supporting source: ${
+        object.omitted_sections.map(escapeHtml).join('; ')
+      }</small></p>`
+      : ''
+    contentHtml = `<p>${escapeHtml(object.executive_summary)}</p>${takeaways}${sections}${omitted}`
   } else if (kind === 'timeline' && isTimeline(object)) {
     title = object.title
     contentHtml = `<ol>${
@@ -648,9 +724,12 @@ function artifactToHtml(
           )
           .join('')
         const topic = q.topic ? `<p><em>${escapeHtml(q.topic)}</em></p>` : ''
+        const source = q.source_title
+          ? `<p><small>Source: ${escapeHtml(q.source_title)}</small></p>`
+          : ''
         return `<h2>${i + 1}. ${
           escapeHtml(q.question)
-        }</h2>${topic}<ol type="a">${options}</ol><p>${escapeHtml(q.explanation)}</p>`
+        }</h2>${topic}<ol type="a">${options}</ol><p>${escapeHtml(q.explanation)}</p>${source}`
       })
       .join('')
   } else {
@@ -1013,6 +1092,7 @@ export function GeneratePage() {
             key={resultVersion}
             kind={mutation.data.kind}
             object={mutation.data.object}
+            slug={config.slug}
           />
           <ExportRow
             key={`export-${resultVersion}`}

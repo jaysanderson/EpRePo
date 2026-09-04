@@ -640,16 +640,38 @@ function readSynthesisData(data: unknown): SynthesisData {
   }
 }
 
+/**
+ * What a synthesis leaves out and what it carries with a caveat, read from
+ * the evidence list: passages marked Not relevant are excluded from the
+ * numbered evidence, passages marked Contradicts go in as opposing evidence,
+ * and unjudged passages go in flagged as such. Derived from the current
+ * verdicts, so it describes the evidence as it stands now.
+ */
+function synthesisCoverage(evidence: EvidenceItem[]): {
+  excluded: EvidenceItem[]
+  contradicting: number
+  unjudged: number
+} {
+  return {
+    excluded: evidence.filter((item) => item.verdict === 'not-relevant'),
+    contradicting: evidence.filter((item) => item.verdict === 'contradicts').length,
+    unjudged: evidence.filter((item) => item.verdict === null).length,
+  }
+}
+
 function SynthesisArtefactCard({
   slug,
   artefact,
   highlighted,
+  evidence,
 }: {
   slug: string
   artefact: InvestigationArtefact
   highlighted: boolean
+  evidence: EvidenceItem[]
 }) {
   const data = readSynthesisData(artefact.data)
+  const coverage = synthesisCoverage(evidence)
 
   return (
     <div
@@ -712,6 +734,57 @@ function SynthesisArtefactCard({
             <h4 className='text-xs font-semibold uppercase tracking-[0.06em] text-ink-3'>Gaps</h4>
             <ul className='mt-1.5 list-disc space-y-1 pl-5 text-sm leading-relaxed text-ink-2'>
               {data.gaps.map((line, index) => <li key={index}>{line}</li>)}
+            </ul>
+          </div>
+        )
+        : null}
+
+      {coverage.excluded.length > 0 || coverage.contradicting > 0 || coverage.unjudged > 0
+        ? (
+          <div className='mt-3 border-t border-line pt-3'>
+            <h4 className='text-xs font-semibold uppercase tracking-[0.06em] text-ink-3'>
+              What the synthesis left out
+            </h4>
+            <ul className='mt-1.5 space-y-1 text-xs leading-relaxed text-ink-2'>
+              {coverage.excluded.length > 0
+                ? (
+                  <li>
+                    Excluded {coverage.excluded.length}{' '}
+                    {coverage.excluded.length === 1 ? 'passage' : 'passages'} marked{' '}
+                    <strong>Not relevant</strong>:{' '}
+                    {coverage.excluded.map((item, index) => (
+                      <span key={item.id}>
+                        {index > 0 ? '; ' : ''}
+                        <Link
+                          to={`/t/${slug}/library/${encodeURIComponent(item.resourceId)}`}
+                          className='text-ink underline-offset-2 hover:underline'
+                        >
+                          {item.resourceTitle}
+                        </Link>
+                      </span>
+                    ))}
+                  </li>
+                )
+                : null}
+              {coverage.contradicting > 0
+                ? (
+                  <li>
+                    {coverage.contradicting} {coverage.contradicting === 1 ? 'passage' : 'passages'}
+                    {' '}
+                    marked <strong>Contradicts</strong>{' '}
+                    went in as opposing evidence, not as support.
+                  </li>
+                )
+                : null}
+              {coverage.unjudged > 0
+                ? (
+                  <li>
+                    {coverage.unjudged} unjudged{' '}
+                    {coverage.unjudged === 1 ? 'passage was' : 'passages were'}{' '}
+                    included and flagged as unjudged.
+                  </li>
+                )
+                : null}
             </ul>
           </div>
         )
@@ -977,6 +1050,7 @@ export function InvestigationDetailPage() {
   const [groupByTag, setGroupByTag] = useState(false)
   const [highlightArtefactId, setHighlightArtefactId] = useState<string | null>(null)
   const [synthesisMessage, setSynthesisMessage] = useState('')
+  const [synthesisWarning, setSynthesisWarning] = useState(false)
   const synthesisTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => () => {
@@ -1076,6 +1150,21 @@ export function InvestigationDetailPage() {
     .filter((e) => verdictFilter === 'all' || e.verdict === verdictFilter)
     .filter((e) => tagFilter === null || e.tags.includes(tagFilter))
 
+  // Synthesis works from the researcher's verdicts: unjudged passages go in
+  // flagged, contradicted ones as opposing evidence. Neither is what a
+  // researcher usually wants synthesised silently (P3-06), so the button
+  // first says what it would do and offers judging first.
+  const coverage = synthesisCoverage(sortedEvidence)
+  const needsWarning = coverage.unjudged > 0 || coverage.contradicting > 0
+  const startSynthesis = () => {
+    if (needsWarning && !synthesisWarning) {
+      setSynthesisWarning(true)
+      return
+    }
+    setSynthesisWarning(false)
+    void synthesise.mutate()
+  }
+
   return (
     <main className='mx-auto max-w-4xl px-6 py-10'>
       <Link to={`/t/${config.slug}/investigations`} className='text-sm text-ink-3 hover:text-ink'>
@@ -1100,7 +1189,7 @@ export function InvestigationDetailPage() {
         />
       </div>
 
-      <section className='mt-6'>
+      <section id='evidence-list' className='mt-6'>
         <div className='flex flex-wrap items-center justify-between gap-3'>
           <h2 className='text-sm font-semibold text-ink'>
             Evidence <span className='font-normal text-ink-3'>({sortedEvidence.length})</span>
@@ -1109,7 +1198,7 @@ export function InvestigationDetailPage() {
             <button
               type='button'
               disabled={sortedEvidence.length === 0 || synthesise.isPending}
-              onClick={() => void synthesise.mutate()}
+              onClick={startSynthesis}
               className='rp-btn rp-btn-primary disabled:cursor-not-allowed'
             >
               {synthesise.isPending ? 'Synthesising…' : 'Synthesise the evidence'}
@@ -1125,6 +1214,71 @@ export function InvestigationDetailPage() {
           </div>
         </div>
 
+        {synthesisWarning && !synthesise.isPending
+          ? (
+            <div
+              role='alert'
+              className='mt-3 rounded-[var(--rp-radius)] border p-4'
+              style={{ borderColor: 'var(--rp-warn-line)', background: 'var(--rp-warn-bg)' }}
+            >
+              <p className='text-sm font-medium' style={{ color: 'var(--rp-warn-ink)' }}>
+                Some of this evidence has not been weighed
+              </p>
+              <ul
+                className='mt-1.5 list-disc space-y-0.5 pl-5 text-xs leading-relaxed'
+                style={{ color: 'var(--rp-warn-ink)' }}
+              >
+                {coverage.unjudged > 0
+                  ? (
+                    <li>
+                      {coverage.unjudged}{' '}
+                      {coverage.unjudged === 1 ? 'passage has' : 'passages have'}{' '}
+                      no verdict. They will be included and flagged as unjudged.
+                    </li>
+                  )
+                  : null}
+                {coverage.contradicting > 0
+                  ? (
+                    <li>
+                      {coverage.contradicting}{' '}
+                      {coverage.contradicting === 1 ? 'passage is' : 'passages are'}{' '}
+                      marked Contradicts. They will be reported as opposing evidence, never as
+                      support.
+                    </li>
+                  )
+                  : null}
+                {coverage.excluded.length > 0
+                  ? (
+                    <li>
+                      {coverage.excluded.length}{' '}
+                      {coverage.excluded.length === 1 ? 'passage' : 'passages'}{' '}
+                      marked Not relevant will be left out.
+                    </li>
+                  )
+                  : null}
+              </ul>
+              <div className='mt-3 flex flex-wrap gap-2'>
+                <button type='button' onClick={startSynthesis} className='rp-btn rp-btn-primary'>
+                  Synthesise anyway
+                </button>
+                <button
+                  type='button'
+                  onClick={() => {
+                    setSynthesisWarning(false)
+                    setVerdictFilter('all')
+                    document.getElementById('evidence-list')?.scrollIntoView({
+                      behavior: 'smooth',
+                      block: 'start',
+                    })
+                  }}
+                  className='rp-btn rp-btn-outline'
+                >
+                  Judge the evidence first
+                </button>
+              </div>
+            </div>
+          )
+          : null}
         {synthesise.isPending
           ? <p aria-live='polite' className='mt-2 text-xs text-ink-3'>{synthesisMessage}</p>
           : null}
@@ -1232,6 +1386,7 @@ export function InvestigationDetailPage() {
                         slug={config.slug}
                         artefact={artefact}
                         highlighted={highlightArtefactId === artefact.id}
+                        evidence={investigation.evidence}
                       />
                     )
                     : <ArtefactRow key={artefact.id} artefact={artefact} />

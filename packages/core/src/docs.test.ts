@@ -61,6 +61,44 @@ describe('documentation content integrity', () => {
     }
   })
 
+  it('documents watches: the daily re-check, the dot, where the list lives, per browser (P8-12)', () => {
+    const page = docPageById('watches')
+    expect(page?.category).toBe('Finding answers')
+    const text = docPageToPlainText(page!)
+    for (const phrase of ['Once a day', 'dot', 'Saved', 'browser', 'Watch this search']) {
+      expect(text).toContain(phrase)
+    }
+    expect(docPageToPlainText(docPageById('assistant')!)).toContain('Watch a search')
+  })
+
+  it('describes the confidence signal Ask actually shows, not a banner it does not (P7-31)', () => {
+    const text = docPageToPlainText(docPageById('trust-and-citations')!)
+    for (
+      const label of [
+        'High confidence',
+        'Moderate confidence',
+        'Low confidence',
+        'Confidence not scored',
+      ]
+    ) {
+      expect(text).toContain(label)
+    }
+    expect(text).toContain('actions row')
+    expect(text).toContain('answer relevance')
+    expect(text).toContain('groundedness')
+    expect(text).toContain('context relevance')
+    // The figures check is described generically - no vendor or feature name.
+    expect(text).toContain('checks them against the cited passages')
+    expect(text).not.toContain('a banner says so')
+  })
+
+  it('names the Deep research sub-question list as the public multi-step view (P9-19)', () => {
+    const text = docPageToPlainText(docPageById('assistant')!)
+    expect(text).toContain('sub-questions shown above a deep answer')
+    expect(text).toContain('/agentic')
+    expect(text).toContain('Administrators additionally see')
+  })
+
   it('uses the current Ask and Tools surface names', () => {
     const gettingStarted = docPageToPlainText(docPageById('getting-started')!)
     const ask = docPageById('assistant')

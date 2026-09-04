@@ -52,6 +52,13 @@ export interface AskOptions {
    * excludes documentation. See packages/retrieval/CLAUDE.md.
    */
   docScope?: boolean
+  /**
+   * The tenant is a scratch sandbox box (the Extraction Lab): it carries none
+   * of the portal's stored search configurations and holds one freshly
+   * uploaded document at a time, so no named configuration is sent and no
+   * retrieval score floor applies - the resource filter is the whole scope.
+   */
+  sandbox?: boolean
 }
 
 export interface CatalogOptions {

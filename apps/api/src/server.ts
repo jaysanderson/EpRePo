@@ -6,6 +6,7 @@ import { buildApp } from './app.ts'
 import { BindingStore } from './bindings.ts'
 import { SourceStore, WatchStore } from './stores.ts'
 import { EnrichmentStore } from './enrichments.ts'
+import { DocsHealth } from './docs-health.ts'
 import { TenantStore } from './tenants.ts'
 import { loadRootEnv } from './load-env.ts'
 import { startScheduler } from './scheduler.ts'
@@ -30,6 +31,18 @@ const sources = new SourceStore()
 const watches = new WatchStore()
 const enrichments = new EnrichmentStore()
 
+// Documentation readiness: probe every bound portal's documentation-scoped
+// search at boot and report it on /api/health, so a portal provisioned
+// without its help pages ingested fails loudly instead of answering nothing.
+const docsHealth = new DocsHealth({
+  tenants: () =>
+    tenants.list().map((t) => tenants.get(t.slug)).filter((t): t is NonNullable<typeof t> =>
+      t !== undefined
+    ),
+  isBound: (slug) => bindings.get(slug) !== undefined,
+  provider,
+})
+
 const app = buildApp({
   provider,
   tenants,
@@ -41,9 +54,12 @@ const app = buildApp({
   zone,
   adminPasscode: process.env.ADMIN_PASSCODE,
   invalidate: (slug) => provider.invalidate(slug),
+  docsHealth,
 })
 
 startScheduler(provider, tenants, sources, watches, enrichments)
+// Off the listen path: the probe is a live retrieval call per portal.
+setTimeout(() => void docsHealth.check(), 3_000)
 
 // Serve the built SPA (deno task build:web) alongside the API - one origin, no proxy.
 // Cache-bust the entry bundle so a deploy is never masked by a stale copy in the

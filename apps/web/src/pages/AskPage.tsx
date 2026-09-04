@@ -28,6 +28,7 @@ import {
 } from '../api/client.ts'
 import { secondsUntilRetry } from '../lib/ask-budget.ts'
 import { AnswerMarkdown } from '../components/AnswerMarkdown.tsx'
+import { answerHtml, escapeHtml, referenceListHtml } from '../lib/answer-export.ts'
 import { citationHref, ContextJourney, EvidenceDisclosure } from '../components/AnswerStream.tsx'
 import { CompareConfigurations } from '../components/CompareConfigurations.tsx'
 import { CurrencyNote } from '../components/CurrencyNote.tsx'
@@ -1363,18 +1364,9 @@ function AnswerCard({
 // ---------------------------------------------------------------------------
 // Export - a standalone Word-compatible .doc of the current research trail.
 // Mirrors the export idiom in GeneratePage.tsx (a self-contained HTML shell
-// with the Word-namespaced <head>), rebuilt locally here since GeneratePage
-// doesn't export its helpers.
+// with the Word-namespaced <head>). The answer body and the reference list
+// come from lib/answer-export.ts, which runs the page's own block parser.
 // ---------------------------------------------------------------------------
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
-}
 
 function slugOrDate(title: string): string {
   const slug = title
@@ -1391,10 +1383,19 @@ function formatScore(score: number | null | undefined): string {
 
 /**
  * Renders the research trail as clean semantic HTML: one heading per
- * question, the answer text below it, a bracketed citation list of source
- * titles, and the REMi quality line when the platform scored the answer.
+ * question, the answer rendered through the page's own Markdown block parser
+ * (headings, lists, tables; `[n]` markers as superscripts), a numbered
+ * reference list in marker order built from the citation metadata (authors,
+ * journal, year, DOI, portal link), and the REMi quality line when the
+ * platform scored the answer. `resourceUrl` makes the portal links absolute
+ * so they resolve from the saved document.
  */
-function sessionToWordHtml(portalName: string, title: string, messages: ChatMessage[]): string {
+function sessionToWordHtml(
+  portalName: string,
+  title: string,
+  messages: ChatMessage[],
+  resourceUrl: (resourceId: string) => string,
+): string {
   const dateLine = new Date().toLocaleDateString('en-AU', {
     day: 'numeric',
     month: 'long',
@@ -1409,14 +1410,8 @@ function sessionToWordHtml(portalName: string, title: string, messages: ChatMess
       if (message.error) {
         return `<p><em>Answer unavailable - ${escapeHtml(message.error)}</em></p>`
       }
-      const answerHtml = message.text
-        .split(/\n{2,}/)
-        .filter((block) => block.trim().length > 0)
-        .map((block) => `<p>${escapeHtml(block.trim())}</p>`)
-        .join('')
-      const citationsHtml = message.citations.length > 0
-        ? `<p>[${message.citations.map((citation) => escapeHtml(citation.title)).join('; ')}]</p>`
-        : ''
+      const bodyHtml = answerHtml(message.text, message.citations)
+      const citationsHtml = referenceListHtml(message.citations, message.sources, resourceUrl)
       const qualityHtml = message.quality
         ? `<p><em>Answer relevance ${
           formatScore(message.quality.answerRelevance)
@@ -1424,7 +1419,7 @@ function sessionToWordHtml(portalName: string, title: string, messages: ChatMess
           formatScore(message.quality.groundedness)
         } &middot; Context relevance ${formatScore(message.quality.contextRelevance)}</em></p>`
         : ''
-      return `${answerHtml}${citationsHtml}${qualityHtml}`
+      return `${bodyHtml}${citationsHtml}${qualityHtml}`
     })
     .join('')
 
@@ -1446,7 +1441,14 @@ body { font-family: Georgia, 'Times New Roman', serif; color: #1a1a1a; line-heig
 h1, h2 { font-family: Arial, Helvetica, sans-serif; color: #111111; }
 h1 { font-size: 20pt; margin-bottom: 4pt; }
 h2 { font-size: 13pt; margin-top: 18pt; margin-bottom: 6pt; }
-p { margin: 6pt 0; font-size: 11pt; }
+h3 { font-size: 11.5pt; margin-top: 12pt; margin-bottom: 4pt; }
+h4 { font-size: 11pt; margin-top: 10pt; margin-bottom: 4pt; }
+p, li { margin: 6pt 0; font-size: 11pt; }
+ol, ul { margin: 6pt 0 6pt 18pt; }
+table { border-collapse: collapse; margin: 8pt 0; }
+th, td { border: 1px solid #999999; padding: 3pt 6pt; font-size: 10.5pt; vertical-align: top; }
+blockquote { margin: 6pt 0 6pt 12pt; color: #444444; }
+sup { font-size: 8pt; }
 </style>
 </head>
 <body>
@@ -2309,8 +2311,17 @@ export function AskPage() {
   /** Downloads the current research trail as a Word-compatible .doc. */
   const [exportNotice, setExportNotice] = useState<string | null>(null)
   function exportSession() {
+    // Mid-stream the trail holds only the question: the button is disabled
+    // while streaming, and this guard keeps a keyboard-triggered export honest.
+    if (isStreaming) return
     const title = currentSessionTitle()
-    const html = sessionToWordHtml(config.branding.productName, title, messages)
+    const html = sessionToWordHtml(
+      config.branding.productName,
+      title,
+      messages,
+      (resourceId) =>
+        `${globalThis.location.origin}/t/${config.slug}/library/${encodeURIComponent(resourceId)}`,
+    )
     const blob = new Blob(['﻿', html], { type: 'application/msword' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
@@ -2450,7 +2461,11 @@ export function AskPage() {
                 <button
                   type='button'
                   onClick={exportSession}
-                  className='rp-btn rp-btn-outline shrink-0 gap-2'
+                  disabled={isStreaming}
+                  title={isStreaming
+                    ? 'Export is available once the answer has finished'
+                    : 'Save this research trail as a Word document with a numbered reference list'}
+                  className='rp-btn rp-btn-outline shrink-0 gap-2 disabled:cursor-not-allowed'
                 >
                   <svg
                     viewBox='0 0 24 24'

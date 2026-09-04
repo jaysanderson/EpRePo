@@ -1787,7 +1787,14 @@ export type ExtractionCompareEvent =
   | { type: 'method'; method: ExtractionMethod; metrics: ExtractionMetrics; textPreview: string }
   | { type: 'ask'; method: ExtractionMethod; question: string; answer: string; citations: number }
   | { type: 'error'; message: string; method?: string }
-  | { type: 'done'; purged: number; recommended: string | null; yields: Record<string, number> }
+  | {
+    type: 'done'
+    purged: number
+    recommended: string | null
+    /** Why that method: the profile class and the evidence that decided it. */
+    reason: string
+    yields: Record<string, number>
+  }
 
 export async function compareExtraction(
   slug: string,
