@@ -17,7 +17,7 @@ import {
   TextScaleIdSchema,
   TypographyChoiceSchema,
 } from '@research-portal/core'
-import type { MigrationEvent, RouteDecision, TenantConfig } from '@research-portal/core'
+import type { FacetCounts, MigrationEvent, RouteDecision, TenantConfig } from '@research-portal/core'
 import {
   AragApiError,
   type AragProvider,
@@ -1144,17 +1144,26 @@ export function buildApp(opts: BuildAppOptions): Hono {
     if (!config) return c.json({ error: 'unknown_tenant' }, 404)
     const sortRaw = c.req.query('sort')
     const orderRaw = c.req.query('order')
+    // Each facet accepts its documented name and the short form the web
+    // client sends (`kindIds=` or `kind=`), so a hand-written URL filters
+    // instead of silently returning the whole corpus.
+    const ids = (...names: string[]): string[] =>
+      (names.map((n) => c.req.query(n)).find((v) => v !== undefined) ?? '')
+        .split(',')
+        .filter(Boolean)
     const page = await provider.catalog(config, {
-      kindIds: (c.req.query('kind') ?? '').split(',').filter(Boolean),
-      formatIds: (c.req.query('format') ?? '').split(',').filter(Boolean),
+      kindIds: ids('kind', 'kindIds', 'kinds'),
+      formatIds: ids('format', 'formatIds', 'formats'),
       page: Math.max(0, Math.floor(Number(c.req.query('page') ?? 0) || 0)),
       pageSize: Math.min(
         Math.max(1, Math.floor(Number(c.req.query('pageSize') ?? 24) || 24)),
         100,
       ),
       query: c.req.query('q') || undefined,
-      topicIds: (c.req.query('topics') ?? '').split(',').filter(Boolean),
-      sortField: sortRaw === 'modified' || sortRaw === 'title' ? sortRaw : 'created',
+      topicIds: ids('topics', 'topicIds', 'topic'),
+      sortField: sortRaw === 'modified' || sortRaw === 'title' || sortRaw === 'published'
+        ? sortRaw
+        : 'created',
       sortOrder: orderRaw === 'asc' ? 'asc' : 'desc',
     })
     return c.json(merchandiseCatalogPage(enrichments, config.slug, page))
@@ -1168,11 +1177,56 @@ export function buildApp(opts: BuildAppOptions): Hono {
     return c.json(merchandiseSummaries(enrichments, config.slug, items))
   })
 
+  // One facet aggregation serves every rail - Search, Library, Taxonomy and
+  // the raw endpoint - so their counts agree. Each labelset's counts are
+  // memoised per tenant for a short window; a request only goes to the
+  // platform for the labelsets it has not seen in that window. The
+  // `untagged` entry is the real no-label count from the index (topics are
+  // multi-valued, so resources minus the sum of topic counts is wrong).
+  const FACET_MEMO_MS = 30_000
+  const facetMemo = new Map<string, { at: number; counts: Record<string, number> }>()
+  const untaggedMemo = new Map<string, { at: number; count: number }>()
+  async function facetsFor(config: TenantConfig, labelsets: string[]): Promise<FacetCounts> {
+    const now = Date.now()
+    const out: FacetCounts = {}
+    const missing: string[] = []
+    for (const ls of labelsets) {
+      const hit = facetMemo.get(`${config.slug}:${ls}`)
+      if (hit && now - hit.at < FACET_MEMO_MS) out[ls] = hit.counts
+      else missing.push(ls)
+    }
+    if (missing.length > 0) {
+      const fresh = await provider.facets(config, missing)
+      for (const ls of missing) {
+        const counts = fresh[ls] ?? {}
+        out[ls] = counts
+        facetMemo.set(`${config.slug}:${ls}`, { at: now, counts })
+      }
+    }
+    if (labelsets.includes('topic') && provider.untaggedCount) {
+      const hit = untaggedMemo.get(config.slug)
+      let count = hit && now - hit.at < FACET_MEMO_MS ? hit.count : undefined
+      if (count === undefined) {
+        try {
+          count = await provider.untaggedCount(config, 'topic')
+          untaggedMemo.set(config.slug, { at: now, count })
+        } catch {
+          // The count is a courtesy row; the facets themselves still serve.
+        }
+      }
+      if (count !== undefined) out.untagged = { topic: count }
+    }
+    return out
+  }
+
   app.get('/api/t/:slug/facets', async (c) => {
     const config = tenant(c.req.param('slug'))
     if (!config) return c.json({ error: 'unknown_tenant' }, 404)
-    const labelsets = (c.req.query('ls') ?? 'topic').split(',').filter(Boolean)
-    return c.json(await provider.facets(config, labelsets))
+    // The documented name and the short form both work; by default the three
+    // facets every rail shows come back together.
+    const requested = c.req.query('labelsets') ?? c.req.query('ls') ?? 'topic,kind,format'
+    const labelsets = [...new Set(requested.split(',').filter(Boolean))]
+    return c.json(await facetsFor(config, labelsets))
   })
 
   app.get('/api/t/:slug/labelsets', async (c) => {
