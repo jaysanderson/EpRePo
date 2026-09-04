@@ -17,7 +17,7 @@ import {
   TextScaleIdSchema,
   TypographyChoiceSchema,
 } from '@research-portal/core'
-import type { MigrationEvent, TenantConfig } from '@research-portal/core'
+import type { MigrationEvent, RouteDecision, TenantConfig } from '@research-portal/core'
 import {
   AragApiError,
   type AragProvider,
@@ -55,13 +55,21 @@ import {
   looksLikeChallengePage,
 } from './crawl.ts'
 import {
+  classifierIntents,
   decideFromClassifier,
   defaultDecision,
-  eligibleIntents,
   extractEntities,
   fillPrequeries,
+  parseIdentifier,
   routeByRules,
 } from './intent-router.ts'
+import {
+  authorLine,
+  lookupOf,
+  metadataHit,
+  resolveAuthor,
+  resolveIdentifier,
+} from './catalog-lookup.ts'
 import {
   auditAddendum,
   drugsFlaggedInSources,
@@ -109,6 +117,7 @@ import {
   merchandiseCatalogPage,
   merchandiseCitation,
   merchandiseContent,
+  merchandiseScored,
   merchandiseSearchResults,
   merchandiseSources,
   merchandiseSummaries,
@@ -116,7 +125,11 @@ import {
   runEnrichmentOverCorpus,
 } from './enrichments.ts'
 import { generateFollowUpQuestions } from './follow-up-questions.ts'
-import { generateSuggestedQuestions, SUGGESTED_QUESTIONS_SCHEMA_ID } from './suggested-questions.ts'
+import {
+  generateSuggestedQuestions,
+  runSuggestedQuestionsOverCorpus,
+  SUGGESTED_QUESTIONS_SCHEMA_ID,
+} from './suggested-questions.ts'
 import { tenantAliasLocation } from './tenant-aliases.ts'
 import { registerMcpRoutes, type TrustedPortalUser } from './mcp.ts'
 import {
@@ -642,6 +655,14 @@ export function buildApp(opts: BuildAppOptions): Hono {
     : opts.domainProvisioner
   const clientId = (c: Context): string => c.req.header('x-rp-client') ?? 'anonymous'
   const app = new Hono()
+  // Stage-2 routing decisions, remembered per question so repeated routing is
+  // deterministic (see the /route handler).
+  const CLASSIFIER_CACHE_TTL_MS = 10 * 60_000
+  const CLASSIFIER_CACHE_MAX = 500
+  const classifierCache = new Map<string, { at: number; decision: RouteDecision }>()
+  // Suggested-question generations in flight, so a page that is opened twice
+  // while its openers are being written costs one generation, not two.
+  const questionsInFlight = new Map<string, Promise<string[]>>()
 
   // Rate limiting for the anonymous, paid-LLM routes - see rate-limit.ts.
   // Publishing this source open publishes the recipe for draining the
@@ -892,12 +913,45 @@ export function buildApp(opts: BuildAppOptions): Hono {
     if (intentParam && !(config.intents ?? []).some((i) => i.id === intentParam)) {
       return c.json({ error: 'unknown_intent' }, 400)
     }
+    // Identifiers and author surnames resolve against catalogue metadata
+    // before any retrieval: a DOI names one document or nothing, and the
+    // platform has no author index of its own.
+    const identifier = parseIdentifier(parsed.data.q)
+    if (identifier) {
+      const catalogue = await provider.listResources(config).catch(() => [])
+      const hits = resolveIdentifier(catalogue, identifier)
+      const label = identifier.kind === 'doi' ? 'DOI' : identifier.kind.toUpperCase()
+      return c.json(merchandiseSearchResults(enrichments, config.slug, {
+        query: parsed.data.q,
+        resources: hits.map((hit) =>
+          metadataHit(
+            hit,
+            `${label} ${identifier.kind === 'doi' && hit.doi ? hit.doi : identifier.value}`,
+          )
+        ),
+        relatedQuestions: [],
+        lookup: lookupOf(identifier.kind, identifier.value, hits.length > 0),
+      }))
+    }
     const results = await provider.search(config, parsed.data.q, {
       mode,
       topicIds,
       kindIds,
       ...(intentParam ? { intent: intentParam } : {}),
     })
+    const catalogue = await provider.listResources(config).catch(() => [])
+    const byAuthor = resolveAuthor(catalogue, parsed.data.q)
+    if (byAuthor) {
+      const already = new Set(results.resources.map((r) => r.id))
+      const authored = byAuthor.matches
+        .filter((r) => !already.has(r.id))
+        .map((r) => metadataHit(r, authorLine(r)))
+      return c.json(merchandiseSearchResults(enrichments, config.slug, {
+        ...results,
+        resources: [...authored, ...results.resources],
+        lookup: lookupOf('author', byAuthor.surname, true),
+      }))
+    }
     return c.json(merchandiseSearchResults(enrichments, config.slug, results))
   })
 
@@ -921,9 +975,20 @@ export function buildApp(opts: BuildAppOptions): Hono {
     let decision = intents.length > 0 ? routeByRules(parsed.data.query, ctx) : null
     if (!decision && intents.length > 0) {
       const entities = extractEntities(parsed.data.query, ctx.lexicon)
-      if (opts.management) {
+      // The platform's ask API silently ignores unknown top-level keys, so a
+      // temperature or seed cannot be verified to reach the model. The
+      // classifier is made deterministic here instead: the same question on
+      // the same surface reuses its first decision for a while, and rules
+      // and identifiers never reach the classifier at all.
+      const classifierKey = `${config.slug}|${parsed.data.surface ?? 'ask'}|${
+        parsed.data.query.trim().toLowerCase().replace(/\s+/g, ' ')
+      }`
+      const remembered = classifierCache.get(classifierKey)
+      if (remembered && Date.now() - remembered.at < CLASSIFIER_CACHE_TTL_MS) {
+        decision = { ...remembered.decision, entities }
+      } else if (opts.management) {
         try {
-          const allowed = eligibleIntents(ctx).map((i) => i.id)
+          const allowed = classifierIntents(ctx).map((i) => i.id)
           const raw = await Promise.race([
             opts.management.augmentationModel(config).then((model) =>
               opts.management!.classifyIntent(config, parsed.data.query, { model, allowed })
@@ -931,6 +996,13 @@ export function buildApp(opts: BuildAppOptions): Hono {
             new Promise<Record<string, never>>((resolve) => setTimeout(() => resolve({}), 12000)),
           ])
           decision = decideFromClassifier(raw, ctx, entities)
+          if (decision.stage === 'classifier') {
+            if (classifierCache.size >= CLASSIFIER_CACHE_MAX) {
+              const oldest = classifierCache.keys().next().value
+              if (oldest !== undefined) classifierCache.delete(oldest)
+            }
+            classifierCache.set(classifierKey, { at: Date.now(), decision })
+          }
         } catch {
           decision = defaultDecision(
             ctx,
@@ -1112,7 +1184,8 @@ export function buildApp(opts: BuildAppOptions): Hono {
   app.get('/api/t/:slug/suggest', async (c) => {
     const config = tenant(c.req.param('slug'))
     if (!config) return c.json({ error: 'unknown_tenant' }, 404)
-    return c.json(await provider.suggest(config))
+    const q = c.req.query('q')?.trim()
+    return c.json(await provider.suggest(config, q || undefined))
   })
 
   app.get('/api/t/:slug/resources', async (c) => {
@@ -1146,22 +1219,37 @@ export function buildApp(opts: BuildAppOptions): Hono {
     if (!opts.management) return c.json({ questions: [] })
     const resource = await provider.resource(config, id).catch(() => null)
     if (!resource) return c.json({ error: 'unknown_resource' }, 404)
-    const merchandised = merchandiseSummary(enrichments, config.slug, resource)
-    const questions = await generateSuggestedQuestions(
-      opts.management,
-      config,
-      id,
-      merchandised.title,
-      merchandised.summary,
-    )
-    // Cache the empty result too: a document that yields nothing (a scan with no
-    // extractable text) would otherwise pay for generation on every view.
-    enrichments.put(config.slug, id, {
-      schemaId: SUGGESTED_QUESTIONS_SCHEMA_ID,
-      generatedAt: new Date().toISOString(),
-      data: { questions },
-    })
-    return c.json({ questions })
+    // Openers are precomputed at enrichment time; a resource the pass has not
+    // reached yet gets its openers written in the background and answers
+    // `pending` now, so the page never waits eight to ten seconds on them.
+    // `wait=1` keeps the old blocking behaviour for callers that need it.
+    const key = `${config.slug}/${id}`
+    let job = questionsInFlight.get(key)
+    if (!job) {
+      const merchandised = merchandiseSummary(enrichments, config.slug, resource)
+      job = generateSuggestedQuestions(
+        opts.management,
+        config,
+        id,
+        merchandised.title,
+        merchandised.summary,
+      ).then((questions) => {
+        // Cache the empty result too: a document that yields nothing (a scan
+        // with no extractable text) would otherwise pay for generation on
+        // every view.
+        enrichments.put(config.slug, id, {
+          schemaId: SUGGESTED_QUESTIONS_SCHEMA_ID,
+          generatedAt: new Date().toISOString(),
+          data: { questions },
+        })
+        return questions
+      }).finally(() => questionsInFlight.delete(key))
+      questionsInFlight.set(key, job)
+      // A background job's failure is a missed nicety, never an unhandled rejection.
+      job.catch(() => {})
+    }
+    if (c.req.query('wait') === '1') return c.json({ questions: await job.catch(() => []) })
+    return c.json({ questions: [], pending: true })
   })
 
   app.get('/api/t/:slug/resources/:id/content', async (c) => {
@@ -1483,8 +1571,14 @@ export function buildApp(opts: BuildAppOptions): Hono {
     if (!opts.management) return c.json({ error: 'management_unavailable' }, 503)
     const name = c.req.query('name')?.trim()
     if (!name) return c.json({ error: 'invalid_request' }, 400)
+    // Relations scoped to the entity itself (the platform's path filter), not
+    // filtered out of the corpus-wide slice - a gene outside the top 120 used
+    // to read as "no connections" while the map showed it.
     const [graph, results] = await Promise.all([
-      opts.management.relationsGraph(config).catch(() => ({ nodes: [], edges: [] })),
+      opts.management.relationsGraph(config, { entity: name, topK: 150 }).catch(() => ({
+        nodes: [],
+        edges: [],
+      })),
       provider.search(config, name, { mode: 'hybrid', pageSize: 12 }).catch(() => null),
     ])
     const lower = name.toLowerCase()
@@ -1497,10 +1591,18 @@ export function buildApp(opts: BuildAppOptions): Hono {
       }
       return hit
     })
+    const resources = (results?.resources ?? [])
+      .filter((r) => r.relevance >= 0.3)
+      .map((r) => merchandiseScored(enrichments, config.slug, r))
+    // Nothing in the graph and nothing in the corpus: this is not an entity
+    // the portal knows, and the page must be able to say so.
+    if (edges.length === 0 && resources.length === 0) {
+      return c.json({ error: 'unknown_entity', name, unknown: true }, 404)
+    }
     return c.json({
       name,
       relations: { nodes: graph.nodes.filter((n) => neighbourIds.has(n.id)), edges },
-      resources: results?.resources ?? [],
+      resources,
     })
   })
 
@@ -2442,6 +2544,37 @@ export function buildApp(opts: BuildAppOptions): Hono {
           data: JSON.stringify({
             type: 'error',
             message: err instanceof Error ? err.message : 'Enrichment run failed',
+          }),
+        })
+      }
+    })
+  })
+
+  // Precompute per-document openers over the corpus (the same pass the
+  // scheduler runs), so resource pages never generate them on demand.
+  app.post('/api/admin/t/:slug/questions/run', async (c) => {
+    const config = tenant(c.req.param('slug'))
+    if (!config) return c.json({ error: 'unknown_tenant' }, 404)
+    const unavailable = requireManagement(c)
+    if (unavailable) return unavailable
+    const body = await c.req.json().catch(() => ({})) as { limit?: number }
+    const limit = typeof body.limit === 'number' && body.limit > 0
+      ? Math.min(Math.floor(body.limit), 2000)
+      : undefined
+    return streamSSE(c, async (stream) => {
+      try {
+        for await (
+          const event of runSuggestedQuestionsOverCorpus(management!, enrichments, config, {
+            limit,
+          })
+        ) {
+          await stream.writeSSE({ data: JSON.stringify(event) })
+        }
+      } catch (err) {
+        await stream.writeSSE({
+          data: JSON.stringify({
+            type: 'error',
+            message: err instanceof Error ? err.message : 'Question run failed',
           }),
         })
       }

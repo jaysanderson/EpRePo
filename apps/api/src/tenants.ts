@@ -233,12 +233,15 @@ const eprepo: TenantConfig = TenantConfigSchema.parse({
         ],
       },
       answer: { surfaces: ['search'], strategy: 'none', promptVariant: 'default' },
-      // One or two bare words only: "levetiracetam pregnancy malformation" is a question.
-      rules: [
-        '^\\s*PMC\\d+\\s*$',
-        '^\\s*[A-Z][A-Z0-9]{2,7}\\s*$',
-        '^\\s*[A-Za-z][a-z-]+(?:\\s+[A-Za-z][a-z-]+)?\\s*$',
-      ],
+      // One or two bare tokens, and only when one of them is a recognised
+      // entity (a gene-symbol shape or a lexicon term): "SCN8A", "cenobamate",
+      // "Dravet syndrome". Two arbitrary words ("Okafor recurrence") and
+      // hyphenated compounds ("EEG-fMRI") are questions for retrieval, not a
+      // listing. Identifiers (DOI, PMCID, PMID) are handled by the router
+      // itself, before any rule. The classifier can never pick this intent.
+      rules: ['^\\s*\\S+(?:\\s+\\S+)?\\s*$'],
+      requireEntity: true,
+      rulesOnly: true,
     },
     {
       id: 'data',
@@ -286,7 +289,11 @@ const eprepo: TenantConfig = TenantConfigSchema.parse({
         prequeries: ['{query} published 2025 or 2026'],
         sortByPublished: true,
       },
-      rules: ['\\b(latest|newest|most recent|recent|this year|since 20\\d\\d|202[5-9])\\b'],
+      // A recency word is required: a bare year ("Seery 2025 rituximab") is an
+      // author-year lookup, not a request for what is newest.
+      rules: [
+        '\\b(latest|newest|most recent|recent|recently|this year|since 20\\d\\d|(?:in|from|published in) 202[5-9]|202[5-9] (?:papers?|studies|publications|trials?))\\b',
+      ],
     },
     {
       id: 'clinical',
@@ -322,7 +329,10 @@ const eprepo: TenantConfig = TenantConfigSchema.parse({
       rules: [
         '\\b(dose|dosing|dosage|start(ing)?|titrat|avoid|contraindicat|safe|safety|should i|which asm|first[- ]line|add[- ]on|switch|interaction|pregnan|monitor)',
       ],
+      // A medication or syndrome from the lexicon must be named: "dose" in a
+      // rodent selenate protocol is a methods question, not a prescribing one.
       requireEntity: true,
+      requireLexiconEntity: true,
     },
     {
       id: 'review',
@@ -342,9 +352,10 @@ const eprepo: TenantConfig = TenantConfigSchema.parse({
         ],
       },
       answer: { surfaces: ['ask'], strategy: 'full', promptVariant: 'synthesis', depth: 'deep' },
+      // Length is not a rule: a 26-word fitness-to-drive lookup is not a
+      // review, and the classifier reads the question instead.
       rules: [
         '\\b(compare|comparison|versus|\\bvs\\b|synthesis|what is known|evidence for|overview|across studies|mechanism)\\b',
-        '^(?:\\S+\\s+){25,}\\S+',
       ],
     },
     {

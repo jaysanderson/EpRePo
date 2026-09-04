@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link, useOutletContext, useParams } from 'react-router-dom'
 import type { ScoredResource } from '@research-portal/core'
-import { type EntityDossier, getEntityDossier } from '../api/client.ts'
+import { ApiError, type EntityDossier, getEntityDossier } from '../api/client.ts'
 import { ResourceThumb } from '../components/ResourceThumb.tsx'
 import { EmptyState, ErrorCard, Skeleton, TypeBadge } from '../components/ui.tsx'
 import type { TenantOutletContext } from './TenantLayout.tsx'
@@ -112,7 +112,10 @@ export function EntityPage() {
     queryKey: ['entity', config.slug, name],
     queryFn: () => getEntityDossier(config.slug, name),
     enabled: name.length > 0,
+    // An unknown entity is an answer, not a failure worth retrying.
+    retry: (count, err) => !(err instanceof ApiError && err.status === 404) && count < 2,
   })
+  const unknown = isError && error instanceof ApiError && error.status === 404
 
   const groups = useMemo(() => {
     if (!data) return []
@@ -148,7 +151,27 @@ export function EntityPage() {
         )
         : null}
 
-      {isError
+      {unknown
+        ? (
+          <div className='mt-4'>
+            <p className='rp-eyebrow text-ink-3'>Entity</p>
+            <h1 className='rp-display mt-1.5 text-3xl text-ink sm:text-4xl'>{name}</h1>
+            <div className='mt-6'>
+              <EmptyState
+                title='Nothing on this yet'
+                description='No paper in the corpus mentions this name and the knowledge graph has no relations for it. Check the spelling, or search the library for a broader term.'
+              >
+                <Link
+                  to={`/t/${config.slug}/search?q=${encodeURIComponent(name)}`}
+                  className='rp-btn rp-btn-outline'
+                >
+                  Search the library
+                </Link>
+              </EmptyState>
+            </div>
+          </div>
+        )
+        : isError
         ? (
           <div className='mt-4'>
             <ErrorCard
@@ -192,8 +215,8 @@ export function EntityPage() {
                 ? (
                   <div className='mt-3'>
                     <EmptyState
-                      title='No knowledge-graph connections yet'
-                      description='Run the knowledge graph agent in Manage to extract relations for this corpus.'
+                      title='No connections recorded yet'
+                      description='The knowledge graph has no relations for this entity so far. The papers below still mention it.'
                     />
                   </div>
                 )

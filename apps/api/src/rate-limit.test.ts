@@ -143,3 +143,24 @@ describe('rateLimit middleware', () => {
     expect(RATE_LIMIT_MESSAGE).not.toContain('—')
   })
 })
+
+describe('X-RateLimit-Remaining', () => {
+  it('reports how much of the window is left on an allowed request', async () => {
+    const limiter = new SlidingWindowLimiter({ limit: 3, windowMs: 60_000 })
+    const app = new Hono()
+    app.use('*', rateLimit(limiter, () => 'k'))
+    app.get('/', (c) => c.text('ok'))
+    expect((await app.request('/')).headers.get('x-ratelimit-remaining')).toBe('2')
+    expect((await app.request('/')).headers.get('x-ratelimit-remaining')).toBe('1')
+    expect((await app.request('/')).headers.get('x-ratelimit-remaining')).toBe('0')
+    const over = await app.request('/')
+    expect(over.status).toBe(429)
+    expect(over.headers.get('x-ratelimit-remaining')).toBeNull()
+  })
+  it('is absent when the limiter is disabled', async () => {
+    const app = new Hono()
+    app.use('*', rateLimit(new SlidingWindowLimiter({ limit: 0, windowMs: 60_000 }), () => 'k'))
+    app.get('/', (c) => c.text('ok'))
+    expect((await app.request('/')).headers.get('x-ratelimit-remaining')).toBeNull()
+  })
+})

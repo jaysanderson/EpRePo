@@ -249,6 +249,17 @@ export const IntentSchema = z.object({
   rules: z.string().array().default([]),
   /** The rule only fires when the question also names a known entity (drug, gene). */
   requireEntity: z.boolean().default(false),
+  /**
+   * The rule only fires when the question names a term from the tenant's entity lexicon
+   * (a medication or syndrome), not merely a gene-symbol shape - so "dose" in a rodent
+   * protocol never reaches the clinical safety prompt.
+   */
+  requireLexiconEntity: z.boolean().default(false),
+  /**
+   * Stage 1 only: the classifier may never choose this intent. Listing intents (exact
+   * lookup) fire on identifier shapes and lexicon hits alone, never on a guess.
+   */
+  rulesOnly: z.boolean().default(false),
 })
 export type Intent = z.infer<typeof IntentSchema>
 
@@ -483,6 +494,11 @@ export const ResourceSummarySchema = z.object({
   journal: z.string().optional(),
   year: z.string().optional(),
   doi: z.string().optional(),
+  /** PubMed Central id (PMC1234567) and PubMed id, when the ingest supplied them. */
+  pmcid: z.string().optional(),
+  pmid: z.string().optional(),
+  /** Where the source came from (a PMC article URL, a crawled page), when known. */
+  originUrl: z.string().optional(),
   /** Author keywords / subject headings - shown as keywords, never as facts. */
   keywords: z.string().array().optional(),
   /**
@@ -741,14 +757,27 @@ export const ScoredResourceSchema = ResourceSummarySchema.extend({
   matchedPage: z.number().int().positive().optional(),
   /** True when the matched passage looks like a reference list or front matter. */
   referenceChunk: z.boolean().optional(),
-  /** Where the matched passage came from: the document body, or a generated summary field. */
-  matchedField: z.enum(['body', 'summary']).optional(),
+  /** Where the matched passage came from: the document body, a generated summary field, or the bibliographic record (an identifier or author lookup). */
+  matchedField: z.enum(['body', 'summary', 'metadata']).optional(),
 })
+
+/**
+ * An exact lookup the search resolved against catalogue metadata (a DOI, PMCID,
+ * PMID or an author surname) before any retrieval - so the page can say "no
+ * resource carries this identifier" instead of listing look-alikes.
+ */
+export const SearchLookupSchema = z.object({
+  kind: z.enum(['doi', 'pmcid', 'pmid', 'author']),
+  value: z.string(),
+  matched: z.boolean(),
+})
+export type SearchLookup = z.infer<typeof SearchLookupSchema>
 
 export const SearchResultsSchema = z.object({
   query: z.string(),
   resources: ScoredResourceSchema.array(),
   relatedQuestions: QuestionSchema.array(),
+  lookup: SearchLookupSchema.optional(),
 })
 
 export const RetrievalModeSchema = z.enum(['hybrid', 'semantic', 'keyword'])

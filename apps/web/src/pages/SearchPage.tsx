@@ -1150,7 +1150,20 @@ export function SearchPage() {
                   )
                   : null}
 
-                {results.resources.length === 0
+                {results.resources.length === 0 && results.lookup && !results.lookup.matched
+                  ? (
+                    <EmptyState
+                      title='No resource carries this identifier'
+                      description={`The corpus holds nothing with the ${
+                        results.lookup.kind === 'doi'
+                          ? 'DOI'
+                          : results.lookup.kind === 'author'
+                          ? 'author'
+                          : results.lookup.kind.toUpperCase()
+                      } ${results.lookup.value}. Identifiers are matched exactly against each paper's record, never against reference lists.`}
+                    />
+                  )
+                  : results.resources.length === 0
                   ? (
                     <EmptyState
                       title='No resources matched that search'

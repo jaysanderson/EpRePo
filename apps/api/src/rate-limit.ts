@@ -53,8 +53,8 @@ export class SlidingWindowLimiter {
    * it is allowed. A disabled limiter (limit <= 0) always allows and never
    * tracks anything.
    */
-  check(key: string): { allowed: boolean; retryAfterSec: number } {
-    if (this.limit <= 0) return { allowed: true, retryAfterSec: 0 }
+  check(key: string): { allowed: boolean; retryAfterSec: number; remaining: number } {
+    if (this.limit <= 0) return { allowed: true, retryAfterSec: 0, remaining: Infinity }
 
     const now = this.now()
     const cutoff = now - this.windowMs
@@ -81,7 +81,7 @@ export class SlidingWindowLimiter {
       this.lastSweep = now
     }
 
-    return { allowed, retryAfterSec }
+    return { allowed, retryAfterSec, remaining: Math.max(0, this.limit - hits.length) }
   }
 
   /** Drop buckets whose entries are all stale, and shrink the rest. */
@@ -131,11 +131,15 @@ export function rateLimit(
   keyFn: (c: Context) => string = clientIp,
 ): MiddlewareHandler {
   return async (c, next) => {
-    const { allowed, retryAfterSec } = limiter.check(keyFn(c))
+    const { allowed, retryAfterSec, remaining } = limiter.check(keyFn(c))
     if (!allowed) {
       c.header('Retry-After', String(retryAfterSec))
       return c.json({ error: 'rate_limited' }, 429)
     }
+    // How much of the window is left, so the Search page can fall back to
+    // results-only before its automatic summary would be the call that trips
+    // the limit. Absent when the limiter is disabled.
+    if (Number.isFinite(remaining)) c.header('X-RateLimit-Remaining', String(remaining))
     await next()
   }
 }
