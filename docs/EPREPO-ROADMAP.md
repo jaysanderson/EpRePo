@@ -42,6 +42,21 @@ without opening the PDF. Everybody would use Search, Library and document chat a
 | P1-10 Library first screen is 53 videos | Fixed (opens on 655 articles) |
 | P1-6 Summary-matched "Open PDF" with no highlight | Still present (P3-16, P1-07) plus a new off-by-one page bug (P3-05) |
 
+## Delivery status (4 September 2026, evening)
+
+Four implementation batches, each in its own worktree and pull request into
+`feat/eprepo-portal`, reviewed and merged in order (PR #3 routing, limits, graph and
+precomputed questions; PR #4 secondary surfaces; PR #5 Library, facets, layout, dark mode and
+copy; PR #6 the Ask trust layer, built on the earlier batch-1 branch). Gates green on every
+merge (311 tests at the end), each batch visually verified at 1440 px and 390 px, PR #6 in light
+and dark.
+
+| Status | Items |
+|---|---|
+| Done in application code | R1, R2, R3, R4 (app half), R5, R6 (fallback half), R7, R8, R9, R10, R15, R16, R17, R18 (viewer dark toggle), R19, R20 (docs ingested and health probe), R21, R22, R23, R24, R25, R26, R27 |
+| Still open, enrichment or platform work | R6 classifier description and `portal-intent-data` configuration; R4 reference-paragraph labelling at ingestion and `filter_expression` exclusion; R11 Kind re-run; R12 topic re-run and `multiple` on the labelset; R13 media and supplement re-summarising, DOI dedupe at load; R14 graph slice depends on the `kg-eprepo` agent finishing |
+| Known residue | The generator still refuses twice on some strong matches (the decline now names the sources); the REMi quality judge often times out at 12 s (no longer blocks the answer); assessment stems remain mostly definitional; text-only ingests have no thumbnail |
+
 ## Roadmap
 
 Ordered by what it takes to make an Ask answer safe to repeat. Each theme is one piece of work
