@@ -252,8 +252,20 @@ export function sentenceFeatures(sentence: string, lexicon: readonly string[]): 
  * be found for the sentence to be a paraphrase of something the text says.
  * Returns the match strength so competing supporters can be ranked.
  */
-export function supportScore(features: SentenceFeatures, text: PreparedText): number {
+export function supportScore(
+  features: SentenceFeatures,
+  text: PreparedText,
+  /**
+   * The sentence's words that few of the cited texts carry (see
+   * `rareWords`). A text that has none of them is not the passage the
+   * sentence paraphrases, however well it covers the ordinary words: a
+   * levetiracetam paper covers "levetiracetam ... efficacy ... criteria"
+   * and still says nothing about non-inferiority.
+   */
+  rare: readonly string[] = [],
+): number {
   const { words, bigrams, numbers, entities } = features
+  if (rare.length > 0 && !rare.some((w) => text.vocab.has(w))) return 0
   // The names a claim hangs on must be in the text: both of two, most of
   // many. A drug list cited to a paper that names one drug of four is the
   // misbinding reviewers caught most often.
@@ -284,6 +296,21 @@ export function supportScore(features: SentenceFeatures, text: PreparedText): nu
     1,
     0.55 * wordRate + 0.3 * bigramRate + (numberHits > 0 ? 0.1 : 0) + (entityHits > 0 ? 0.05 : 0),
   )
+}
+
+/**
+ * The sentence's content words that at most a third of the cited texts
+ * carry (one of two, when only two were fetched). With one text nothing is
+ * rare enough to judge by, and a word no text carries at all cannot pick a
+ * supporter either.
+ */
+export function rareWords(words: readonly string[], texts: readonly PreparedText[]): string[] {
+  if (texts.length < 2) return []
+  const ceiling = Math.max(1, Math.floor(texts.length / 3))
+  return [...new Set(words)].filter((w) => {
+    const df = texts.filter((t) => t.vocab.has(w)).length
+    return df >= 1 && df <= ceiling
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -379,6 +406,9 @@ export function splitSentences(text: string): string[] {
   return out.filter((s) => s.length > 0)
 }
 
+/** The safety variant's mandated closing line: advice, never a cited claim. */
+const BOILERPLATE = /verify against current prescribing information/i
+
 function isHeading(line: string): boolean {
   return /^\s*#{1,6}\s/.test(line) ||
     /^\s*(?:\*\*|__)[^*_]+(?:\*\*|__)\s*:?\s*(?:\[\d{1,3}\]\s*)*$/.test(line)
@@ -422,6 +452,7 @@ export function bindSentences(input: BindInput): BindResult {
   const lexicon = input.lexicon ?? []
   const prepared = new Map<number, PreparedText>()
   for (const [index, text] of input.texts) prepared.set(index, prepareText(text))
+  const allPrepared = [...prepared.values()]
   const known = new Set(input.citations.map((c) => c.index))
   const usable = (index: number) => known.has(index) && !(input.belowFloor?.has(index) ?? false)
 
@@ -463,14 +494,16 @@ export function bindSentences(input: BindInput): BindResult {
         : ownAll
       const plain = sentence.replace(/\s*\[\d{1,3}\]/g, '').trim()
       const features = sentenceFeatures(plain, lexicon)
-      const candidates = [...new Set([...own, ...(sentences.length > 1 ? tailMarkers : [])])]
-        .filter(usable)
+      const rare = rareWords(features.words, allPrepared)
+      const candidates = BOILERPLATE.test(plain)
+        ? []
+        : [...new Set([...own, ...(sentences.length > 1 ? tailMarkers : [])])].filter(usable)
       const score = (index: number): number => {
         const text = prepared.get(index)
         // A citation whose text could not be fetched is unverifiable: it
         // keeps a marker the sentence already had, never gains one.
         if (!text) return own.includes(index) ? 0.5 : 0
-        return supportScore(features, text)
+        return supportScore(features, text, rare)
       }
       let supporters = candidates.map((index) => ({ index, score: score(index) }))
         .filter((s) => s.score > 0)

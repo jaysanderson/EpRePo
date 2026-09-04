@@ -5,6 +5,7 @@ import {
   looksLikeBibliographyEntry,
   looksLikeReferencePassage,
   prepareText,
+  rareWords,
   sentenceFeatures,
   splitSentences,
   stripReferenceSection,
@@ -251,5 +252,79 @@ describe('reference-list exclusion', () => {
     expect(stripped).toContain('non-inferior')
     expect(stripped).not.toContain('More harm than good')
     expect(stripped).not.toContain('References')
+  })
+})
+
+describe('rare words', () => {
+  const sanad =
+    'Levetiracetam did not meet criteria for non-inferiority for efficacy and cost benefit in the 2021 SANAD trial.'
+  const lev =
+    'Levetiracetam efficacy and cost were assessed against the criteria for benefit in focal epilepsy.'
+  const tau =
+    'Levetiracetam reduced tau pathology in a mouse model; efficacy criteria and cost benefit were secondary.'
+
+  it('names the words few cited texts carry', () => {
+    const texts = [sanad, lev, tau].map(prepareText)
+    const features = sentenceFeatures(
+      'Levetiracetam did not meet the criteria for non-inferiority in terms of efficacy and cost benefit.',
+      ['levetiracetam'],
+    )
+    expect(rareWords(features.words, texts)).toEqual(['meet', 'noninf'])
+    expect(rareWords(features.words, texts.slice(0, 1))).toEqual([])
+  })
+
+  it('drops a supporter that carries none of the rare words', () => {
+    const features = sentenceFeatures(
+      'Levetiracetam did not meet the criteria for non-inferiority in terms of efficacy and cost benefit.',
+      ['levetiracetam'],
+    )
+    const rare = ['meet', 'noninf']
+    expect(supportScore(features, prepareText(sanad), rare)).toBeGreaterThan(0)
+    expect(supportScore(features, prepareText(lev), rare)).toBe(0)
+    expect(supportScore(features, prepareText(tau), rare)).toBe(0)
+  })
+
+  it('binds the sentence to the one paper that carries the claim', () => {
+    const text =
+      'Levetiracetam did not meet the criteria for non-inferiority in terms of efficacy and cost benefit.[1][2][3]'
+    const result = bindSentences({
+      text,
+      citations: [
+        { index: 1, resourceId: 'a', title: 'a' },
+        { index: 2, resourceId: 'b', title: 'b' },
+        { index: 3, resourceId: 'c', title: 'c' },
+      ],
+      texts: new Map([[1, sanad], [2, lev], [3, tau]]),
+      lexicon: ['levetiracetam'],
+    })
+    expect(result.text).toBe(
+      'Levetiracetam did not meet the criteria for non-inferiority in terms of efficacy and cost benefit.[1]',
+    )
+    expect(result.dropped).toBe(2)
+  })
+})
+
+describe('boilerplate', () => {
+  it('never lets the prescribing-information line carry a marker', () => {
+    const text =
+      'Retention at 12 months was 64.2%.[1] Verify against current prescribing information before acting.[1][2]'
+    const result = bindSentences({
+      text,
+      citations: [{ index: 1, resourceId: 'a', title: 'a' }, {
+        index: 2,
+        resourceId: 'b',
+        title: 'b',
+      }],
+      texts: new Map([
+        [
+          1,
+          'Retention at 12 months was 64.2%. Verify against current prescribing information before acting.',
+        ],
+        [2, 'Prescribing information: verify current dosing before acting.'],
+      ]),
+    })
+    expect(result.text).toBe(
+      'Retention at 12 months was 64.2%.[1] Verify against current prescribing information before acting.',
+    )
   })
 })
