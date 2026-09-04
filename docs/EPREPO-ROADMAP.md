@@ -349,6 +349,23 @@ Ranked by how many personas independently asked for it.
 16. **Weight-based dose calculator** beside any mg/kg answer (1 of 10).
 17. **Save a comparison** from Compare configurations (1 of 10).
 
+## The same work cut by lever
+
+Which part of the system each theme lives in, so the work can be split across agents and
+branches without collisions.
+
+| Lever | Themes | Notes |
+|---|---|---|
+| Application code (`apps/api`, `apps/web`) | R1, R2, R3, R5, R8, R9, R10, R15, R16, R17, R18, R19, R21 to R27 | Grounding gate order, citation binding, claim validator, audit addendum, error copy, page off-by-one, Library sort, layout, secondary surfaces |
+| Intent router and ARAG stored search configurations | R4 (filter expressions), R6, R7 | `portal-intent-data` must include articles with supplements boosted; reference-list paragraphs excluded via `filter_expression` in every config; lookup, length and "dose" rules; DOI and PMCID rules |
+| Enrichment agents and tenant config | R4 (labelling reference paragraphs at ingestion), R11, R12, R13, R14, R19 (placeholders) | Kind and topic re-runs with MeSH priors; media and supplement summaries from the parent article; graph slice; tenant-config placeholders |
+| Knowledge-box content (out of scope) | Coverage gaps | LITT primary data, RNS and DBS trials, hemispherotomy, Austroads and PBS material, a 2005 paper's own CI typo. The portal's job is to say so cleanly, which is R1 and R8 |
+
+**Suggested order for the pilot gate:** R6 (data-intent routing and its configuration) and R1
+plus R3 (grounding gate, claim validator) remove every P0 seen; then R2 (citation binding),
+R15 (page off-by-one) and R23 (synthesis notes) make the checking loop trustworthy; then R11
+(kind re-run) because every persona hit it. Everything after that is polish or v1.1.
+
 ## What to keep (the personas' "what is good")
 
 - Document chat and resource pages: verified correct on 55 of 60 questions; real titles,
