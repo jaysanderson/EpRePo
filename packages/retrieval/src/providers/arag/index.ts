@@ -2755,11 +2755,17 @@ export class AragProvider implements RetrievalProvider {
       features: ['keyword', 'semantic'],
       citations: true,
       show: ['basic', 'origin'],
-      search_configuration: opts.docScope
-        ? SEARCH_CONFIG_DOC_ASK
-        : intent
-        ? intentConfigurationName(tenant, intent.id, 'ask')
-        : SEARCH_CONFIG_RESEARCH_ASK,
+      // A sandbox box (the Extraction Lab) has none of the portal's stored
+      // configurations - naming one 400s "Search configuration not found" -
+      // and its single scoped document must ground the answer whatever its
+      // retrieval score, so no configuration and no score floor are sent.
+      ...(opts.sandbox ? { min_score: { semantic: 0, bm25: 0 } } : {
+        search_configuration: opts.docScope
+          ? SEARCH_CONFIG_DOC_ASK
+          : intent
+          ? intentConfigurationName(tenant, intent.id, 'ask')
+          : SEARCH_CONFIG_RESEARCH_ASK,
+      }),
       // Cross-encoder reranking of the grounding candidates - verified live
       // (see the reranker note in docs/ARAG-DEV.md and search()'s comment
       // above). Pinned defensively: it is already the platform's default

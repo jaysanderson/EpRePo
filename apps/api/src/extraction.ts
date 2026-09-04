@@ -196,7 +196,15 @@ export type CompareEvent =
   | { type: 'method'; method: ExtractionMethod; metrics: MethodMetrics; textPreview: string }
   | { type: 'ask'; method: ExtractionMethod; question: string; answer: string; citations: number }
   | { type: 'error'; message: string; method?: string }
-  | { type: 'done'; purged: number; recommended: string | null; yields: Record<string, number> }
+  | {
+    type: 'done'
+    purged: number
+    recommended: string | null
+    /** Why that method: the profile class and the evidence that decided it. */
+    reason: string
+    /** Characters per page relative to Default, for every method that finished. */
+    yields: Record<string, number>
+  }
 
 export interface MethodMetrics {
   chars: number
@@ -210,6 +218,106 @@ export interface MethodMetrics {
   visionPages: number
   judgeScore: number | null
   judgeReason: string
+}
+
+/**
+ * The judge-score margin by which the method a document's class calls for
+ * must lose before another method is recommended over it. A table-dense
+ * sheet extracted with 32 recovered table rows is the better extraction even
+ * when the judge, reading a flattened preview, marks it a point lower for
+ * "repeated text": the class decides, the judge only overrides on a clear
+ * loss (P4-10).
+ */
+export const JUDGE_OVERRIDE_MARGIN = 2
+
+/** Which method kind a profile class calls for. */
+export function preferredKind(cls: ExtractionClass): ExtractionMethod['kind'] {
+  switch (cls) {
+    case 'tables':
+      return 'tables'
+    case 'image-only':
+    case 'garbled-text':
+    case 'long-scan':
+      return 'visual'
+    default:
+      return 'default'
+  }
+}
+
+const classLabel = (cls: ExtractionClass): string => {
+  switch (cls) {
+    case 'tables':
+      return 'table-dense'
+    case 'image-only':
+      return 'image-only'
+    case 'garbled-text':
+      return 'garbled-text'
+    case 'long-scan':
+      return 'long-scan'
+    default:
+      return 'prose'
+  }
+}
+
+/**
+ * Recommend a method from the profile class first, the judge second.
+ *
+ * The class names the kind of method the document needs (tables -> the
+ * table-aware method, image-only or garbled -> visual, prose -> default).
+ * That method is recommended unless its judge score trails the best other
+ * method by `JUDGE_OVERRIDE_MARGIN` or more, or it did not finish - in which
+ * case the best-judged method wins, with recovered table rows and characters
+ * as tie-breakers. Returns the method and a one-sentence reason.
+ */
+export function recommendMethod(
+  cls: ExtractionClass,
+  results: {
+    method: ExtractionMethod
+    metrics: Pick<MethodMetrics, 'judgeScore' | 'tableRows' | 'chars'>
+  }[],
+): { method: ExtractionMethod; reason: string } | null {
+  if (results.length === 0) return null
+  const byJudge = [...results].sort((a, b) =>
+    (b.metrics.judgeScore ?? -1) - (a.metrics.judgeScore ?? -1) ||
+    b.metrics.tableRows - a.metrics.tableRows || b.metrics.chars - a.metrics.chars
+  )
+  const best = byJudge[0]!
+  const wanted = preferredKind(cls)
+  const preferred = results.find((r) => r.method.kind === wanted)
+  const score = (r: typeof best) => r.metrics.judgeScore
+  const fmt = (r: typeof best) => score(r) === null ? 'unscored' : `${score(r)} / 5`
+  if (!preferred) {
+    return {
+      method: best.method,
+      reason: `${classLabel(cls)} document, but no ${wanted} method ran - ${best.method.name} ` +
+        `scored best (${fmt(best)}).`,
+    }
+  }
+  if (preferred.method.id === best.method.id) {
+    return {
+      method: preferred.method,
+      reason: `${classLabel(cls)} document: ${preferred.method.name} is the method that class ` +
+        `calls for and the judge agreed (${fmt(preferred)}` +
+        (cls === 'tables' ? `, ${preferred.metrics.tableRows} table rows recovered).` : ').'),
+    }
+  }
+  const gap = (score(best) ?? 0) - (score(preferred) ?? 0)
+  if (score(preferred) !== null && gap < JUDGE_OVERRIDE_MARGIN) {
+    return {
+      method: preferred.method,
+      reason: `${classLabel(cls)} document: ${preferred.method.name} is the method that class ` +
+        `calls for` +
+        (cls === 'tables' ? ` (${preferred.metrics.tableRows} table rows recovered)` : '') +
+        `, and the judge's ${fmt(preferred)} is within ${JUDGE_OVERRIDE_MARGIN} points of ` +
+        `${best.method.name}'s ${fmt(best)}.`,
+    }
+  }
+  return {
+    method: best.method,
+    reason: `${classLabel(cls)} document would normally take ${preferred.method.name}, but the ` +
+      `judge scored it ${fmt(preferred)} against ${best.method.name}'s ${fmt(best)} - a clear ` +
+      `loss, so ${best.method.name} is recommended.`,
+  }
 }
 
 const JUDGE_SCHEMA = {
@@ -352,7 +460,14 @@ export async function* compareExtraction(
         continue
       }
       const charsPerPage = Math.round(ex.chars / Math.max(1, profile.pages))
-      if (u.method.kind === 'default') defaultCharsPerPage = charsPerPage
+      if (u.method.kind === 'default') {
+        defaultCharsPerPage = charsPerPage
+        // Methods that landed before Default get their yield now that the
+        // baseline is known; the done event repeats the full map.
+        for (const m of results.values()) {
+          m.yieldVsDefault = Math.round((m.charsPerPage / Math.max(1, charsPerPage)) * 100) / 100
+        }
+      }
       let judgeScore: number | null = null
       let judgeReason = ''
       try {
@@ -375,7 +490,9 @@ export async function* compareExtraction(
       const metrics: MethodMetrics = {
         chars: ex.chars,
         charsPerPage,
-        yieldVsDefault: null,
+        yieldVsDefault: defaultCharsPerPage
+          ? Math.round((charsPerPage / Math.max(1, defaultCharsPerPage)) * 100) / 100
+          : null,
         paragraphs: ex.paragraphs,
         tableRows: ex.tableRows,
         dictionaryHitRate: dictionaryHitRate(ex.text),
@@ -412,7 +529,16 @@ export async function* compareExtraction(
     let answer = ''
     let citations = 0
     try {
-      for await (const event of provider.ask(lab, question, { resourceId: u.id })) {
+      // The sandbox holds this one upload: no stored configuration (the
+      // lab box has none), no score floor, and full-document grounding so
+      // the whole extraction is in front of the model.
+      for await (
+        const event of provider.ask(lab, question, {
+          resourceId: u.id,
+          sandbox: true,
+          depth: 'deep',
+        })
+      ) {
         if (event.type === 'delta') answer += event.text
         else if (event.type === 'citation') citations++
       }
@@ -435,15 +561,18 @@ export async function* compareExtraction(
   }
   const yields: Record<string, number> = {}
   for (const [id, m] of results) if (m.yieldVsDefault !== null) yields[id] = m.yieldVsDefault
-  const best =
-    [...results.entries()].sort((a, b) =>
-      (b[1].judgeScore ?? -1) - (a[1].judgeScore ?? -1) || b[1].tableRows - a[1].tableRows ||
-      b[1].chars - a[1].chars
-    )[0]
+  const recommendation = recommendMethod(
+    profile.class,
+    [...results.entries()].flatMap(([id, metrics]) => {
+      const method = chosen.find((m) => m.id === id)
+      return method ? [{ method, metrics }] : []
+    }),
+  )
   yield {
     type: 'done',
     purged,
-    recommended: best ? (chosen.find((m) => m.id === best[0])?.name ?? null) : null,
+    recommended: recommendation?.method.name ?? null,
+    reason: recommendation?.reason ?? 'No method finished, so there is nothing to recommend.',
     yields,
   }
 }
