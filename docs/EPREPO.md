@@ -72,6 +72,25 @@ for this fork.
   visual extraction methods in a sandbox box with a judge's score and a before/after ask, and set routing
   rules per document class. Manage > Extraction, linked from Tools.
 
+## The Agentic page (decision, 2026-09-04)
+
+`/t/eprepo/agentic` stays a redirect to Ask. The separate agentic surface it once was (its own
+answer rendering, evidence table and pipeline visualisation) was folded into Ask, and the
+persona sweep (P9-19) found that the "Show the pipeline" disclosure under an answer is
+administrator-only, so a non-administrator had no multi-step view beyond the Deep research
+toggle. The decision is to keep it that way rather than expose the developer-facing pipeline
+(token counts, stage timings, raw retrieval) to every reader:
+
+- **The public multi-step view is the Deep research sub-question list.** With Deep research on,
+  Ask maps the question into focused sub-questions, researches each, and answers with
+  full-document grounding; the sub-questions are listed above the answer so the reader sees how
+  the question was broken down and which parts the corpus covered. That is the honest
+  "agentic" disclosure for a clinician-researcher: the plan, not the plumbing.
+- **The pipeline disclosure stays behind `isAdmin`** as a developer and demo tool (the solution
+  architecture reveal in the ARAG factory's demo standard).
+- The route is not linked from navigation; it exists so old links and bookmarks resolve. The
+  Help page for Ask says so, and names the sub-question list as the multi-step view.
+
 ## Deployment
 
 The portal runs on Fly.io as the app `eprepo-portal` (Sydney, `fly.toml`), separate from
