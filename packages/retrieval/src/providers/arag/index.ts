@@ -399,6 +399,17 @@ export function calibrateRelevance(score: number): number {
  * so structured generation's grounding gate judges a source's relevance the
  * same way `ask` scores its grounding sources.
  */
+/**
+ * The platform reports a paragraph's page as a zero-based index
+ * (`position.page_number`); readers, "Open PDF at page N" and the PDF
+ * viewer count from one. Converting here, at the one boundary the index
+ * crosses, keeps every consumer one-based. A first-page match (index 0)
+ * used to be dropped as falsy and now surfaces as page 1.
+ */
+export function displayPage(page: number | undefined): number | undefined {
+  return typeof page === 'number' && Number.isInteger(page) && page >= 0 ? page + 1 : undefined
+}
+
 function bestParagraphMatch(raw: {
   fields?: Record<
     string,
@@ -1406,7 +1417,7 @@ export class AragProvider implements RetrievalProvider {
         relevance: Math.round(calibrate(best) * 100) / 100,
         citedCount: 0,
         matchedPassage: passage,
-        ...(page ? { matchedPage: page } : {}),
+        ...(displayPage(page) ? { matchedPage: displayPage(page) } : {}),
         ...(reference ? { referenceChunk: true } : {}),
         ...(passage ? { matchedField } : {}),
       }),
@@ -1981,7 +1992,7 @@ export class AragProvider implements RetrievalProvider {
               relevance: Math.round(calibrateRelevance(match.best) * 100) / 100,
               citedCount: 0,
               matchedPassage: match.passage,
-              ...(match.page ? { matchedPage: match.page } : {}),
+              ...(displayPage(match.page) ? { matchedPage: displayPage(match.page) } : {}),
               ...(match.reference ? { referenceChunk: true } : {}),
             }
           })
@@ -3241,7 +3252,7 @@ export class AragProvider implements RetrievalProvider {
             100,
           citedCount: 0,
           matchedPassage: passage,
-          ...(page ? { matchedPage: page } : {}),
+          ...(displayPage(page) ? { matchedPage: displayPage(page) } : {}),
           ...(reference ? { referenceChunk: true } : {}),
           ...(passage ? { matchedField } : {}),
         }

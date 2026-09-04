@@ -77,6 +77,8 @@ type ChatMessage = {
   pending?: boolean
   /** How the platform interpreted/rephrased the question (first turn only). */
   interpretedQuery?: string
+  /** The routed intent found nothing usable and the general configuration answered instead. */
+  fallback?: { from: string; to: string | null; reason: string }
   /** Platform learning id for this answer - target for feedback. */
   learningId?: string
   feedbackGood?: boolean
@@ -1085,6 +1087,21 @@ function AnswerCard({
               pending={message.pending}
               onOverride={onReroute}
             />
+            {message.fallback
+              ? (
+                <span
+                  className='rp-badge rp-badge-warn'
+                  title={message.fallback.reason}
+                >
+                  Answered from {message.fallback.to
+                    ? intents.find((i) => i.id === message.fallback?.to)?.label ??
+                      message.fallback.to
+                    : 'the general configuration'} -{' '}
+                  {intents.find((i) => i.id === message.fallback?.from)?.label ??
+                    message.fallback.from} found nothing usable
+                </span>
+              )
+              : null}
           </div>
         )
         : null}
@@ -2055,6 +2072,18 @@ export function AskPage() {
               break
             case 'interpreted':
               update((message) => ({ ...message, interpretedQuery: event.query }))
+              break
+            case 'fallback':
+              // A fresh answer follows on another configuration: whatever
+              // the first attempt streamed (its decline copy, its sources)
+              // is discarded so the two never read as one answer.
+              update((message) => ({
+                ...message,
+                text: '',
+                sources: [],
+                citations: [],
+                fallback: { from: event.from, to: event.to, reason: event.reason },
+              }))
               break
             case 'searched':
               // The platform auto-decomposed the question into sub-queries it
