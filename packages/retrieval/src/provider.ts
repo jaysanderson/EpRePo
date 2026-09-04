@@ -19,6 +19,8 @@ export interface SearchOptions {
   /** Intent id from the tenant's `intents` (search-capable intents only). */
   intent?: string
   pageSize?: number
+  /** Restrict the search to these resources (a targeted find on a named paper). */
+  resourceIds?: string[]
   /**
    * Scope the search to the in-app documentation ONLY (the Help section).
    * Selects the documentation-scoped stored search config and cross-checks
@@ -44,6 +46,12 @@ export interface AskOptions {
   images?: boolean
   /** Intent id from the tenant's `intents`: selects the stored configuration and the portal half. */
   intent?: string
+  /**
+   * Resources the question names (the study-name guard): each joins the
+   * grounding set through its own retrieval pass, whatever the main
+   * retrieval ranks, so a question about a named trial reads that trial.
+   */
+  pinnedResourceIds?: string[]
   /**
    * Scope the answer to the in-app documentation ONLY (the Help assistant).
    * Selects the documentation-scoped stored search config and applies the

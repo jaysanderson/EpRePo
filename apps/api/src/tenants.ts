@@ -1,6 +1,7 @@
 import process from 'node:process'
 import { type TenantConfig, TenantConfigSchema, type TenantSummary } from '@research-portal/core'
 import { readJsonSafe, writeJsonAtomic } from './persist.ts'
+import { RESULTS_QUESTION_RULE } from './intent-router.ts'
 
 // ---------------------------------------------------------------------------
 // Seed tenant configs - the single source of truth for tenant-driven theming
@@ -246,16 +247,25 @@ const eprepo: TenantConfig = TenantConfigSchema.parse({
     {
       id: 'data',
       label: 'Supplementary data',
-      description: 'Tables, data sheets, protocols and peer review history attached to the papers.',
+      description:
+        'Only for a question that explicitly asks for a supplementary table, data sheet, ' +
+        'appendix, protocol document, peer review history or raw data. Never for a result, ' +
+        'a rate or a trial design that the paper itself reports.',
       examples: [
         'Sample size calculation in the SERIAS protocol',
         'Supplementary table of variants in the exome study',
+        'What did the peer reviewers say about the BREATHS protocol?',
       ],
+      // The papers and their attachments together, with a second retrieval
+      // pass over the attachments alone: a data question reads the paper's
+      // own results beside its tables, never the tables alone (a supplement
+      // never states what the trial was).
       retrieval: {
         features: ['keyword', 'semantic'],
         topK: 20,
         reranker: 'predict',
-        only: [{ labelset: 'format', label: 'supplement' }],
+        exclude: [{ labelset: 'format', label: 'media' }],
+        prefer: [{ labelset: 'format', label: 'supplement' }],
       },
       answer: {
         surfaces: ['ask', 'search'],
@@ -263,8 +273,18 @@ const eprepo: TenantConfig = TenantConfigSchema.parse({
         neighbours: 4,
         promptVariant: 'data',
       },
+      // The word must name an attachment: "protocol" alone is a methods
+      // question, "the BREATHS trial protocol" is a document. A sample size
+      // is a figure the paper reports, so it is a results question below.
       rules: [
-        '\\b(supplement|supplementary|data sheet|datasheet|table s\\d|appendix|protocol|peer review|sample size|raw data)\\b',
+        '\\b(supplement|supplementary|data ?sheet|table s\\d|appendix|appendices|' +
+        '(?:study|trial|research) protocol|protocol (?:paper|document|publication)|' +
+        'peer[- ]review\\w*|raw data|datasets?)\\b',
+      ],
+      ruleRationale: 'the question names a table, a protocol document or a peer review file',
+      classifierGate: [
+        '\\b(tables?|supplement\\w*|data ?sheets?|appendi(?:x|ces)|protocol\\w*|' +
+        'peer[- ]review\\w*|raw data|datasets?)\\b',
       ],
     },
     {
@@ -356,6 +376,9 @@ const eprepo: TenantConfig = TenantConfigSchema.parse({
       // review, and the classifier reads the question instead.
       rules: [
         '\\b(compare|comparison|versus|\\bvs\\b|synthesis|what is known|evidence for|overview|across studies|mechanism)\\b',
+        // A survey of what a group or a field has published is a review,
+        // not a lookup of one figure.
+        '\\b(what (?:has|have) .{0,80}published|published on|literature on|body of work|state of the (?:art|evidence))\\b',
       ],
     },
     {
@@ -379,6 +402,12 @@ const eprepo: TenantConfig = TenantConfigSchema.parse({
         graph: true,
         promptVariant: 'default',
       },
+      // A question for a figure the paper reports (a rate, a count, an
+      // outcome, a sample size) reads the papers by rule: the classifier
+      // used to send every such question to the supplements, and the
+      // rule answers in microseconds.
+      rules: [RESULTS_QUESTION_RULE],
+      ruleRationale: 'a results question, answered from the papers themselves',
     },
   ],
   // These ids are the `topic` labelset `deno task provision -- eprepo` pushes
@@ -488,6 +517,8 @@ export interface TenantPatch {
   prompts?: { ask?: string; images?: boolean }
   /** Extraction routing rules (docs/EXTRACTION-LAB.md). */
   extraction?: TenantConfig['extraction']
+  /** Intent-routed configurations (docs/INTENT-ROUTING.md), when a portal tunes its own. */
+  intents?: TenantConfig['intents']
 }
 
 export class TenantStore {

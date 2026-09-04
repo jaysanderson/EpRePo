@@ -231,6 +231,13 @@ export const IntentSchema = z.object({
     exclude: LabelRefSchema.array().default([]),
     /** When set, grounding is restricted to these labels (replaces exclusion). */
     only: LabelRefSchema.array().default([]),
+    /**
+     * Labels the intent favours without excluding the rest: retrieval runs
+     * over everything the filter allows, and a second pass restricted to
+     * these labels joins the grounding set, so a data question reads the
+     * paper and its tables together rather than the tables alone.
+     */
+    prefer: LabelRefSchema.array().default([]),
   }),
   /** Portal half - applied at request time by the provider. */
   answer: z.object({
@@ -247,6 +254,15 @@ export const IntentSchema = z.object({
   }),
   /** Stage-1 rules: regexes (case-insensitive) tested against the question; first intent with a match wins. */
   rules: z.string().array().default([]),
+  /** Shown as the reason when one of the rules fires, in place of the generic wording. */
+  ruleRationale: z.string().optional(),
+  /**
+   * The classifier may choose this intent only when the question matches one
+   * of these expressions (case-insensitive). A supplements intent is gated on
+   * the words that name a table, a data sheet or a peer-review file, so a
+   * question that merely asks for a figure keeps reading the papers.
+   */
+  classifierGate: z.string().array().default([]),
   /** The rule only fires when the question also names a known entity (drug, gene). */
   requireEntity: z.boolean().default(false),
   /**
@@ -790,6 +806,8 @@ export const SearchResultsSchema = z.object({
   resources: ScoredResourceSchema.array(),
   relatedQuestions: QuestionSchema.array(),
   lookup: SearchLookupSchema.optional(),
+  /** The rule-stage routing decision the search applied, when one fired. */
+  route: RouteDecisionSchema.optional(),
 })
 
 export const RetrievalModeSchema = z.enum(['hybrid', 'semantic', 'keyword'])
@@ -1067,6 +1085,12 @@ export const AskEventSchema = z.discriminatedUnion('type', [
     to: z.string().nullable(),
     reason: z.string(),
   }),
+  /**
+   * The routing decision the server made for this question when the caller
+   * asked for automatic routing: immediately for a rule, and once the
+   * classifier answers otherwise. Sent before any delta.
+   */
+  z.object({ type: z.literal('route'), decision: RouteDecisionSchema }),
 ])
 
 // ---------------------------------------------------------------------------

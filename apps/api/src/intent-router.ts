@@ -18,7 +18,7 @@ export function configurationFor(intentId: string, defaultIntent: string): strin
  * statistics, modalities, mouse strains. Kept short and explicit - the gene
  * shape below also demands a digit, which already rules out most acronyms.
  */
-const NOT_A_GENE = new Set([
+export const GENERIC_ACRONYMS = new Set([
   'PMC',
   'DOI',
   'PMID',
@@ -164,7 +164,7 @@ const DIGITLESS_GENES = new Set([
  */
 export function looksLikeGeneSymbol(token: string): boolean {
   const t = token.trim()
-  if (!t || NOT_A_GENE.has(t.toUpperCase()) || /^(PMC|PMID)\d+$/i.test(t)) return false
+  if (!t || GENERIC_ACRONYMS.has(t.toUpperCase()) || /^(PMC|PMID)\d+$/i.test(t)) return false
   if (/^[A-Z][A-Z0-9]{1,7}$/.test(t)) return /\d/.test(t) || DIGITLESS_GENES.has(t)
   if (/^[A-Z][a-z]{1,6}\d[a-z0-9]{0,3}$/.test(t)) return true
   return false
@@ -205,6 +205,26 @@ export function extractEntities(query: string, lexicon: readonly string[] = []):
 }
 
 export type IdentifierKind = 'doi' | 'pmcid' | 'pmid'
+
+/**
+ * A results question: it asks for a figure a paper itself reports (a rate,
+ * a count, an outcome, a sample size). Such questions read the papers on the
+ * default configuration by rule, so the classifier never sends them to the
+ * supplements alone, and the router answers in microseconds rather than
+ * after a generation. Shared with the tenant's rule list so the two never
+ * drift apart.
+ */
+export const RESULTS_QUESTION_RULE =
+  '\\b(how many|how long|how often|how much|what (?:proportion|percentage|fraction)|' +
+  'proportion of|percentage|per ?cent|rates?|ratios?|hazard ratio|odds ratio|relative risk|' +
+  'incidence|prevalence|mortality|retention|seizure[- ]free\\w*|responders?|remission|' +
+  'adverse events?|side effects?|primary (?:outcome|endpoint)|secondary (?:outcomes?|endpoints?)|' +
+  'sample size|participants|median|mean|number of|risk of|efficacy|effectiveness|tolerability|' +
+  'control (?:arm|group)|follow[- ]up)\\b'
+
+export function isResultsQuestion(query: string): boolean {
+  return new RegExp(RESULTS_QUESTION_RULE, 'i').test(query)
+}
 
 /**
  * A bare identifier: a DOI (with or without a doi: or doi.org prefix), a
@@ -265,9 +285,24 @@ export function eligibleIntents(ctx: RouteContext): Intent[] {
   )
 }
 
-/** Intents the classifier may choose: eligible for the surface and not rules-only. */
-export function classifierIntents(ctx: RouteContext): Intent[] {
-  return eligibleIntents(ctx).filter((i) => !i.rulesOnly)
+/**
+ * Intents the classifier may choose: eligible for the surface, not
+ * rules-only, and, when the intent carries a classifier gate, only for a
+ * question that matches it.
+ */
+export function classifierIntents(ctx: RouteContext, query = ''): Intent[] {
+  return eligibleIntents(ctx).filter((i) => !i.rulesOnly && passesGate(i, query))
+}
+
+function passesGate(intent: Intent, query: string): boolean {
+  if (intent.classifierGate.length === 0) return true
+  return intent.classifierGate.some((gate) => {
+    try {
+      return new RegExp(gate, 'i').test(query)
+    } catch {
+      return false
+    }
+  })
 }
 
 /** The listing intent an identifier resolves to: no generation, results only. */
@@ -341,7 +376,7 @@ export function routeByRules(query: string, ctx: RouteContext): RouteDecision | 
 
 function describeRule(intent: Intent, entities: string[]): string {
   const who = entities.length > 0 ? ` (${entities.slice(0, 3).join(', ')})` : ''
-  return `${intent.label}: matched a routing rule${who}`
+  return `${intent.label}: ${intent.ruleRationale ?? 'matched a routing rule'}${who}`
 }
 
 /** The default decision when nothing fires or the classifier is unsure. */
@@ -366,12 +401,13 @@ export function decideFromClassifier(
   ctx: RouteContext,
   entities: string[] = [],
   threshold = CLASSIFIER_THRESHOLD,
+  query = '',
 ): RouteDecision {
   const intent = typeof raw.intent === 'string' ? raw.intent.trim() : ''
   const confidence = typeof raw.confidence === 'number'
     ? Math.max(0, Math.min(1, raw.confidence))
     : 0
-  const known = classifierIntents(ctx).find((i) => i.id === intent)
+  const known = classifierIntents(ctx, query).find((i) => i.id === intent)
   if (!known || confidence < threshold) {
     return defaultDecision(ctx, 'No confident match, using the default configuration', entities)
   }

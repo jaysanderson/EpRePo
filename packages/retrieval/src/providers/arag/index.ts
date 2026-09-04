@@ -63,6 +63,8 @@ import {
 const CATALOG_TTL_MS = 60_000
 /** Identical search queries return the identical list for this long. */
 const SEARCH_CACHE_TTL_MS = 3 * 60_000
+/** Paragraphs a search listing retrieves before resources are ranked (see searchUncached). */
+const SEARCH_PARAGRAPH_BUDGET = 60
 const SEARCH_CACHE_MAX = 200
 /** The relations slice and the entity groups are re-read from the box this often. */
 const GRAPH_CACHE_TTL_MS = 5 * 60_000
@@ -581,6 +583,48 @@ export function intentFilterExpression(
     return { field: { and: [{ not: labelFieldExpression() }, include] } }
   }
   return researchExcludeFilterExpression(retrieval.exclude ?? [])
+}
+
+/** The platform caps a prequeries strategy at ten queries. */
+export const MAX_PREQUERIES = 10
+
+/**
+ * The extra retrieval passes that join an ask's grounding set, in priority
+ * order: a pass per pinned resource (a paper the question names), one pass
+ * restricted to the labels the intent prefers (a data question's
+ * supplements beside its papers), then the caller's sub-questions. Verified
+ * live: a prequery request is a full find request, so `resource_filters`
+ * and label `filters` scope it.
+ */
+export function groundingPrequeries(
+  query: string,
+  opts: {
+    pinnedResourceIds?: readonly string[]
+    prefer?: readonly LabelRef[]
+    prequeries?: readonly string[]
+  },
+): Record<string, unknown>[] {
+  const features = ['keyword', 'semantic']
+  const out: Record<string, unknown>[] = []
+  for (const id of (opts.pinnedResourceIds ?? []).slice(0, 3)) {
+    out.push({ request: { query, features, resource_filters: [id] }, weight: 1 })
+  }
+  const prefer = opts.prefer ?? []
+  if (prefer.length > 0) {
+    out.push({
+      request: {
+        query,
+        features,
+        filters: prefer.map((l) => `/classification.labels/${l.labelset}/${l.label}`),
+      },
+      weight: 1,
+    })
+  }
+  for (const q of opts.prequeries ?? []) {
+    if (out.length >= MAX_PREQUERIES) break
+    out.push({ request: { query: q, features }, weight: 1 })
+  }
+  return out.slice(0, MAX_PREQUERIES)
 }
 
 /** The portal half of an intent's retrieval: grounding strategies. */
@@ -1277,6 +1321,13 @@ export class AragProvider implements RetrievalProvider {
       query: trimmed,
       features,
       page_size: opts.pageSize ?? 20,
+      // The paragraph budget, and what actually bounds the resource list:
+      // a sentence that one paper answers in twenty paragraphs otherwise
+      // fills the whole page with that paper and returns it alone
+      // (verified live: "risk of SUDEP with lamotrigine" gave one resource
+      // at the default and eighteen at sixty). A request-level top_k wins
+      // over the stored configuration's.
+      top_k: SEARCH_PARAGRAPH_BUDGET,
       show: ['basic', 'origin'],
       // Cross-encoder reranking pass over the retrieved candidates - verified
       // live (docs/ARAG-DEV.md has no prior record of this; see the reranker
@@ -1307,7 +1358,9 @@ export class AragProvider implements RetrievalProvider {
       body.features = searchIntent.retrieval.features
       body.reranker = searchIntent.retrieval.reranker
       body.page_size = opts.pageSize ?? searchIntent.retrieval.topK
+      body.top_k = Math.max(searchIntent.retrieval.topK, SEARCH_PARAGRAPH_BUDGET)
     }
+    if (opts.resourceIds && opts.resourceIds.length > 0) body.resource_filters = opts.resourceIds
     // An exact lookup (a bare identifier or term on the keyword
     // configuration) promises the documents that contain it, never near
     // misses; a DOI names one document. Both are enforced below.
@@ -3189,15 +3242,12 @@ export class AragProvider implements RetrievalProvider {
         { name: 'neighbouring_paragraphs', before: 2, after: 2 },
         { name: 'graph_beta', hops: 2, agentic_graph_only: true },
       ]
-    if (opts.prequeries && opts.prequeries.length > 0) {
-      strategies.push({
-        name: 'prequeries',
-        queries: opts.prequeries.slice(0, 8).map((q) => ({
-          request: { query: q, features: ['keyword', 'semantic'] },
-          weight: 1,
-        })),
-      })
-    }
+    const prequeries = groundingPrequeries(query, {
+      pinnedResourceIds: opts.pinnedResourceIds,
+      prefer: intent?.retrieval.prefer,
+      prequeries: opts.prequeries,
+    })
+    if (prequeries.length > 0) strategies.push({ name: 'prequeries', queries: prequeries })
     body.rag_strategies = strategies
     if (opts.images) {
       body.rag_images_strategies = [{ name: 'page_image' }, { name: 'tables' }]
