@@ -1683,8 +1683,20 @@ export class AragProvider implements RetrievalProvider {
     tenant: TenantConfig,
     schema: { name: string; description: string; parameters: unknown },
     query: string,
-    opts: { requireGrounding?: boolean; resourceId?: string; model?: string } = {},
-  ): Promise<{ object: unknown; sources: ScoredResource[]; insufficientGrounding: boolean }> {
+    opts: {
+      requireGrounding?: boolean
+      resourceId?: string
+      model?: string
+      /** System-prompt instructions for the generation (how to write, what to include). */
+      instructions?: string
+    } = {},
+  ): Promise<{
+    object: unknown
+    sources: ScoredResource[]
+    insufficientGrounding: boolean
+    /** Every retrieved passage per resource id - the grounding context the model wrote from. */
+    passagesByResource: Record<string, string[]>
+  }> {
     const client = this.client(tenant)
     const catalogue = await this.listResources(tenant).catch(() => [] as ResourceSummary[])
     const byId = new Map(catalogue.map((r) => [r.id, r]))
@@ -1693,6 +1705,10 @@ export class AragProvider implements RetrievalProvider {
       features: ['keyword', 'semantic'],
       answer_json_schema: schema,
       show: ['basic', 'origin'],
+      // Writing instructions ride the system prompt, never the query: the
+      // query is also the retrieval text, and instructions in it drag
+      // retrieval towards the instructions rather than the topic.
+      ...(opts.instructions?.trim() ? { prompt: { system: opts.instructions.trim() } } : {}),
       // Scope generation to one resource (per-resource enrichment) - the same
       // resource_filters the per-document chat uses. Verified live: it grounds
       // the answer on exactly that resource.
@@ -1706,6 +1722,7 @@ export class AragProvider implements RetrievalProvider {
     })
     let object: unknown = null
     let sources: ScoredResource[] = []
+    const passagesByResource: Record<string, string[]> = {}
     for await (const line of ndjson(res)) {
       const item = (line as { item?: { type?: string } & Record<string, unknown> }).item
       if (!item?.type) continue
@@ -1726,6 +1743,11 @@ export class AragProvider implements RetrievalProvider {
             }
           >
         } | undefined
+        for (const [id, raw] of Object.entries(results?.resources ?? {})) {
+          passagesByResource[id] = Object.values(raw.fields ?? {}).flatMap((field) =>
+            Object.values(field.paragraphs ?? {}).flatMap((p) => p.text ? [p.text] : [])
+          )
+        }
         sources = Object.entries(results?.resources ?? {})
           .map(([id, raw]) => {
             const match = bestParagraphMatch(raw)
@@ -1745,7 +1767,7 @@ export class AragProvider implements RetrievalProvider {
     }
     const grounded = sources.filter((s) => s.relevance >= MIN_GENERATE_GROUNDING)
     if (opts.requireGrounding && grounded.length === 0) {
-      return { object: null, sources: grounded, insufficientGrounding: true }
+      return { object: null, sources: grounded, insufficientGrounding: true, passagesByResource }
     }
     if (object === null) {
       throw new Error('The platform returned no structured answer - try a narrower request')
@@ -1754,6 +1776,7 @@ export class AragProvider implements RetrievalProvider {
       object,
       sources: opts.requireGrounding ? grounded : sources,
       insufficientGrounding: false,
+      passagesByResource,
     }
   }
 

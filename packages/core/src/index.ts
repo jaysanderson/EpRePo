@@ -337,6 +337,12 @@ export const TenantConfigSchema = z.object({
   hostname: TenantHostnameSchema.optional(),
   branding: BrandingSchema,
   searchPlaceholder: z.string(),
+  /**
+   * Heading over the Assessment page's topic tiles ("Industry Knowledge
+   * Areas" on a sector portal, "Research knowledge areas" on a journal
+   * corpus). Absent means the generic "Knowledge areas".
+   */
+  assessmentHeading: z.string().optional(),
   topics: TopicSchema.array(),
   suggestedQuestions: QuestionSchema.array(),
   entityTypes: EntityTypeSchema.array(),

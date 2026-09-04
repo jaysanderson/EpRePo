@@ -1,4 +1,5 @@
 import { type CSSProperties, useState } from 'react'
+import { Link } from 'react-router-dom'
 
 // ---------------------------------------------------------------------------
 // Shared interactive quiz renderer for the "assessment" generated-artefact
@@ -14,6 +15,9 @@ export type AssessmentQuestion = {
   correct_index: number
   explanation: string
   topic: string
+  /** The retrieved resource the question was written from, when the server could resolve it. */
+  source_resource_id?: string | null
+  source_title?: string | null
 }
 
 export type AssessmentObject = { questions: AssessmentQuestion[] }
@@ -35,7 +39,11 @@ export function isAssessment(value: unknown): value is AssessmentObject {
       isStringArray(q.options) &&
       typeof q.correct_index === 'number' &&
       typeof q.explanation === 'string' &&
-      typeof q.topic === 'string',
+      typeof q.topic === 'string' &&
+      (q.source_resource_id === undefined || q.source_resource_id === null ||
+        typeof q.source_resource_id === 'string') &&
+      (q.source_title === undefined || q.source_title === null ||
+        typeof q.source_title === 'string'),
   )
 }
 
@@ -58,9 +66,12 @@ function scoreVerdict(score: number, total: number): string {
 export function AssessmentQuiz({
   data,
   onRetake,
+  slug,
 }: {
   data: AssessmentObject
   onRetake?: () => void
+  /** Portal slug for the per-question source links; without it the source shows as text. */
+  slug?: string
 }) {
   const [selected, setSelected] = useState<Record<number, number>>({})
   const [submitted, setSubmitted] = useState(false)
@@ -154,6 +165,27 @@ export function AssessmentQuiz({
             </div>
             {submitted && q.explanation && (
               <p className='mt-3 text-sm leading-relaxed text-ink-2'>{q.explanation}</p>
+            )}
+            {submitted && (
+              <p className='mt-2 text-xs text-ink-3'>
+                {q.source_resource_id && q.source_title
+                  ? (
+                    <>
+                      Source: {slug
+                        ? (
+                          <Link
+                            to={`/t/${slug}/library/${encodeURIComponent(q.source_resource_id)}`}
+                            className='rp-focus font-medium underline-offset-2 hover:underline'
+                            style={{ color: 'var(--rp-accent-fg)' }}
+                          >
+                            {q.source_title}
+                          </Link>
+                        )
+                        : <span className='font-medium text-ink-2'>{q.source_title}</span>}
+                    </>
+                  )
+                  : 'Source: not attributed - the question could not be tied to one retrieved document.'}
+              </p>
             )}
           </div>
         ))}
