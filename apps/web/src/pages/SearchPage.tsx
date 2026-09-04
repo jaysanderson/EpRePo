@@ -9,7 +9,6 @@ import {
   getFacets,
   listWatches,
   markWatchSeen,
-  routeIntent,
   type SavedWatch,
   searchTenantFull,
   summarizeResources,
@@ -511,26 +510,7 @@ export function SearchPage() {
   // a search with a query gets its cited answer with no extra click - and
   // `answer=0` is the explicit, shareable opt-out.
   const answerModeParamValue = readAnswerMode(searchParams)
-  // Intent routing for the search box: a bare identifier ("SCN8A") is an
-  // exact lookup - results only, on the keyword configuration - and a
-  // supplementary-data question flips the format exclusion. The decision is
-  // shown as a chip so the reader can see it.
   const intents = config.intents ?? []
-  const { data: route, isFetched: routeFetched } = useQuery({
-    queryKey: ['route', config.slug, q],
-    queryFn: () => routeIntent(config.slug, q, 'search'),
-    enabled: q.trim().length > 0 && intents.length > 0 && mode === 'hybrid',
-    staleTime: 5 * 60_000,
-    retry: false,
-  })
-  const routeSettled = intents.length === 0 || mode !== 'hybrid' || routeFetched
-  const routedIntent = route ? intents.find((i) => i.id === route.intent) : undefined
-  const searchIntent = routedIntent && mode === 'hybrid' &&
-      routedIntent.answer.surfaces.includes('search') && routedIntent.id !== config.defaultIntent
-    ? routedIntent.id
-    : undefined
-  const lookupOnly = routedIntent !== undefined && !routedIntent.answer.surfaces.includes('ask')
-  const answerMode = answerModeParamValue && !lookupOnly
 
   // Open by default on the desktop layout, where the rail sits beside the
   // results; closed on a phone, where it would otherwise stack two full facet
@@ -605,6 +585,11 @@ export function SearchPage() {
   const kindCounts = facets?.kind ?? {}
   const kindIds = useMemo(() => Object.keys(kindCounts).sort(), [kindCounts])
 
+  // The results never wait on routing: the server applies the rule stage
+  // itself (an identifier, a gene symbol, an author surname is an exact
+  // lookup decided in microseconds) and returns the decision with the
+  // results, so the chip and the list arrive together and no classifier
+  // call stands between the reader and the list.
   const {
     data: results,
     isLoading,
@@ -619,17 +604,25 @@ export function SearchPage() {
       mode,
       selectedTopics.join(','),
       selectedKinds.join(','),
-      searchIntent ?? '',
     ],
     queryFn: () =>
       searchTenantFull(config.slug, q, {
         mode,
         topicIds: selectedTopics,
         kindIds: selectedKinds,
-        ...(searchIntent ? { intent: searchIntent } : {}),
       }),
-    enabled: q.trim().length > 0 && routeSettled,
+    enabled: q.trim().length > 0,
   })
+  const route = results?.route
+  const routedIntent = route ? intents.find((i) => i.id === route.intent) : undefined
+  // An exact lookup (an identifier, a term, an author) lists the documents
+  // and generates nothing: an author search is a bibliography, not a
+  // question, and a generated paragraph about a name reads as a profile
+  // nobody asked for.
+  const lookupOnly =
+    (routedIntent !== undefined && !routedIntent.answer.surfaces.includes('ask')) ||
+    results?.lookup?.matched === true
+  const answerMode = answerModeParamValue && !lookupOnly
 
   // Match strength is not a server filter - the search API only accepts topicIds - so
   // this narrows the already-fetched, calibrated results client-side.
@@ -938,10 +931,10 @@ export function SearchPage() {
           : null}
       </div>
 
-      {hasQuery && intents.length > 0 && mode === 'hybrid' && (route || !routeFetched)
+      {hasQuery && intents.length > 0 && route
         ? (
           <div className='mt-4 flex flex-wrap items-center gap-3'>
-            <RouteChip decision={route} intents={intents} pending={!routeFetched} />
+            <RouteChip decision={route} intents={intents} />
             {lookupOnly && !(results && results.resources.length === 0)
               ? (
                 <Link
@@ -955,7 +948,12 @@ export function SearchPage() {
           </div>
         )
         : null}
-      {hasQuery && answerMode
+      {
+        /* The answer waits for the results (milliseconds for a lookup, about
+        * a second otherwise) so a lookup never starts a generation it will
+        * not show. */
+      }
+      {hasQuery && answerMode && (results !== undefined || isError)
         ? (
           <div className='mt-6'>
             <SearchAnswer slug={config.slug} query={q} onResult={setAnswer} />

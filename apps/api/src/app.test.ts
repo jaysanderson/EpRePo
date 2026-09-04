@@ -26,6 +26,29 @@ import type { PortalDomainProvisioner } from './cloudflare-domains.ts'
 // Hermetic tenant store - tests must never read the repo's live data/tenants.json.
 const freshTenants = () =>
   new TenantStore({ TENANTS_PATH: `${Deno.makeTempDirSync()}/tenants.json` })
+/**
+ * EpRePo with its data intent restricted to supplements (the shape it had
+ * before data became articles-plus-supplements), for the tests of the
+ * supplements-only fallback that a restricted intent still needs.
+ */
+const supplementsOnlyTenants = () => {
+  const tenants = freshTenants()
+  const intents = (tenants.get('eprepo')?.intents ?? []).map((intent) =>
+    intent.id === 'data'
+      ? {
+        ...intent,
+        retrieval: {
+          ...intent.retrieval,
+          exclude: [],
+          prefer: [],
+          only: [{ labelset: 'format', label: 'supplement' }],
+        },
+      }
+      : intent
+  )
+  tenants.patch('eprepo', { intents })
+  return tenants
+}
 import { BindingStore } from './bindings.ts'
 
 // ---------------------------------------------------------------------------
@@ -426,6 +449,63 @@ describe('GET /api/t/:slug/search', () => {
   })
 })
 
+describe('GET /api/t/:slug/search - rule-stage routing', () => {
+  /** Records the intent each search asked for; empty for a narrower intent. */
+  class IntentAwareProvider extends StubProvider {
+    intents: (string | undefined)[] = []
+    override async search(
+      tenant: TenantConfig,
+      query: string,
+      opts?: { intent?: string },
+    ): Promise<SearchResults> {
+      this.intents.push(opts?.intent)
+      if (opts?.intent === 'data') return { query, resources: [], relatedQuestions: [] }
+      return super.search(tenant, query)
+    }
+  }
+
+  it('decides an exact lookup by rule on the server and returns the decision with the results', async () => {
+    const provider = new IntentAwareProvider()
+    const app = buildApp({ provider, tenants: freshTenants() })
+    const response = await app.request('/api/t/eprepo/search?q=SCN8A')
+    const body = SearchResultsSchema.parse(await response.json())
+    expect(body.route?.intent).toBe('lookup')
+    expect(body.route?.stage).toBe('rule')
+    expect(provider.intents).toEqual(['lookup'])
+  })
+
+  it('never routes a plain search through a classifier: a sentence lists on the default configuration', async () => {
+    const provider = new IntentAwareProvider()
+    const app = buildApp({ provider, tenants: freshTenants() })
+    const response = await app.request(
+      '/api/t/eprepo/search?q=rituximab+anti-NMDAR+relapse+prevention',
+    )
+    const body = SearchResultsSchema.parse(await response.json())
+    expect(body.route).toBeUndefined()
+    expect(provider.intents).toEqual([undefined])
+    expect(body.resources.length).toBeGreaterThan(0)
+  })
+
+  it('falls back to the default configuration when a narrower intent lists nothing', async () => {
+    const provider = new IntentAwareProvider()
+    const app = buildApp({ provider, tenants: freshTenants() })
+    const response = await app.request('/api/t/eprepo/search?q=supplementary+table+of+variants')
+    const body = SearchResultsSchema.parse(await response.json())
+    expect(provider.intents).toEqual(['data', undefined])
+    expect(body.resources.length).toBeGreaterThan(0)
+    expect(body.route).toBeUndefined()
+  })
+
+  it('keeps the mode switch honest: no rule is applied outside hybrid mode', async () => {
+    const provider = new IntentAwareProvider()
+    const app = buildApp({ provider, tenants: freshTenants() })
+    const response = await app.request('/api/t/eprepo/search?q=SCN8A&mode=semantic')
+    const body = SearchResultsSchema.parse(await response.json())
+    expect(body.route).toBeUndefined()
+    expect(provider.intents).toEqual([undefined])
+  })
+})
+
 describe('GET /api/t/:slug/search - catalogue lookups', () => {
   const article: ResourceSummary = {
     ...resourceOne,
@@ -480,6 +560,23 @@ describe('GET /api/t/:slug/search - catalogue lookups', () => {
     expect(body.resources[0]?.matchedPassage).toContain('Vajda FJE')
     // The stub's own results still follow, without duplicating the author hit.
     expect(body.resources.filter((r) => r.id === 'art-1')).toHaveLength(1)
+  })
+
+  it('reports an author lookup as a listing decision on a portal with intents', async () => {
+    const response = await app().request("/api/t/eprepo/search?q=D'Souza")
+    const body = SearchResultsSchema.parse(await response.json())
+    // The stub catalogue has no D'Souza: no lookup, and no decision either.
+    expect(body.lookup).toBeUndefined()
+    const vajda = await app().request('/api/t/eprepo/search?q=vajda')
+    const listed = SearchResultsSchema.parse(await vajda.json())
+    expect(listed.lookup?.matched).toBe(true)
+    expect(listed.route).toMatchObject({
+      intent: 'lookup',
+      stage: 'rule',
+      rule: 'author',
+      configuration: 'catalogue',
+    })
+    expect(listed.route?.rationale).toContain('papers by vajda')
   })
 })
 
@@ -1434,7 +1531,10 @@ describe('POST /api/t/:slug/ask grounding gate', () => {
         return super.ask(tenant, query)
       }
     }
-    const app = buildApp({ provider: new SupplementAwareProvider(), tenants: freshTenants() })
+    const app = buildApp({
+      provider: new SupplementAwareProvider(),
+      tenants: supplementsOnlyTenants(),
+    })
     const response = await app.request('/api/t/eprepo/ask', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -1534,7 +1634,10 @@ describe('POST /api/t/:slug/ask refusal fallback', () => {
         yield* super.ask(tenant, query)
       }
     }
-    const app = buildApp({ provider: new RefusingOnDataProvider(), tenants: freshTenants() })
+    const app = buildApp({
+      provider: new RefusingOnDataProvider(),
+      tenants: supplementsOnlyTenants(),
+    })
     const response = await app.request('/api/t/eprepo/ask', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -1725,8 +1828,10 @@ describe('POST /api/t/:slug/ask refusals and sentinels', () => {
       body: JSON.stringify({ query: 'What is the abalone quota in the Baltic?' }),
     })
     const events = await sseEvents(response)
+    // The probe's closest matches before generation, the provider's own
+    // grounding set, then the refusal's re-send: every one shows both.
     const sources = events.filter((e) => e.type === 'sources')
-    expect(sources.length).toBe(2)
+    expect(sources.length).toBe(3)
     expect(sources.every((e) => e.type === 'sources' && e.resources.length === 2)).toBe(true)
     const done = events.find((e) => e.type === 'done')
     const text = done && done.type === 'done' ? done.text ?? '' : ''
@@ -1840,5 +1945,140 @@ describe('POST /api/t/:slug/ask refusals and sentinels', () => {
     expect(done && done.type === 'done' ? done.text : '').toBe(
       'The cited sources do not provide a quota (inference). Stocks fell 12% since 2019.[1]',
     )
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Automatic routing and the study-name guard on POST /ask
+// ---------------------------------------------------------------------------
+
+describe('POST /api/t/:slug/ask automatic routing', () => {
+  it('routes by rule inside the ask, reports the decision first, and previews the closest matches', async () => {
+    const intents: (string | undefined)[] = []
+    class RecordingProvider extends StubProvider {
+      override ask(tenant: TenantConfig, query: string, opts?: { intent?: string }) {
+        intents.push(opts?.intent)
+        return super.ask(tenant, query)
+      }
+    }
+    const app = buildApp({ provider: new RecordingProvider(), tenants: freshTenants() })
+    const response = await app.request('/api/t/eprepo/ask', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        query: 'What retention rate did the PERMIT pooled analysis report at 12 months?',
+        route: 'auto',
+      }),
+    })
+    const events = await sseEvents(response)
+    const route = events.find((e) => e.type === 'route')
+    expect(route && route.type === 'route' ? route.decision.intent : null).toBe('general')
+    expect(route && route.type === 'route' ? route.decision.stage : null).toBe('rule')
+    // The decision precedes the first word, and the probe's shortlist too.
+    const order = events.map((e) => e.type)
+    expect(order.indexOf('route')).toBeLessThan(order.indexOf('delta'))
+    expect(order.indexOf('sources')).toBeLessThan(order.indexOf('delta'))
+    expect(intents).toEqual(['general'])
+  })
+
+  it('falls back to the default when no rule fires and no classifier is available', async () => {
+    const app = buildApp({ provider: new StubProvider(), tenants: freshTenants() })
+    const response = await app.request('/api/t/eprepo/ask', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ query: 'How does the ketogenic diet work?', route: 'auto' }),
+    })
+    const events = await sseEvents(response)
+    const route = events.find((e) => e.type === 'route')
+    expect(route && route.type === 'route' ? route.decision.stage : null).toBe('default')
+    expect(events.some((e) => e.type === 'done' && !e.refused)).toBe(true)
+  })
+
+  it('pins a paper the question names into the grounding set and leads the sources with it', async () => {
+    const umpire: ResourceSummary = {
+      ...resourceTwo,
+      id: 'umpire',
+      title: 'The UMPIRE study: A first-in-human multicenter trial of subscalp monitoring',
+    }
+    const seen: { pinned?: string[]; resourceIds?: string[] }[] = []
+    class PinningProvider extends StubProvider {
+      override async listResources(): Promise<ResourceSummary[]> {
+        return [resourceOne, umpire]
+      }
+      override async search(
+        tenant: TenantConfig,
+        query: string,
+        opts?: { resourceIds?: string[] },
+      ): Promise<SearchResults> {
+        seen.push({ resourceIds: opts?.resourceIds })
+        if (opts?.resourceIds) {
+          return {
+            query,
+            resources: [{ ...umpire, relevance: 0.8, citedCount: 0 }],
+            relatedQuestions: [],
+          }
+        }
+        return super.search(tenant, query)
+      }
+      override async *ask(
+        tenant: TenantConfig,
+        query: string,
+        opts?: { pinnedResourceIds?: string[] },
+      ): AsyncIterable<AskEvent> {
+        seen.push({ pinned: opts?.pinnedResourceIds })
+        yield {
+          type: 'sources',
+          resources: [
+            { ...resourceOne, relevance: 0.9, citedCount: 0 },
+            { ...umpire, relevance: 0.7, citedCount: 0 },
+          ],
+        }
+        yield { type: 'delta', text: 'Twenty-six were implanted.[1]' }
+        yield {
+          type: 'citation',
+          citation: { index: 1, resourceId: 'umpire', title: umpire.title },
+        }
+        yield { type: 'done', text: 'Twenty-six were implanted.[1]' }
+        void tenant
+        void query
+      }
+    }
+    const app = buildApp({ provider: new PinningProvider(), tenants: freshTenants() })
+    const response = await app.request('/api/t/eprepo/ask', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ query: 'How many were implanted in UMPIRE?', route: 'auto' }),
+    })
+    const events = await sseEvents(response)
+    expect(seen.some((s) => s.resourceIds?.[0] === 'umpire')).toBe(true)
+    expect(seen.some((s) => s.pinned?.[0] === 'umpire')).toBe(true)
+    const sources = events.filter((e) => e.type === 'sources')
+    expect(sources.length).toBeGreaterThan(0)
+    for (const event of sources) {
+      expect(event.type === 'sources' ? event.resources[0]?.id : null).toBe('umpire')
+    }
+  })
+
+  it('declines instead of showing figures whose every citation was stripped', async () => {
+    class UncitedProvider extends StubProvider {
+      override async *ask(): AsyncIterable<AskEvent> {
+        yield { type: 'sources', resources: [{ ...resourceOne, relevance: 0.9, citedCount: 0 }] }
+        yield { type: 'delta', text: '15 patients were implanted for 4 months.' }
+        yield { type: 'done', text: '15 patients were implanted for 4 months.' }
+      }
+    }
+    const app = buildApp({ provider: new UncitedProvider(), tenants: freshTenants() })
+    const response = await app.request('/api/t/eprepo/ask', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ query: 'How many were implanted in UMPIRE?' }),
+    })
+    const events = await sseEvents(response)
+    const done = events.find((e) => e.type === 'done')
+    expect(done && done.type === 'done' ? done.refused : false).toBe(true)
+    const text = done && done.type === 'done' ? done.text ?? '' : ''
+    expect(text).toContain("This portal's sources do not answer this question directly")
+    expect(text).not.toContain('15 patients')
+    expect(events.some((e) => e.type === 'citation')).toBe(false)
   })
 })

@@ -6,10 +6,12 @@ import {
   decideFromClassifier,
   extractEntities,
   fillPrequeries,
+  isResultsQuestion,
   lexiconEntities,
   looksLikeGeneSymbol,
   parseAuthorYear,
   parseIdentifier,
+  RESULTS_QUESTION_RULE,
   routeByRules,
 } from './intent-router.ts'
 
@@ -49,7 +51,13 @@ const intents = [
     requireLexiconEntity: true,
   },
   { ...base, id: 'review', label: 'Evidence review', rules: ['\\b(compare|what is known)\\b'] },
-  { ...base, id: 'general', label: 'General' },
+  {
+    ...base,
+    id: 'general',
+    label: 'General',
+    rules: [RESULTS_QUESTION_RULE],
+    ruleRationale: 'a results question, answered from the papers themselves',
+  },
 ].map((i) => IntentSchema.parse(i))
 const ctx = {
   intents,
@@ -177,5 +185,64 @@ describe('decideFromClassifier', () => {
     expect(decideFromClassifier({ intent: 'general', confidence: 0.9 }, ctx).configuration).toBe(
       'portal-ask',
     )
+  })
+})
+
+describe('results questions', () => {
+  it('reads a figure question on the default configuration by rule, with its own rationale', () => {
+    const decision = routeByRules(
+      'What seizure freedom and retention rates did the PERMIT pooled analysis report?',
+      ctx,
+    )
+    expect(decision?.intent).toBe('general')
+    expect(decision?.stage).toBe('rule')
+    expect(decision?.rationale).toBe(
+      'General: a results question, answered from the papers themselves',
+    )
+    expect(isResultsQuestion('How many participants were implanted in UMPIRE?')).toBe(true)
+    expect(isResultsQuestion('How does the ketogenic diet work?')).toBe(false)
+  })
+  it('lets a narrower intent win first: a supplement word still routes to data', () => {
+    expect(routeByRules('sample size in the supplement of PERMIT', ctx)?.intent).toBe('data')
+    expect(routeByRules('compare retention rates across studies', ctx)?.intent).toBe('review')
+  })
+})
+
+describe('classifier gate', () => {
+  const gated = {
+    ...ctx,
+    intents: ctx.intents.map((i) =>
+      i.id === 'data'
+        ? { ...i, classifierGate: ['\\b(tables?|supplement\\w*|peer[- ]review\\w*)\\b'] }
+        : i
+    ),
+  }
+  it('offers a gated intent to the classifier only when the question matches the gate', () => {
+    expect(classifierIntents(gated, 'How many were implanted in UMPIRE?').map((i) => i.id))
+      .toEqual(['latest', 'clinical', 'review', 'general'])
+    expect(classifierIntents(gated, 'Which table lists the variants?').map((i) => i.id))
+      .toContain('data')
+    // Without a question, a gated intent is left out, never guessed.
+    expect(classifierIntents(gated).map((i) => i.id)).not.toContain('data')
+  })
+  it('turns a classifier answer naming a gated intent into the default when the gate fails', () => {
+    const decision = decideFromClassifier(
+      { intent: 'data', confidence: 0.9, rationale: 'numbers' },
+      gated,
+      [],
+      undefined,
+      'How many were implanted in UMPIRE?',
+    )
+    expect(decision.intent).toBe('general')
+    expect(decision.stage).toBe('default')
+    const allowed = decideFromClassifier(
+      { intent: 'data', confidence: 0.9, rationale: 'a table' },
+      gated,
+      [],
+      undefined,
+      'Which supplementary table lists the variants?',
+    )
+    expect(allowed.intent).toBe('data')
+    expect(allowed.stage).toBe('classifier')
   })
 })

@@ -2,10 +2,12 @@ import { describe, it } from '@std/testing/bdd'
 import { expect } from '@std/expect'
 import { TenantConfigSchema } from '@research-portal/core'
 import {
+  groundingPrequeries,
   intentConfigurationName,
   intentFilterExpression,
   intentSearchConfigs,
   intentStrategies,
+  MAX_PREQUERIES,
   researchExcludeFilterExpression,
   shapeSourcesForIntent,
 } from './index.ts'
@@ -118,5 +120,59 @@ describe('intent search configurations', () => {
       }).map((s) => s.id),
     ).toEqual(['b', 'a'])
     expect(shapeSourcesForIntent(sources, undefined)).toHaveLength(2)
+  })
+})
+
+describe('grounding prequeries', () => {
+  it('pins named resources first, then the preferred labels, then the sub-questions', () => {
+    const queries = groundingPrequeries('the BREATHS trial design', {
+      pinnedResourceIds: ['breaths'],
+      prefer: [{ labelset: 'format', label: 'supplement' }],
+      prequeries: ['what is the control arm?'],
+    })
+    expect(queries).toEqual([
+      {
+        request: {
+          query: 'the BREATHS trial design',
+          features: ['keyword', 'semantic'],
+          resource_filters: ['breaths'],
+        },
+        weight: 1,
+      },
+      {
+        request: {
+          query: 'the BREATHS trial design',
+          features: ['keyword', 'semantic'],
+          filters: ['/classification.labels/format/supplement'],
+        },
+        weight: 1,
+      },
+      {
+        request: { query: 'what is the control arm?', features: ['keyword', 'semantic'] },
+        weight: 1,
+      },
+    ])
+  })
+  it('sends nothing when there is nothing to add, and never more than the platform cap', () => {
+    expect(groundingPrequeries('q', {})).toEqual([])
+    const many = groundingPrequeries('q', {
+      pinnedResourceIds: ['a', 'b', 'c', 'd'],
+      prefer: [{ labelset: 'format', label: 'supplement' }],
+      prequeries: Array.from({ length: 12 }, (_, i) => `sub-question ${i}`),
+    })
+    expect(many.length).toBe(MAX_PREQUERIES)
+    // At most three pinned resources: a pinned set never crowds the window.
+    expect(many.filter((q) => 'resource_filters' in (q.request as object)).length).toBe(3)
+  })
+  it('stores an additive filter for a preferring intent: excluded labels only, nothing restricted', () => {
+    const additive = intentFilterExpression(
+      {
+        exclude: [{ labelset: 'format', label: 'media' }],
+        prefer: [{ labelset: 'format', label: 'supplement' }],
+      } as Parameters<typeof intentFilterExpression>[0],
+    )
+    expect(additive).toEqual(
+      researchExcludeFilterExpression([{ labelset: 'format', label: 'media' }]),
+    )
   })
 })
