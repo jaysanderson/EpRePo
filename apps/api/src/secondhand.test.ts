@@ -102,8 +102,9 @@ describe('markedSentences and secondhandNote', () => {
   it('writes one line naming the figures and their markers', () => {
     expect(secondhandNote([])).toBeUndefined()
     expect(secondhandNote([{ figure: '83%', index: 2 }])).toBe(
-      '*Second-hand figures: 83% [2] appears in the cited paper only in its introduction or ' +
-        'discussion, where it cites other studies, not among its own results.*',
+      '*Second-hand figures: 83% [2] appears in the cited paper only where it cites other ' +
+        'studies (its introduction, its discussion or a figure it takes from earlier work), not ' +
+        'among its own results.*',
     )
   })
 })
@@ -155,7 +156,7 @@ describe('a figure the paper attributes to earlier work', () => {
     expect(secondhandFigures(
       [{ text: 'The SUDEP incidence was 5.9 per 1000 patient-years.', bound: [1] }],
       new Map([[1, paper]]),
-    )).toEqual([{ figure: '5.9', index: 1 }])
+    )).toEqual([{ figure: '5.9', index: 1 }, { figure: '1000', index: 1 }])
     expect(citesEarlierWork(paper, paper.indexOf('5.9'))).toBe(true)
     expect(citesEarlierWork('We found 5.9 per 1000 in our cohort.', 9)).toBe(false)
   })
