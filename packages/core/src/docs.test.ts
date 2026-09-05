@@ -73,7 +73,8 @@ describe('documentation content integrity', () => {
         'written only from those passages',
         'Every sentence that states a finding carries a citation',
         'no language model in the loop',
-        'Groundedness decides',
+        'The check decides',
+        'can lower the label but never raise it',
         'never answers without a source',
         'does not browse the internet',
         'does not change the papers',
@@ -131,6 +132,20 @@ describe('documentation content integrity', () => {
     expect(text).toContain('context relevance')
     // The figures check is described generically - no vendor or feature name.
     expect(text).toContain('checks them against the cited passages')
+    // The gate as it is now: removal with a note, substitution only for the same figure,
+    // confidence led by the check, the first sentence verified while streaming.
+    for (
+      const phrase of [
+        'removed, and the answer says',
+        'same figure at the same time point',
+        'a decline is never replaced',
+        'led by the portal',
+        'never raise it',
+        'First sentence verified against',
+      ]
+    ) {
+      expect(text).toContain(phrase)
+    }
     expect(text).not.toContain('a banner says so')
   })
 
