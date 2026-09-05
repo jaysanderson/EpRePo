@@ -206,12 +206,51 @@ describe('classifyStudyDesign - the persona corpus', () => {
     })).toBe('clinical-trial')
   })
 
-  it('a paper whose method is a survey of centres is a survey (missed SCN1A mutations)', () => {
+  it('a "pitfalls" paper is a narrative review, whatever it surveyed to write it (D3-18)', () => {
+    // Loop 2 read the survey of centres as the design; the persona reads the
+    // paper as the narrative it is, and the cases it collected as its examples.
     expect(kindOf({
       title: 'Pitfalls in genetic testing: the story of missed SCN1A mutations',
       abstract:
         'Methods We sent out a survey to 16 genetic centers performing SCN1A testing. Results We collected data on 28 mutations initially missed using Sanger sequencing.',
-    })).toBe('survey')
+    })).toBe('narrative-review')
+  })
+
+  it('a phenotypic spectrum in N patients is a case series, not the case-control MeSH says (D3-18)', () => {
+    expect(kindOf({
+      title:
+        'Spectrum of neurodevelopmental disease associated with the GNAO1 guanosine triphosphate-binding region',
+      abstract:
+        'This study examines the phenotypic spectrum associated with GNAO1 gene variants in 14 patients, focusing on epilepsy and movement disorders.',
+      keywords: ['Movement Disorders', 'Mosaicism', 'Case-Control Studies', 'Child'],
+    })).toBe('case-report')
+  })
+
+  it('sequencing thousands of cases is a cohort, not a case-control study (D3-18)', () => {
+    expect(kindOf({
+      title:
+        'Large-scale targeted sequencing identifies risk genes for neurodevelopmental disorders',
+      abstract:
+        'This study investigates neurodevelopmental disorders (NDDs) by sequencing 125 candidate genes in over 16,000 cases. It identifies 48 genes with significant mutation burdens.',
+      keywords: ['Humans', 'Case-Control Studies', 'Cohort Studies', 'DNA Mutational Analysis'],
+    })).toBe('cohort-study')
+    // The stored abstract: a "case-control mutation burden analysis" is the
+    // statistic the cohort was put through, not the study's design.
+    expect(kindOf({
+      title:
+        'Large-scale targeted sequencing identifies risk genes for neurodevelopmental disorders',
+      abstract:
+        'Most genes associated with neurodevelopmental disorders (NDDs) were identified with an excess of de novo mutations (DNMs) but the significance in case-control mutation burden analysis is unestablished. Here, we sequence 63 genes in 16,294 NDD cases and an additional 62 genes in 6,211 NDD cases.',
+      keywords: ['Humans', 'Case-Control Studies', 'Cohort Studies', 'DNA Mutational Analysis'],
+    })).toBe('cohort-study')
+  })
+
+  it("keeps a genetics paper's own case-control design", () => {
+    expect(kindOf({
+      title: 'Rare variants in drug-resistant focal epilepsy',
+      abstract:
+        'A case-control study comparing rare variant burden in 200 patients and 400 controls.',
+    })).toBe('case-control-study')
   })
 
   it('an open-label extension is not the randomised trial it extended', () => {

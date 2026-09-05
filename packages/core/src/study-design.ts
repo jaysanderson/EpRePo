@@ -186,7 +186,7 @@ export function classifyStudyDesign(input: StudyDesignInput): StudyDesignVerdict
   // 4. A title that names itself a review, guideline or position paper is one;
   //    a "retrospective review" of records is a cohort and falls through.
   const titleReview =
-    /\b(?:review|overview|commentary|viewpoint|expert opinion|misconceptions?|state of the art|primer|editorial|narrative|appraisal|hypothesis paper|guide)\b/
+    /\b(?:review|overview|commentary|viewpoint|expert opinion|misconceptions?|pitfalls?|state of the art|primer|editorial|narrative|appraisal|hypothesis paper|guide)\b/
       .test(title) &&
     !/\b(?:retrospective|chart|record|case[- ]note|clinical|medical|file) review\b/.test(title)
   if (titleReview) return rule('narrative-review')
@@ -243,6 +243,29 @@ export function classifyStudyDesign(input: StudyDesignInput): StudyDesignVerdict
       .test(own)
   ) {
     return rule('clinical-trial')
+  }
+
+  // 5b. Genetics papers. MeSH indexes a gene-burden or phenotype-spectrum
+  //     paper as a case-control study, which it is not: the spectrum of a
+  //     gene's disease in N patients is a case series, and the sequencing
+  //     of thousands of cases is a cohort (D3-18). Only a paper that calls
+  //     itself a case-control study keeps that design: a "case-control
+  //     burden analysis" is the statistic, not the study.
+  const geneticsPaper =
+    /\b(?:genes?|genetic|variants?|mutations?|sequencing|exome|genome|de novo)\b/.test(text)
+  if (geneticsPaper && !/\bcase[- ]control (?:study|studies|design)\b/.test(text)) {
+    if (
+      /\b(?:phenotypic|clinical|mutational|disease|phenotype) spectrum\b|\bspectrum of\b|\bin (?:\d{1,3}|two|three|four|five|six|seven|eight|nine|ten|twelve|fifteen|twenty) (?:unrelated |affected |new )?(?:patients|individuals|children|probands|families|subjects)\b/
+        .test(text)
+    ) {
+      return rule('case-report')
+    }
+    if (
+      /\b(?:sequenc|screen|genotyp|analys)\w*\b[^.]{0,80}\b(?:in|of|from|across) (?:over |more than |a cohort of |a total of )?[\d,]{3,} (?:[\w-]+ ){0,2}(?:cases|patients|individuals|probands|participants|families|children)\b/
+        .test(own) || hasMesh(MESH_COHORT)
+    ) {
+      return rule('cohort-study')
+    }
   }
 
   // 6. Observational designs, most specific first.

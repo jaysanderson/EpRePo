@@ -162,11 +162,12 @@ export function isConferenceTitle(title: string): boolean {
 const ANIMAL = /\b(?:rat|rats|mouse|mice|rodent|animal|model|models|in vitro|in vivo|zebrafish)\b/i
 
 /**
- * The closest matches to name in a decline, from the semantic ranking
- * with a topic check: a paper whose title or summary carries more of the
- * question's content words moves up, and a preclinical paper is never a
- * close match for a question about people. Returns the resources with
- * their ranking score, best first.
+ * The closest matches to name in a decline: ranked first by how much of
+ * the question they share - each of the question's content words found in
+ * the title counts in full, in the summary by half - and only then by the
+ * semantic score, so a paper about Australia and incidence outranks a
+ * better-scoring review that shares one word with the question (D3-19).
+ * A preclinical paper is never a close match for a question about people.
  */
 export function rankClosest<
   T extends { title: string; summary?: string; kind?: string; relevance: number },
@@ -180,19 +181,21 @@ export function rankClosest<
     ),
   )
   const human = !ANIMAL.test(query)
+  const stems = (text: string) =>
+    new Set((text.toLowerCase().match(/[a-z][a-z-]{4,}/g) ?? []).map((w) => w.slice(0, 6)))
   return resources
     .filter((r) => !(human && r.kind === 'preclinical'))
     .map((r) => {
-      const have = new Set(
-        (`${r.title} ${r.summary ?? ''}`.toLowerCase().match(/[a-z][a-z-]{4,}/g) ?? []).map((w) =>
-          w.slice(0, 6)
-        ),
-      )
-      let hits = 0
-      for (const w of words) if (have.has(w)) hits++
-      return { r, score: r.relevance + hits * 0.1 }
+      const title = stems(r.title)
+      const summary = stems(r.summary ?? '')
+      let overlap = 0
+      for (const w of words) {
+        if (title.has(w)) overlap += 1
+        else if (summary.has(w)) overlap += 0.5
+      }
+      return { r, overlap }
     })
-    .sort((a, b) => b.score - a.score)
+    .sort((a, b) => b.overlap - a.overlap || b.r.relevance - a.r.relevance)
     .map((x) => x.r)
 }
 
