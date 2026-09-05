@@ -83,7 +83,23 @@ export const GENERATE_SCHEMAS: Record<
                 'Exact titles of the context sources this section draws on; at least one. ' +
                 'A section with no source is discarded',
             },
-          }, ['heading', 'content', 'sources']),
+            statements: {
+              type: 'array',
+              description:
+                'One entry per figure the content states: the figure exactly as written ' +
+                '(for example "36.9%" or "n = 822"), the outcome it measures in the source\'s ' +
+                'own words (for example "50% responder rate at 12 months" or "discontinuation ' +
+                'for any reason"), the population or analysis set it applies to (for example ' +
+                '"all patients, full analysis set" or "patients with psychiatric comorbidity"), ' +
+                'and the exact title of the source document it comes from',
+              items: strict({
+                figure: str,
+                outcome: str,
+                population: str,
+                study: str,
+              }, ['figure', 'outcome', 'population', 'study']),
+            },
+          }, ['heading', 'content', 'sources', 'statements']),
         },
         key_takeaways: {
           type: 'array',
