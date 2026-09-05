@@ -295,6 +295,8 @@ export function ownFigureSentence(
     near?: readonly string[]
     /** The medications the removed sentence named: the quote must name one. */
     drugs?: readonly string[]
+    /** For a paper the question did not name: the quote must share two of the claim's words, its outcome or its drug. */
+    strict?: boolean
   },
 ): OwnFigure | undefined {
   const spans = sectionSpans(text)
@@ -369,6 +371,10 @@ export function ownFigureSentence(
       // claim's own words, its label being all it has.
       if (anchorHits === 0 && wordHits < 2 && !hitWords.some((w) => w.length >= 7)) continue
       if (table && wordHits === 0) continue
+      // A sentence the extraction glued a heading onto is placed by that
+      // heading: a Methods sentence is not a finding, a Results one is.
+      const glued = /^(?:Methods?|Introduction|Background|Discussion)\s+(?=[A-Z])/.exec(sentence)
+      if (glued) continue
       // A claim about a named drug is answered by a sentence about that
       // drug, by its name or the abbreviation the paper defines for it
       // ("brivaracetam (BRV)"): a perampanel retention never stands in for
@@ -381,6 +387,18 @@ export function ownFigureSentence(
       ) continue
       const outcomes = outcomeFamilies(sentence)
       if (cue.outcomes.length > 0 && !outcomes.some((o) => cue.outcomes.includes(o))) continue
+      const sameOutcome = [...cue.outcomes, ...(cue.preferred ?? [])].some((o) =>
+        outcomes.includes(o)
+      )
+      const sameDrug = (cue.drugs ?? []).some((d) =>
+        termForms(d, pairs).some((re) => re.test(lower) || re.test(sentence))
+      )
+      if (cue.strict && wordHits < 2 && !sameOutcome && !sameDrug) continue
+      // A demographic line ("mean age 54.47 years, 49% female") describes
+      // the sample, not a finding.
+      const demographic = /\bmean age\b|\bmedian age\b|\b(?:fe)?male\b|\bSD\s*=/i.test(sentence)
+        ? 3
+        : 0
       const normalised = normaliseFigures(sentence).toLowerCase()
       const counts = figures.filter((f) => isSampleSizeFigure(f, normalised)).length
       if (
@@ -439,9 +457,12 @@ export function ownFigureSentence(
       const extra = outcomes.filter((o) =>
         !cue.outcomes.includes(o) && !(cue.preferred ?? []).includes(o)
       ).length
-      const score = anchorHits * 3 + wordHits + Math.min(specific, 4) + preferred + kind + leads +
+      // Two names place a sentence; a consortium's four-word name in a
+      // paper's boilerplate should not outrank the finding asked for.
+      const score = Math.min(anchorHits, 2) * 3 + wordHits + Math.min(specific, 4) + preferred +
+        kind + leads +
         countWithShare + subject + (section === 'results' ? 2 : section === 'abstract' ? 1 : 0) -
-        length - crowd - 2 * extra
+        length - crowd - 2 * extra - demographic
       if (!best || score > best.score) best = { sentence, score }
     }
   }

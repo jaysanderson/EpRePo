@@ -689,12 +689,13 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
         // A paper the question did not name has to answer the sentence
         // clearly: the quote must carry the claim's names or two of its
         // words, and no quote is used twice in one answer.
-        const bar = papers === named ? 0 : 11
+        const bar = papers === named ? 0 : 8
+        const strict = papers !== named
         for (const id of papers) {
           const index = candidates.find((c) => c.resourceId === id)?.index
           const raw = index === undefined ? undefined : texts.get(index)
           if (index === undefined || !raw) continue
-          const found = ownFigureSentence(raw, { ...cue, exclude: [...stated, ...quoted] })
+          const found = ownFigureSentence(raw, { ...cue, exclude: [...stated, ...quoted], strict })
           if (!found || found.score < bar || quoted.has(found.sentence)) continue
           if (!best || found.score > best.score) {
             best = { quote: found.sentence, score: found.score, index, resourceId: id }
