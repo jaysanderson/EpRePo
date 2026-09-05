@@ -266,3 +266,32 @@ Other timings:
 | Assessment (UI, typed topic, 5 Advanced) | 9.9 s to questions; submit and result within 1.5 s; "GROUNDED IN 4 SOURCES" |
 | Graph (phone) | ready 0.8 s, "120 entities · 84 relations" |
 | Page loads (networkidle, desktop / 390 px) | Explore 1.44 (first) then 0.96-1.15 / 0.96-0.97 s; Library 0.61-0.99 / 0.58-0.59 s; Library with Kind 0.57-0.79 / 0.57-0.58 s; Search 0.55-0.62 / 0.55-0.56 s; Resource 0.72-0.78 / 0.71-0.83 s; unknown id 2.10 s to "This document does not exist"; Ask 0.56 / 0.55-0.56 s; Investigations, Generate, Assessment, Tools, Help, How this works 0.54-0.59 s everywhere; Graph 0.56-1.14 / 1.11 s; Entity 0.56-0.57 s; dark within 0.05 s of light |
+
+---
+
+## Loop 5 fixes (merged 6 September 2026, PRs #19 and #20 into `feat/eprepo-portal`)
+
+Direction: locate the figure first. Every precision failure in loop 5 came from testing a
+sentence against a window instead of finding the figure in the cited paper and reading the
+sentence or table row it lives in.
+
+| Finding | Outcome |
+|---|---|
+| D5-01, D5-04, D5-15 | The figure check locates the figure in the cited paper's normalised text (Markdown headings and table rows read as figure text, drug cohorts matched by stem, hyphenated designators handled) and passes the claim when that located sentence shares its outcome noun or the question's entity. The second-hand judgement reads the same located passage, so Results and table figures are no longer flagged. |
+| D5-02, D5-12 | The cohort guard never fires against a paper the question names or describes; a sentence may name two populations when the located passage does. The lamotrigine case-control counts and the intracerebroventricular valproate figures are kept and cited. |
+| D5-03, D5-13 | The body no longer states denominator "corrections". The helper only adds an n from the same parenthesis or table cell as the located figure, and otherwise says nothing. |
+| D5-10, D5-11, D5-14, D4-09 | Assessment keys and briefing takeaways never rest on a second-hand figure; a protocol's planned recruitment is named as planned; a paper's own figure is offered after a removal; an uncited figure answer binds to the pinned paper. |
+| D5-05, D5-06, D5-07, D4-06, D4-07, D4-22 | Every follow-up turn pins the prior turns' papers and sends them as chat context; a turn that stays within them is retrieved from those papers alone. One turn-two question went from a 35.7 s refusal to the paper's own odds ratio in 10.8 s. The reformat table renders all rows with no code fence in 15.8 s, a failing cell blanked rather than the row dropped. A surname scopes only in an author construction. |
+| D5-08, D5-09, D5-16, D5-17, D5-18, D3-05, D1-09 | Streamed text renders as checking until verified, with the verified line only under visible text; terse questions read the paper their own names point at on the one retry; code fences, empty headings and inference tokens are stripped; a two-entity phrase is a search, not a lookup; the documentation says document chat is checked the same way. Budget of one probe, one ask and one retry; clinic medians first word 10.9 to 10.4 s, done 13.1 to 12.4 s. |
+
+Verified live on the merged branch: the Melbourne SUDEP incidence still declines and names where
+the figure was found; the video-EEG mortality cohort answers 1,805 adults admitted 1995 to 2015
+with 147 deaths; the lamotrigine case-control keeps 101 cases and 199 controls; the
+intracerebroventricular valproate study keeps five implanted and four responders above 50% at
+160 mg per day; the UMPIRE document chat keeps twenty-six implanted and 24 completing six
+months. All cited, three figures checked on the last.
+
+Left for loop 6: the platform's own retrieval stage (5 to 19 s on identical requests) is the
+remaining latency floor; one terse-question retry chose the wrong paper of two with the same
+names (mention cap raised, not re-run live); the "Not named" study cell in a reformat table is
+prompt-driven rather than deterministic.
