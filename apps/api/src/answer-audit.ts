@@ -703,7 +703,7 @@ export function isSampleSizeFigure(figure: string, normalisedSentence: string): 
   if (/%|\.|mg|[a-z]/.test(figure)) return false
   const n = figure.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   return new RegExp(
-    `\\bn\\s*=\\s*${n}(?![\\d])|(?<![\\d.])${n}\\s+(?:patients|participants|subjects|adults|children|individuals|people|persons|cases|controls|women|men|pwe|episodes|records|respondents|eyes|samples)\\b|(?<![\\d.])${n}\\s*[)/]|/\\s*${n}(?![\\d])|(?<![\\d.])${n}\\s*\\(\\d{1,3}(?:\\.\\d+)?\\s?%\\)`,
+    `\\bn\\s*=\\s*${n}(?![\\d])|(?<![\\d.])${n}\\s+(?:[a-z-]+\\s+)?(?:patients|participants|subjects|adults|children|individuals|people|persons|cases|controls|women|men|pwe|episodes|records|respondents|eyes|samples)\\b|(?<![\\d.])${n}\\s*[)/]|/\\s*${n}(?![\\d])|(?<![\\d.])${n}\\s*\\(\\d{1,3}(?:\\.\\d+)?\\s?%\\)`,
   ).test(normalisedSentence)
 }
 
@@ -712,7 +712,7 @@ export function isCountOfPeople(figure: string, normalisedSentence: string): boo
   if (/%|\.|mg|[a-z]/.test(figure)) return false
   const n = figure.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   return new RegExp(
-    `\\bn\\s*=\\s*${n}(?![\\d])|(?<![\\d.])${n}\\s+(?:patients|participants|subjects|adults|children|individuals|people|persons|cases|controls|women|men|pwe|episodes|records|respondents|eyes|samples)\\b`,
+    `\\bn\\s*=\\s*${n}(?![\\d])|(?<![\\d.])${n}\\s+(?:[a-z-]+\\s+)?(?:patients|participants|subjects|adults|children|individuals|people|persons|cases|controls|women|men|pwe|episodes|records|respondents|eyes|samples)\\b`,
   ).test(normalisedSentence)
 }
 
@@ -877,8 +877,18 @@ export function figureSupportedBy(
   const nounMatch = new RegExp(`${figurePattern(figure).source}${SMALL}\\s+([a-z][a-z-]{3,})`)
     .exec(claim.normalised)
   const noun = nounMatch?.[1]
+  // A count of people is placed by any noun for people: "147 patients
+  // died" is the paper's "147 deceased PWE".
+  const PEOPLE =
+    /^(?:patient|participant|subject|adult|child|individual|people|person|pwe|case|control|women|men|deceased)/
   const nounRe = noun
-    ? new RegExp(`${figurePattern(figure).source}${SMALL}\\s+${escapeRegExp(noun.slice(0, 5))}`)
+    ? new RegExp(
+      `${figurePattern(figure).source}${SMALL}\\s+${
+        PEOPLE.test(noun)
+          ? '(?:patients?|participants?|subjects?|adults?|children|individuals?|people|persons?|pwe|cases?|controls?|women|men|deceased)'
+          : escapeRegExp(noun.slice(0, 5))
+      }`,
+    )
     : null
   const sampleSize = isSampleSizeFigure(figure, claim.normalised)
   let m: RegExpExecArray | null

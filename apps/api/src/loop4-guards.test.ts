@@ -270,6 +270,15 @@ describe('durations, number words and demographic words (K5, HC replays)', () =>
     )
     expect(checks.every((c) => c.supported)).toBe(true)
   })
+  it('places "147 patients died" by the paper\'s "147 deceased PWE" (EA replay)', () => {
+    const text =
+      'Cause of Death\n\nOf 147 deceased PWE over the study period, 87 had a lifetime history of a psychiatric disorder.'
+    const checks = verifyFigures(
+      [{ text: 'During follow-up, 147 patients died.', texts: [text] }],
+      [text],
+    )
+    expect(checks.map((c) => [c.figure, c.supported])).toEqual([['147', true]])
+  })
   it('reads a blank line before a lower-case continuation as one sentence (Q6 replay)', () => {
     const text =
       'In contrast, F2 is 0.37, suggesting that in Group 2 just \n\n over a third of discharges occur during the sleep period.'
