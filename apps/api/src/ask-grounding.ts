@@ -11,6 +11,8 @@ import {
   drugsFlaggedInSources,
   drugsMissingFromAnswer,
   extractNumbers,
+  isSampleSizeFigure,
+  normaliseFigures,
   outcomeFamilies,
   populationQualifier,
   type PreparedSource,
@@ -590,7 +592,7 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
           .map((n) => resourceOfIndex.get(n))
           .filter((id): id is string => id !== undefined && !replacementPapers.includes(id))
       const cue = {
-        ...replacementCue(sentence.text, lexicon, questionEntities, questionOutcomes),
+        ...replacementCue(sentence.text, lexicon, questionEntities, questionOutcomes, terms),
         exclude: stated,
       }
       let best: { quote: string; score: number; index: number; resourceId: string } | undefined
@@ -637,6 +639,7 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
         lexicon,
         questionEntities,
         [],
+        terms,
       )
       let best: { quote: string; score: number; index: number; resourceId: string } | undefined
       for (const id of replacementPapers) {
@@ -671,7 +674,18 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
   const qualified: string[] = []
   for (const sentence of bound.sentences) {
     if (failing.has(sentence.text) || sentence.bound.length === 0) continue
-    const own = checks.filter((c) => c.sentence === sentence.text && c.supported && c.passage)
+    // A sentence that states its own population ("the whole cohort") is
+    // not requalified, and a sample size's passage frames the count, not
+    // the claim.
+    if (
+      /\b(?:whole|entire|overall|total|full|all)\s+(?:cohort|population|patients|participants|analysis set|sample)\b/i
+        .test(sentence.text)
+    ) continue
+    const normalised = normaliseFigures(sentence.text).toLowerCase()
+    const own = checks.filter((c) =>
+      c.sentence === sentence.text && c.supported && c.passage &&
+      !isSampleSizeFigure(c.figure, normalised) && !/(?:month|week|year|day|hour)s$/.test(c.figure)
+    )
     for (const check of own) {
       const qualifier = populationQualifier(check.passage!)
       if (!qualifier) continue

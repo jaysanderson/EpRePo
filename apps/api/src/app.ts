@@ -4049,8 +4049,13 @@ export function buildApp(opts: BuildAppOptions): Hono {
         }
         // "The cited sources do not provide ..." is the decline state: the
         // model's own words about what is missing stand, without a marker
-        // and without the corpus-wide copy over them (D3-15).
-        if (!documentScope && citations.length === 0 && isWholeDecline(text)) {
+        // and without the corpus-wide copy over them (D3-15) - after the
+        // one document-scoped read of a pinned paper the first pass never
+        // cited (D2-08), which may answer what the decline says is missing.
+        if (
+          !documentScope && citations.length === 0 && isWholeDecline(text) &&
+          nextRetry(retryContext(), 'uncited') !== 'pinned'
+        ) {
           finished = true
           record.refused = true
           if (audit) await send(audit)

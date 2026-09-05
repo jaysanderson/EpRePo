@@ -204,6 +204,31 @@ export function rescueSentence(
 // The paper's own figure sentence
 // ---------------------------------------------------------------------------
 
+/** Prefixes a PDF line break splits off a word ("in- creased", "pre- treatment"): joined without a hyphen. */
+const JOIN_PREFIX = new Set([
+  'anti',
+  'auto',
+  'con',
+  'contra',
+  'de',
+  'dis',
+  'hyper',
+  'hypo',
+  'inter',
+  'intra',
+  'mis',
+  'multi',
+  'non',
+  'over',
+  'post',
+  'pre',
+  'pro',
+  'sub',
+  'super',
+  'trans',
+  'under',
+])
+
 /** Sections whose sentences are a paper's own findings. */
 const OWN_FINDINGS = new Set(['abstract', 'results', 'conclusion', 'other'])
 
@@ -284,7 +309,10 @@ export function ownFigureSentence(
       // mid-sentence, a figure legend or a subgroup analysis is not quoted.
       const sentence = raw.replace(
         /([a-z]{2,})-\s+([a-z]{2,})/g,
-        (_m, a: string, b: string) => lowerText.includes(`${a}${b}`) ? `${a}${b}` : `${a}-${b}`,
+        (_m, a: string, b: string) =>
+          lowerText.includes(`${a}${b}`) || a.length <= 3 || JOIN_PREFIX.has(a)
+            ? `${a}${b}`
+            : `${a}-${b}`,
       ).replace(/\s+/g, ' ').trim()
       if (sentence.length < 20 || sentence.length > QUOTE_MAX) continue
       if (!table && !/^[A-Z≥]/.test(sentence)) continue
@@ -302,8 +330,10 @@ export function ownFigureSentence(
       const hitWords = words.filter((w) => lower.includes(w))
       const wordHits = hitWords.length
       // One long, distinctive word ("rituximab", "retention") places a
-      // sentence as two ordinary ones do.
+      // sentence as two ordinary ones do; a table row needs one of the
+      // claim's own words, its label being all it has.
       if (anchorHits === 0 && wordHits < 2 && !hitWords.some((w) => w.length >= 7)) continue
+      if (table && wordHits === 0) continue
       const outcomes = outcomeFamilies(sentence)
       if (cue.outcomes.length > 0 && !outcomes.some((o) => cue.outcomes.includes(o))) continue
       const normalised = normaliseFigures(sentence).toLowerCase()
@@ -341,7 +371,7 @@ export function ownFigureSentence(
         : 0
       // The shortest sentence that says it: a long sentence with the same
       // hits carries other things beside the answer.
-      const length = Math.floor(Math.max(0, sentence.length - 150) / 100)
+      const length = Math.floor(Math.max(0, sentence.length - 120) / 60)
       const score = anchorHits * 3 + wordHits + Math.min(specific, 4) + preferred + kind + leads +
         countWithShare + (section === 'results' ? 2 : section === 'abstract' ? 1 : 0) - length
       if (!best || score > best.score) best = { sentence, score }
@@ -401,6 +431,8 @@ export function replacementCue(
   lexicon: readonly string[],
   questionEntities: readonly string[],
   questionOutcomes: readonly string[],
+  /** The cohort terms that chose the paper: every sentence of that paper may carry them, so they place nothing within it. */
+  cohortTerms: readonly string[] = [],
 ): {
   anchors: string[]
   outcomes: string[]
@@ -410,7 +442,7 @@ export function replacementCue(
 } {
   const claim = claimFeatures(sentence, lexicon, questionEntities)
   const anchors = [...new Set([...claim.anchors, ...questionEntities.map((e) => e.toLowerCase())])]
-    .filter((a) => !/^(?:fas|mfas|itt|pp)$/.test(a))
+    .filter((a) => !/^(?:fas|mfas|itt|pp)$/.test(a) && !cohortTerms.includes(a))
   const figures = extractNumbers(sentence)
   const kinds = {
     share: figures.some((f) => f.endsWith('%')),

@@ -621,6 +621,15 @@ export function isSampleSizeFigure(figure: string, normalisedSentence: string): 
   ).test(normalisedSentence)
 }
 
+/** Whether a text's sentence writes the figure as a count of people: "n = 1644", "1644 adults". */
+export function isCountOfPeople(figure: string, normalisedSentence: string): boolean {
+  if (/%|\.|mg|[a-z]/.test(figure)) return false
+  const n = figure.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return new RegExp(
+    `\\bn\\s*=\\s*${n}(?![\\d])|(?<![\\d.])${n}\\s+(?:patients|participants|subjects|adults|children|individuals|people|persons|cases|controls|women|men|pwe|episodes|records|respondents|eyes|samples)\\b`,
+  ).test(normalisedSentence)
+}
+
 /**
  * The population a passage states its figure for, when it does: "in
  * patients with psychiatric comorbidity", "among children without a
@@ -652,13 +661,14 @@ export function ownSentenceBounds(
   const floor = Math.max(0, at - 500)
   const before = text.slice(floor, at)
   const clause = clauses ? ';\\s+(?=[a-z(])|' : ''
+  // On a lower-cased text every sentence opens in lower case; on the
+  // original a sentence opens with a capital, and an abbreviation's stop
+  // ("Fig. S1a", "et al. 2020") is not a boundary.
+  const opener = clauses
+    ? '[.!?][\\d,-]{0,12}\\s+(?=[a-z0-9("])'
+    : '(?<!\\b(?:Fig|Figs|et al|vs|e\\.g|i\\.e|No|approx|ca|cf|Dr|Prof|St|Suppl))[.!?][\\d,-]{0,12}\\s+(?=[A-Za-z0-9("])'
   const boundaries = [
-    ...before.matchAll(
-      new RegExp(
-        `[.!?][\\d,-]{0,12}\\s+(?=[a-z0-9("])|${clause}${PARAGRAPH_MARK}\\s*`,
-        'g',
-      ),
-    ),
+    ...before.matchAll(new RegExp(`${opener}|${clause}${PARAGRAPH_MARK}\\s*`, 'g')),
   ].map((m) => m.index + m[0].length)
   const start = boundaries.length > 0 ? boundaries[boundaries.length - 1]! : 0
   const after = text.slice(at, at + 400)
@@ -823,10 +833,11 @@ export function figureSupportedBy(
       // (D3-02). A claim that names LITT still needs LITT beside it.
       beside = true
     }
-    if (!beside && sampleSize && isSampleSizeFigure(figure, ownSentence)) {
+    if (!beside && sampleSize && isCountOfPeople(figure, ownSentence)) {
       // A count the answer states as a sample size ("n = 1644") is placed
       // by the paper writing it as a count of people too ("1644 adults",
-      // "n = 1644"); the sentence's other figures still have to match.
+      // "n = 1644") - never by a bare table cell "38 (79)", which counts
+      // something else; the sentence's other figures still have to match.
       beside = true
     }
     if (!beside) {
