@@ -13,6 +13,7 @@ import {
   splitSentences,
   stripReferenceSection,
   supportScore,
+  tableRowMarkers,
   textStatesDesign,
 } from './citation-binding.ts'
 
@@ -456,5 +457,18 @@ describe('design sentences (D4-07)', () => {
     const features = sentenceFeatures(sentence, [])
     expect(supportScore(features, lgs)).toBe(0)
     expect(supportScore(features, sudep)).toBeGreaterThan(0)
+  })
+})
+
+describe('table rows (D4-06)', () => {
+  it("moves a row's markers into its last cell and drops them from a header row", () => {
+    expect(tableRowMarkers('| Brivaracetam | EXPERIENCE | 36.9% | n = 822 |[2]')).toBe(
+      '| Brivaracetam | EXPERIENCE | 36.9% | n = 822 [2] |',
+    )
+    expect(tableRowMarkers('| Drug | Study | Responder rate |[1]')).toBe(
+      '| Drug | Study | Responder rate |',
+    )
+    expect(tableRowMarkers('|---|---|---|[1]')).toBe('|---|---|---|')
+    expect(tableRowMarkers('Retention was 64.2%.[1]')).toBe('Retention was 64.2%.[1]')
   })
 })

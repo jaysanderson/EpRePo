@@ -696,6 +696,20 @@ export function bindSentences(input: BindInput): BindResult {
 }
 
 /**
+ * A table row's markers sit inside its last cell, never after the closing
+ * pipe where they render as a column of their own; a header row (no
+ * figure, no claim) carries none (D4-06).
+ */
+export function tableRowMarkers(line: string): string {
+  const m = /^(\s*\|.*\|)((?:\s*\[\d{1,3}\])+)\s*$/.exec(line)
+  if (!m) return line
+  const row = m[1]!
+  const markers = m[2]!.replace(/\s+/g, '')
+  if (/^\s*\|[\s|:-]*\|\s*$/.test(row) || !/\d/.test(row)) return row
+  return row.replace(/\s*\|\s*$/, ` ${markers} |`)
+}
+
+/**
  * The answer text from its layout: each sentence followed by its markers in
  * ascending order, a line whose every sentence was removed dropped with it.
  */
@@ -712,13 +726,12 @@ export function renderBound(
     }
     const kept = line.sentences.filter((i) => !removed.has(i))
     if (kept.length === 0) continue
-    lines.push(
-      line.prefix +
-        kept.map((i) => {
-          const s = sentences[i]!
-          return s.bound.length > 0 ? `${s.text}${s.bound.map((n) => `[${n}]`).join('')}` : s.text
-        }).join(' '),
-    )
+    const rendered = line.prefix +
+      kept.map((i) => {
+        const s = sentences[i]!
+        return s.bound.length > 0 ? `${s.text}${s.bound.map((n) => `[${n}]`).join('')}` : s.text
+      }).join(' ')
+    lines.push(tableRowMarkers(rendered))
   }
   // A removed list item or paragraph never leaves a double blank line behind.
   return lines.join('\n').replace(/\n{3,}/g, '\n\n').replace(/\s+$/, '')

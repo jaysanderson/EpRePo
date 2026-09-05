@@ -3833,8 +3833,11 @@ export function buildApp(opts: BuildAppOptions): Hono {
       const sendDecline = async (fallback: ScoredResource[], bestPct?: number) => {
         const near = await closestMatches()
         const shown = near ? (near.noCloseMatch ? [] : near.resources) : fallback
+        // The closest matches are already ranked by overlap with the
+        // question (rankClosest): the decline names them in that order,
+        // not by score (D4-23).
         const text = near
-          ? corpusDecline(nearestTitles(near.resources), bestPct, {
+          ? corpusDecline(near.resources.slice(0, 3).map((r) => r.title), bestPct, {
             noCloseMatch: near.noCloseMatch,
           })
           : corpusDecline(nearestTitles(fallback), bestPct)
