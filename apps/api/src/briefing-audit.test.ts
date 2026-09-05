@@ -117,10 +117,13 @@ describe('auditBriefing', () => {
           study: 'Effectiveness and tolerability of 12-month brivaracetam: EXPERIENCE',
         }],
       }],
-      key_takeaways: [],
-      takeaway_refs: [],
+      key_takeaways: ['Brivaracetam achieved a 38.1% responder rate (EXPERIENCE).'],
+      takeaway_refs: [[1]],
     }, { texts, generated, lexicon, query: 'brivaracetam responder rate' })
     expect(result.sections[0]!.content).toBe('Retention at 12 months was 71.1%.')
+    // The takeaway that repeats the failed figure goes with the sentence.
+    expect(result.key_takeaways).toEqual([])
+    expect(result.audit.takeawaysRemoved).toBe(1)
     expect(result.audit.statementsFailed).toEqual([{ figure: '38.1%', reason: 'population' }])
     expect(result.audit.figuresRemoved).toContain('38.1%')
   })

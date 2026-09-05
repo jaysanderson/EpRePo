@@ -191,10 +191,12 @@ export function auditBriefing(
     for (const f of failing) if (!audit.figuresRemoved.includes(f)) audit.figuresRemoved.push(f)
     return false
   }
+  // Figures the statements fail anywhere: their sentences go whatever the
+  // plain check says, in the sections and in the key takeaways alike.
+  const failedEverywhere = new Set<string>()
   const sections = briefing.sections.map((section) => {
     const texts = section.sources.flatMap((s) => prepare(s.resourceId))
     for (const s of section.sources) allTexts.set(s.resourceId, prepare(s.resourceId))
-    // Figures the statements fail: their sentences go whatever the plain check says.
     const failedFigures = new Set<string>()
     for (const statement of section.statements ?? []) {
       const text = studyText(statement.study, section.sources, prepared)
@@ -204,6 +206,7 @@ export function auditBriefing(
       const figure = extractNumbers(statement.figure ?? '')[0]
       if (!figure) continue
       failedFigures.add(figure)
+      failedEverywhere.add(figure)
       audit.statementsFailed.push({ figure, reason: verdict.reason })
     }
     if (texts.length === 0 && failedFigures.size === 0) return section
@@ -233,6 +236,12 @@ export function auditBriefing(
   const takeaways: string[] = []
   const refs: number[][] = []
   briefing.key_takeaways.forEach((takeaway, i) => {
+    const figures = extractNumbers(takeaway)
+    if (figures.some((f) => failedEverywhere.has(f))) {
+      audit.figuresChecked += figures.length
+      audit.takeawaysRemoved += 1
+      return
+    }
     if (every.length > 0 && !supported(takeaway, every)) {
       audit.takeawaysRemoved += 1
       return
