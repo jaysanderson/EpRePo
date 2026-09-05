@@ -1,6 +1,11 @@
 import { describe, it } from '@std/testing/bdd'
 import { expect } from '@std/expect'
-import { StreamVerifier, verifyFirstSentence, type WarmText } from './ask-stream-verify.ts'
+import {
+  closesSentence,
+  StreamVerifier,
+  verifyFirstSentence,
+  type WarmText,
+} from './ask-stream-verify.ts'
 
 const experience: WarmText = {
   resourceId: 'exp',
@@ -66,28 +71,41 @@ describe('StreamVerifier', () => {
     lexicon: ['brivaracetam'],
     questionEntities: ['brivaracetam'],
   }
-  it('judges the first sentence once the second has begun, and only once', () => {
+  it('judges the first sentence once it closes or the second has begun, and only once', () => {
     const v = new StreamVerifier(opts)
     expect(v.push('In the EXPERIENCE study, the 12-month retention rate for')).toBeNull()
-    expect(v.push(' brivaracetam was 71.1% (n = 1644).')).toBeNull()
-    const found = v.push(' Seizure freedom was 14.9% (n = 1111).')
+    expect(v.push(' brivaracetam was 71.1% (n = 1644')).toBeNull()
+    const found = v.push('). Seizure freedom was 14.9% (n = 1111).')
     expect(found?.resourceId).toBe('exp')
     expect(v.push(' More text.')).toBeNull()
     expect(v.flush()).toBeNull()
   })
-  it('judges a single-sentence answer at the end of the stream', () => {
+  it('judges a single-sentence answer the moment its chunk closes the sentence', () => {
     const v = new StreamVerifier(opts)
     expect(
       v.push(
         'The 12-month retention rate for brivaracetam was 71.1% (n = 1644, full analysis set).',
-      ),
-    )
+      )
+        ?.resourceId,
+    ).toBe('exp')
+    expect(v.flush()).toBeNull()
+  })
+  it('judges an unclosed single sentence at the end of the stream', () => {
+    const v = new StreamVerifier(opts)
+    expect(v.push('Retention at 12 months was 71.1% (n = 1644) in the full analysis set'))
       .toBeNull()
     expect(v.flush()?.resourceId).toBe('exp')
   })
+  it('knows a sentence end from an abbreviation', () => {
+    expect(closesSentence('Retention was 71.1% (n = 1644).')).toBe(true)
+    expect(closesSentence('Retention was 71.1% (n = 1644).[1]')).toBe(true)
+    expect(closesSentence('as reported by Villanueva et al.')).toBe(false)
+    expect(closesSentence('Retention was 71.1% at 3, 6 and')).toBe(false)
+  })
   it('skips a leading heading', () => {
     const v = new StreamVerifier(opts)
-    v.push('### Retention\nRetention at 12 months was 71.1% (n = 1644).')
-    expect(v.flush()?.resourceId).toBe('exp')
+    expect(v.push('### Retention\nRetention at 12 months was 71.1% (n = 1644).')?.resourceId).toBe(
+      'exp',
+    )
   })
 })

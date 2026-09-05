@@ -35,7 +35,15 @@ export interface StreamVerifierOptions {
   requiredNames?: readonly string[]
 }
 
-/** A sentence is judged only once the next one has begun, or the stream has ended. */
+/** A closing full stop that ends an abbreviation, not a sentence. */
+const ABBREVIATION_END = /\b(?:al|e\.g|i\.e|vs|fig|figs|approx|no|et|cf|ca|resp)\.\s*$/i
+
+/**
+ * A sentence is judged once the next one has begun, once the streamed text
+ * itself closes on a sentence end (a single-sentence answer arrives as one
+ * chunk, seconds before the platform's citations), or when the stream
+ * has ended.
+ */
 export class StreamVerifier {
   private buffer = ''
   private judged = false
@@ -45,9 +53,11 @@ export class StreamVerifier {
   push(delta: string): VerifiedSentence | null {
     if (this.judged) return null
     this.buffer += delta
-    const sentences = splitSentences(this.buffer.replace(/^\s*#{1,6}\s[^\n]*\n/, ''))
-    if (sentences.length < 2) return null
-    return this.judge(sentences[0]!)
+    const body = this.buffer.replace(/^\s*#{1,6}\s[^\n]*\n/, '')
+    const sentences = splitSentences(body)
+    if (sentences.length >= 2) return this.judge(sentences[0]!)
+    if (sentences.length === 1 && closesSentence(body)) return this.judge(sentences[0]!)
+    return null
   }
 
   /** The stream has ended: judge the first sentence if it was never followed by another. */
@@ -102,4 +112,11 @@ export function verifyFirstSentence(
   const found = candidates[first]
   if (!found) return null
   return { sentence, resourceId: found.resourceId, title: found.title }
+}
+
+/** Whether streamed text ends on a sentence end: a stop, with any markers or closing quote after it. */
+export function closesSentence(text: string): boolean {
+  const t = text.trimEnd()
+  if (!/[.!?]["'”’)]*(?:\s*\[\d{1,3}\])*$/.test(t)) return false
+  return !ABBREVIATION_END.test(t.replace(/["'”’)]*(?:\s*\[\d{1,3}\])*$/, ''))
 }
