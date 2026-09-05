@@ -58,12 +58,15 @@ export function nextRetry(ctx: RetryContext, reason: 'refused' | 'uncited'): Ret
   // configuration is the right place to ask, whatever else applies.
   if (ctx.currentIntent && ctx.supplementsOnly) return 'supplements'
   if (pinnable || topicPinnable) return 'pinned'
-  // A follow-up scoped to the earlier turns' papers that refused: the
-  // question reaches beyond them after all, so ask once more over the
-  // whole collection (D5-06). A follow-up that merely pinned them and
-  // refused over a strong match has the same remedy: their paragraphs
-  // crowded out the paper it asks about ("now add lacosamide").
-  if (ctx.priorScoped) return 'unpinned'
+  // A follow-up scoped to the earlier turns' papers that refused: when
+  // the scoped retrieval matched strongly, the paper is the one and the
+  // generator, not the corpus, said no, so it is read alone with its own
+  // sections and the firmer directive; otherwise the question reaches
+  // beyond the earlier papers after all and the whole collection is asked
+  // once (D5-06). A follow-up that merely pinned them and refused over a
+  // strong match has the latter remedy: their paragraphs crowded out the
+  // paper it asks about ("now add lacosamide").
+  if (ctx.priorScoped) return ctx.bestRelevance >= ctx.strongMatch ? 'pinned' : 'unpinned'
   if (ctx.priorPinned && ctx.bestRelevance >= ctx.strongMatch) return 'unpinned'
   // A strong match was retrieved and the generator still declined: the
   // prequeries or a narrower configuration crowded the grounding set.

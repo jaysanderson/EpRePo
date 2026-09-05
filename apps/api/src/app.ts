@@ -3640,6 +3640,10 @@ export function buildApp(opts: BuildAppOptions): Hono {
       // The catalogue as merchandised: a cohort described by the question
       // is matched on the papers' generated summaries, which the raw
       // listing lacks (D4-01).
+      // On a follow-up that stays within the earlier papers, a cohort the
+      // study guard reads out of "that study" is those papers, not a
+      // catalogue match on the phrase (D5-06: "strongest predictor in that
+      // study" pinned a verbal-learning paper and the retry read it).
       const pinned = !documentScope
         ? matchStudies(
           query,
@@ -3649,7 +3653,7 @@ export function buildApp(opts: BuildAppOptions): Hono {
             await provider.listResources(config).catch(() => []),
           ),
           lexicon,
-        )
+        ).filter((p) => !(priorScoped && p.kind === 'cohort'))
         : []
       // The papers a cohort designator matched: the cohort's own papers for
       // the question-level guard, whatever their titles carry (D4-01).
@@ -4551,11 +4555,14 @@ export function buildApp(opts: BuildAppOptions): Hono {
             "The earlier turns' papers did not answer this; asking the whole collection.",
           )
         } else if (retry === 'pinned') {
-          const target = retryPins[0] ?? topicPinId()
+          const target = retryPins[0] ?? topicPinId() ??
+            (priorScoped && !current.unpinPrior ? priorIds[0] : undefined)
           attempts.push({ intent: undefined, prequeries: undefined, resourceId: target })
           await fallbackEvent(
             retryPins.length > 0
               ? 'The question names a paper this collection holds; asking it directly.'
+              : target === priorIds[0]
+              ? "The earlier turn's paper is the one this asks about; asking it directly."
               : 'A retrieved paper carries the terms of this question; asking it directly.',
           )
         }
