@@ -71,7 +71,7 @@ describe('documentation content integrity', () => {
         'The question is routed',
         'The index returns the passages',
         'written only from those passages',
-        'Every sentence carries a citation',
+        'Every sentence that states a finding carries a citation',
         'no language model in the loop',
         'Groundedness decides',
         'never answers without a source',

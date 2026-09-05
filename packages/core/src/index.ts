@@ -1128,6 +1128,10 @@ export const AskEventSchema = z.discriminatedUnion('type', [
     sentencesReplaced: z.number().int().nonnegative().optional(),
     /** Titles of resources that carry a removed figure somewhere, though not beside its claim. */
     foundIn: z.string().array().optional(),
+    /** Figures removed because the cited paper carries them only where it cites other studies. */
+    figuresSecondhandRemoved: z.string().array().optional(),
+    /** Denominators rewritten to the pairing the cited passage gives in the figure's own bracket. */
+    denominatorsCorrected: z.string().array().optional(),
   }),
   /**
    * The routed intent's retrieval found nothing usable (a supplements-only

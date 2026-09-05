@@ -24,6 +24,10 @@ export interface AnswerAudit {
   figuresRescued?: string[]
   /** Sentences replaced by the named paper's own figure sentence, quoted and cited. */
   sentencesReplaced?: number
+  /** Figures removed because the cited paper carries them only where it cites other studies. */
+  figuresSecondhandRemoved?: string[]
+  /** Denominators rewritten to the pairing the cited passage gives beside the figure. */
+  denominatorsCorrected?: string[]
 }
 
 /** "12months" reads as "12 months" in the badge and the tooltip. */
@@ -77,12 +81,26 @@ export function auditBadge(audit: AnswerAudit | undefined): {
   const replacedLabel = replaced > 0
     ? ` · ${replaced === 1 ? '1 sentence' : `${replaced} sentences`} replaced`
     : ''
+  const secondhand = (audit.figuresSecondhandRemoved ?? []).map(figureLabel)
+  const corrected = audit.denominatorsCorrected ?? []
+  const secondhandNote = secondhand.length > 0
+    ? ` ${secondhand.length === 1 ? 'One figure' : `${secondhand.length} figures`} (${
+      secondhand.join(', ')
+    }) ${secondhand.length === 1 ? 'was' : 'were'} removed because the cited paper carries ${
+      secondhand.length === 1 ? 'it' : 'them'
+    } only where it cites other studies.`
+    : ''
+  const correctedNote = corrected.length > 0
+    ? ` ${
+      corrected.length === 1 ? 'One denominator was' : `${corrected.length} denominators were`
+    } corrected to the cited passage's own pairing: ${corrected.join('; ')}.`
+    : ''
   if (unsupported === 0 && stripped === 0 && removed === 0) {
     return {
       label: `${checked}${replacedLabel}`,
       tone: replaced > 0 ? 'warn' : 'ok',
       title:
-        `Every figure in this answer was found beside its claim in a cited passage.${found}${quoted}${cited}${denominators}`,
+        `Every figure in this answer was found beside its claim in a cited passage.${found}${quoted}${correctedNote}${cited}${denominators}`,
     }
   }
   if (unsupported === 0 && stripped === 0) {
@@ -100,7 +118,7 @@ export function auditBadge(audit: AnswerAudit | undefined): {
         removed === 1 ? 'its' : 'their'
       } figures beside the claim${
         figures ? ` (${figures})` : ''
-      }. Every figure still in the answer was found beside its claim.${found}${quoted}${cited}${denominators}`,
+      }. Every figure still in the answer was found beside its claim.${secondhandNote}${found}${quoted}${correctedNote}${cited}${denominators}`,
     }
   }
   const parts: string[] = []

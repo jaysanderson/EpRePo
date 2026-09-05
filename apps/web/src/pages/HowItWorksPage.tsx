@@ -612,9 +612,10 @@ export function HowItWorksPage() {
                 <strong className='font-semibold text-ink'>
                   The answer is written only from those passages.
                 </strong>{' '}
-                Nothing is drawn from general knowledge or from the internet. Every sentence carries
-                a citation to the passage it came from, and opening the citation shows that passage
-                in the paper.
+                Nothing is drawn from general knowledge or from the internet. Every sentence that
+                states a finding carries a citation to the passage it came from (an item in a list
+                takes the citation of the paragraph it belongs to), and opening the citation shows
+                that passage in the paper.
               </li>
             </Steps>
             {intents.length > 0
@@ -650,14 +651,19 @@ export function HowItWorksPage() {
               </Bullet>
               <Bullet>
                 <strong className='font-semibold text-ink'>Populations.</strong>{' '}
-                A sentence about a named cohort, trial or study may only cite papers about that
-                cohort, so a figure from a different population cannot be passed off as the one you
-                asked about.
+                When the question names a cohort, trial or study, every sentence with a figure must
+                cite a paper about that cohort, and a figure the cited paper only quotes from other
+                studies is removed rather than annotated, so a figure from a different population
+                cannot be passed off as the one you asked about.
               </Bullet>
               <Bullet>
                 <strong className='font-semibold text-ink'>Named studies.</strong>{' '}
-                A removed sentence about a named paper is replaced by that paper's own sentence,
-                quoted verbatim and cited.
+                A sentence cited to the wrong paper is replaced by the named paper's own sentence
+                only when that sentence carries the same figure at the same time point, quoted
+                verbatim and cited; otherwise the sentence is removed, and a named paper the answer
+                never cited is read directly before anything is declined. A denominator the answer
+                pairs with a figure differently from the paper is corrected to the paper's own
+                pairing, and the correction is stated.
               </Bullet>
               <Bullet>
                 <strong className='font-semibold text-ink'>Years and contraindications.</strong>
