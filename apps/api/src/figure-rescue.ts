@@ -261,8 +261,8 @@ export function ownFigureSentence(
     words?: readonly string[]
     /** The sentence must state a sample or group size. */
     wantCount?: boolean
-    /** What the removed sentence stated: a share, a count, a ratio - the candidate should match in kind. */
-    kinds?: { share: boolean; count: boolean; ratio: boolean }
+    /** What the removed sentence stated: a share, a count, a ratio, a decimal - the candidate should match in kind. */
+    kinds?: { share: boolean; count: boolean; ratio: boolean; decimal?: boolean }
     /** Figures the answer already states: a sentence that adds none of its own is not a replacement. */
     exclude?: readonly string[]
     /** The words that sat beside the removed sentence's figures: the figure's own subject. */
@@ -379,6 +379,11 @@ export function ownFigureSentence(
       const shares = figures.some((f) => f.endsWith('%'))
       const ratios = /\b(?:a?HR|a?OR|RR|IRR|hazard ratio|odds ratio|risk ratio)\b/.test(sentence)
       let kind = 0
+      // A decimal rate ("5.9 per 1000") is answered by a rate or a share,
+      // never by a bare count of samples.
+      if (
+        cue.kinds?.decimal && !shares && !figures.some((f) => /\d\.\d/.test(f)) && !ratios
+      ) continue
       if (cue.kinds) {
         if (cue.kinds.share && shares) kind += 3
         if (cue.kinds.count && counts > 0) kind += 2
@@ -402,9 +407,15 @@ export function ownFigureSentence(
       // The figure beside the removed sentence's own subject ("Rituximab
       // was administered in 26") outranks the same words elsewhere.
       const subject = (cue.near ?? []).length > 0 && figureNear(lower, cue.near!) ? 3 : 0
+      // A sentence about outcomes the claim never named (a death, a
+      // relapse beside the functional outcome asked for) is about
+      // something else.
+      const extra = outcomes.filter((o) =>
+        !cue.outcomes.includes(o) && !(cue.preferred ?? []).includes(o)
+      ).length
       const score = anchorHits * 3 + wordHits + Math.min(specific, 4) + preferred + kind + leads +
         countWithShare + subject + (section === 'results' ? 2 : section === 'abstract' ? 1 : 0) -
-        length - crowd
+        length - crowd - 2 * extra
       if (!best || score > best.score) best = { sentence, score }
     }
   }

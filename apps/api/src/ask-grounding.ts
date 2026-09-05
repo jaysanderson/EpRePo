@@ -11,6 +11,7 @@ import {
   drugsFlaggedInSources,
   drugsMissingFromAnswer,
   extractNumbers,
+  figurePattern,
   isSampleSizeFigure,
   normaliseFigures,
   outcomeFamilies,
@@ -612,9 +613,23 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
       let best: { quote: string; score: number; index: number; resourceId: string } | undefined
       if (replaced.length >= MAX_REPLACEMENTS) break
       // A sentence about another study is never answered from the
-      // question's cohort paper: its own paper or nothing.
+      // question's cohort paper: its own paper or nothing. After the
+      // named papers, the sentence's own paper, its block's papers and
+      // any retrieved paper that carries one of its figures compete on
+      // score: a "231" the model misread is answered by the paper that
+      // holds the 231.
       const named = namesOtherStudy(sentence.text, terms) ? [] : replacementPapers
-      for (const papers of [named, own, block]) {
+      const figuresOfSentence = extractNumbers(sentence.text).filter((f) =>
+        /%|\./.test(f) || /^\d{3,}$/.test(f)
+      )
+      const carrying = poolEntries
+        .filter((e) =>
+          !named.includes(e.resourceId) && !own.includes(e.resourceId) &&
+          !block.includes(e.resourceId) &&
+          figuresOfSentence.some((f) => figurePattern(f).test(e.text.lower))
+        )
+        .map((e) => e.resourceId)
+      for (const papers of [named, [...own, ...block, ...carrying]]) {
         // A paper the question did not name has to answer the sentence
         // clearly: the quote must carry the claim's names or two of its
         // words, and no quote is used twice in one answer.
@@ -784,9 +799,18 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
       const index = own[0]!.index
       const source = textsByNew.get(index)
       if (!source) continue
+      const flagged = own.map((f) => f.figure)
       const cue = {
         ...replacementCue(marked.text, lexicon, questionEntities, outcomeFamilies(query)),
         exclude: [...stated],
+        // The paper's own finding must be of the same kind as the figure
+        // it replaces: a rate for a rate, never a sample count.
+        kinds: {
+          share: flagged.some((f) => f.endsWith('%')),
+          count: false,
+          ratio: false,
+          decimal: flagged.some((f) => /\d\.\d/.test(f)),
+        },
       }
       if (cue.outcomes.length === 0) continue
       const found = ownFigureSentence(source, cue)
