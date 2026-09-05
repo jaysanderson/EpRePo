@@ -7,7 +7,6 @@
 import type { Citation, ResourceSummary, ScoredResource, TenantConfig } from '@research-portal/core'
 import {
   auditAddendum,
-  denominatorCorrections,
   denominatorsMissing,
   drugsFlaggedInSources,
   drugsMissingFromAnswer,
@@ -21,6 +20,7 @@ import {
   qualifierForFigure,
   stripUnsupportedContraindications,
   studyDesignOf,
+  timepointsInMonths,
   verifyFigures,
   yearsUnsupported,
 } from './answer-audit.ts'
@@ -42,6 +42,7 @@ import {
   rescueSentence,
   statesResultFigure,
   stripTemplateLeaks,
+  studyLabel,
   syntheticCitation,
   withQualifier,
 } from './figure-rescue.ts'
@@ -94,8 +95,6 @@ export interface AuditEvent {
   foundIn?: string[]
   /** Figures removed because the cited paper carries them only where it cites other studies. */
   figuresSecondhandRemoved?: string[]
-  /** Denominators rewritten to the pairing the cited passage gives in the figure's own bracket. */
-  denominatorsCorrected?: string[]
 }
 
 // ---------------------------------------------------------------------------
@@ -537,13 +536,6 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
   // or is removed too. What remains has passed.
   const markerOfText = [...usableTexts.keys()]
   const textsByNew = new Map<number, string>()
-  const withTexts = (sentences: readonly typeof bound.sentences[number][]) =>
-    sentences.map((s) => ({
-      text: s.text,
-      texts: s.bound
-        .map((n) => ({ index: n, text: textsByNew.get(n) }))
-        .filter((t): t is { index: number; text: string } => t.text !== undefined),
-    }))
   let checks = verifyFigures(
     bound.sentences.map((s) => ({
       text: s.text,
@@ -584,9 +576,22 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
   // papers: a paper whose summary merely mentions the cohort's name is not
   // one of them (the loop 4 C4 replay: the anti-NMDAR rituximab paper
   // discusses LGI1).
-  const cohort = (input.cohortResourceIds ?? []).length > 0
+  // A medication term is also looked for in a paper's opening pages, so a
+  // paper about "valproic acid (VPA)" is the valproate paper the question
+  // describes (loop 5 N03), and a paper the question names outright (a
+  // pinned paper) is by definition one the question asks about: the guard
+  // never fires against it (loop 5 D5-02). A designated cohort stays
+  // exactly its own papers (D4-01).
+  const textOf = (id: string) => {
+    const index = oldIndexByResource.get(id)
+    return index === undefined ? undefined : texts.get(index)
+  }
+  const cohortBase = (input.cohortResourceIds ?? []).length > 0
     ? new Set(input.cohortResourceIds)
-    : cohortPapers(terms, knownResources)
+    : cohortPapers(terms, knownResources, textOf)
+  const cohort = cohortBase.size > 0 && !designated
+    ? new Set([...cohortBase, ...(input.pinnedResourceIds ?? [])])
+    : cohortBase
   const namedCohort = cohort.size > 0
   const planning = isPlanningQuestion(query)
   const cohortFailed = new Set<string>()
@@ -637,12 +642,33 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
   // what to assume, a sentence left with a second-hand figure is removed
   // rather than annotated (D4-02, D4-12).
   const secondhandBySentence = new Map<string, string[]>()
+  // The passage the audit located each figure in, by the marker of the
+  // text it sits in: the second-hand judgement reads that passage, not
+  // every occurrence of the number in the paper (loop 5 TFD: the paper's
+  // own 22% in its results is not the introduction's "over 22% after
+  // 2020" the answer repeated).
+  const locatedFor = (sentenceText: string, renumber?: ReadonlyMap<number, number>) => {
+    const own = bound.sentences.find((s) => s.text === sentenceText)
+    const indices = own?.bound ?? []
+    return checks
+      .filter((c) => c.sentence === sentenceText && c.supported && c.passage !== undefined)
+      .flatMap((c) =>
+        c.supportedBy.map((position) => {
+          const old = indices[position]
+          const index = old === undefined ? undefined : renumber ? renumber.get(old) : old
+          return index === undefined ? [] : [{ figure: c.figure, index, passage: c.passage! }]
+        }).flat()
+      )
+  }
   for (const sentence of bound.sentences) {
     if (
       sentence.bound.length === 0 || failing.has(sentence.text) || declines.has(sentence.text) ||
       !statesResultFigure(sentence.text)
     ) continue
-    const flagged = secondhandFigures([{ text: sentence.text, bound: sentence.bound }], texts)
+    const flagged = secondhandFigures(
+      [{ text: sentence.text, bound: sentence.bound, located: locatedFor(sentence.text) }],
+      texts,
+    )
     if (flagged.length === 0) continue
     // A figure is second-hand for the sentence when every bound text that
     // carries it carries it second-hand.
@@ -660,6 +686,16 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
   const prepared = new Map<string, PreparedSource>()
   const poolEntries: { index: number; text: PreparedSource; resourceId: string; title: string }[] =
     []
+  // The cited texts as pool entries of their own: a sentence the cohort
+  // guard failed is looked up in the cohort paper the answer cited for
+  // something else (loop 5 T2: "101 SUDEP cases and 199 controls" bound
+  // to the wrong SUDEP paper, carried by the case-control paper).
+  const citedEntries = [...usableTexts.entries()].map(([index, t]) => ({
+    index,
+    text: prepareIfNeeded(t, prepared),
+    resourceId: resourceOfIndex.get(index) ?? '',
+    title: candidates.find((c) => c.index === index)?.title ?? '',
+  }))
   const prior = new Set(input.priorResourceIds ?? [])
   const named = (entry: { text: PreparedSource; title: string }) =>
     requiredNames.length === 0 ||
@@ -696,7 +732,10 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
       const other = namesOtherStudy(sentence.text, terms)
       const restricted = cohortFailed.has(sentence.text) ||
         (cohort.size > 0 && statesResultFigure(sentence.text) && !other)
-      const allowed = poolEntries.filter((e) => other || prior.has(e.resourceId) || named(e))
+      const allowed = [
+        ...citedEntries.filter((e) => !sentence.bound.includes(e.index)),
+        ...poolEntries,
+      ].filter((e) => other || prior.has(e.resourceId) || named(e))
       const poolFor = restricted ? allowed.filter((e) => cohort.has(e.resourceId)) : [
         ...allowed.filter((e) => cohort.has(e.resourceId)),
         ...allowed.filter((e) => !cohort.has(e.resourceId)),
@@ -728,12 +767,6 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
   // beside its claim among its own findings takes the marker.
   const secondhandRemoved: string[] = []
   if (secondhandBySentence.size > 0) {
-    const citedEntries = [...usableTexts.entries()].map(([index, t]) => ({
-      index,
-      text: prepareIfNeeded(t, prepared),
-      resourceId: resourceOfIndex.get(index) ?? '',
-      title: candidates.find((c) => c.index === index)?.title ?? '',
-    }))
     for (const sentence of bound.sentences) {
       const figures = secondhandBySentence.get(sentence.text)
       if (!figures) continue
@@ -973,33 +1006,183 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
     const t = old === undefined ? undefined : texts.get(old)
     if (t !== undefined) textsByNew.set(citation.index, t)
   }
-  const sentenceTexts = withTexts(gated.sentences)
   let text = gated.text
-  // A denominator the answer paired with a share that the cited passage
-  // pairs differently, in the figure's own bracket, is rewritten to the
-  // passage's pairing and said so (D4-05).
-  const denominatorsCorrected: string[] = []
-  for (const sentence of gated.sentences) {
-    const boundTexts = sentence.bound.map((n) => textsByNew.get(n)).filter((t): t is string =>
-      t !== undefined
+  // A sentence of the gated text, rewritten in place; the checks follow it.
+  const rewrite = (sentence: typeof gated.sentences[number], next: string) => {
+    const before = sentence.text
+    const pattern = new RegExp(before.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    if (!pattern.test(text)) return
+    text = text.replace(pattern, next)
+    sentence.text = next
+    checks = checks.map((c) => c.sentence === before ? { ...c, sentence: next } : c)
+  }
+  // Two populations stitched into one answer are named for what they are
+  // (docs/persona-reports/dsouza-loop5.md D5-12, TDE): under a designated
+  // cohort or a planning question, when the result sentences the gate kept
+  // come from more than one paper, each sentence that names no study of
+  // its own is opened with the paper it comes from - "In *Infradian
+  // rhythms ... in healthy adults*, 70% (369/525) had ..." beside "In
+  // *Multiday cycles of heart rate ...*, participants with epilepsy
+  // documented 3,619 seizures".
+  if (designated || planning) {
+    const resultSentences = gated.sentences.filter((s) =>
+      s.bound.length > 0 && statesResultFigure(s.text) && !/^\s*The paper/.test(s.text) &&
+      !isDeclineSentence(s.text)
     )
-    if (boundTexts.length === 0) continue
-    const fixed = denominatorCorrections(sentence.text, boundTexts)
-    if (fixed.corrections.length === 0) continue
-    const pattern = new RegExp(sentence.text.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-    if (!pattern.test(text)) continue
-    text = text.replace(pattern, fixed.text)
-    sentence.text = fixed.text
-    for (const c of fixed.corrections) {
-      denominatorsCorrected.push(
-        `${c.figure} (${c.to}) [${sentence.bound[0]}], not ${c.from} as the answer had it`,
-      )
+    const papers = new Set(
+      resultSentences.map((s) => citations.find((c) => c.index === s.bound[0])?.resourceId)
+        .filter((id): id is string => id !== undefined),
+    )
+    if (papers.size >= 2) {
+      for (const sentence of resultSentences) {
+        const citation = citations.find((c) => c.index === sentence.bound[0])
+        if (!citation || namesOtherStudy(sentence.text, terms)) continue
+        const label = studyLabel(citation.title)
+        if (sentence.text.toLowerCase().includes(label.toLowerCase())) continue
+        if (/^\s*In \*/.test(sentence.text)) continue
+        // The question's own designator opening the sentence ("In the
+        // multiday heart-rate cycle cohort, ...") is what the label
+        // corrects: it goes.
+        const body = sentence.text.replace(
+          /^\s*(?:In|Within|Across|From)\s+the\s+(?:[\w-]+\s+){0,6}?(?:cohort|study|trial|analysis|analyses|register|registry|paper)\s*,\s*/i,
+          '',
+        )
+        const first = body.match(/^\s*([A-Za-z][\w'-]*)/)?.[1] ?? ''
+        const keepCase = /^[A-Z]{2,}|^[a-z]+[A-Z]|^[A-Z][a-z]+[A-Z]/.test(first)
+        const opened = keepCase ? body : body.charAt(0).toLowerCase() + body.slice(1)
+        rewrite(sentence, `In *${label}*, ${opened}`)
+      }
     }
   }
+  // The paper's own figure for the question's outcome, offered after a
+  // removal when the model's figure differs from it (docs/persona-reports/
+  // dsouza-loop5.md D5-14): the consortium paper's "154 (67%)" after an
+  // "80% (n = 231)" no paper carries. Named for what it is, cited, at most
+  // one per removed sentence and two per answer; never a substitute for
+  // the removed sentence, which stays removed.
+  const offered: string[] = []
+  if (gated.removed.length > 0 && questionOutcomes.length > 0) {
+    const stated = new Set(extractNumbers(text.replace(/\s*\[\d{1,3}\]/g, '')))
+    for (const removed of gated.removed) {
+      if (offered.length >= 2) break
+      if (
+        removed.reason === 'conclusion' || removed.reason === 'secondhand' ||
+        removed.reason === 'pvalue'
+      ) continue
+      const cue = {
+        ...replacementCue(removed.text, lexicon, questionEntities, questionOutcomes, terms),
+        exclude: [...stated, ...removed.figures],
+        strict: true,
+      }
+      const timepoints = timepointsInMonths(normaliseFigures(removed.text))
+      const carrying = poolEntries
+        .filter((e) =>
+          !replacementPapers.includes(e.resourceId) &&
+          removed.figures.some((f) => figurePattern(f).test(e.text.lower))
+        )
+        .map((e) => e.resourceId)
+      for (const id of [...replacementPapers, ...carrying]) {
+        const index = candidates.find((c) => c.resourceId === id)?.index
+        const raw = index === undefined ? undefined : texts.get(index)
+        if (!raw) continue
+        const found = ownFigureSentence(raw, cue)
+        if (!found || found.score < 4) continue
+        if (!outcomeFamilies(found.sentence).some((o) => questionOutcomes.includes(o))) continue
+        if (timepoints.length > 0) {
+          const have = timepointsInMonths(normaliseFigures(found.sentence))
+          if (
+            have.length === 0 ||
+            !timepoints.some((s) => have.some((w) => Math.abs(s - w) <= 0.5 + 0.08 * s))
+          ) continue
+        }
+        let marker = citations.find((c) => c.resourceId === id)?.index
+        if (marker === undefined) {
+          marker = citations.length + 1
+          citations.push({
+            index: marker,
+            resourceId: id,
+            title: candidates.find((c) => c.resourceId === id)?.title ?? '',
+          })
+          textsByNew.set(marker, raw)
+        }
+        const quote = quoteSentence(found.sentence).replace(/^The paper itself reports: /, '')
+        offered.push(`*For the outcome asked about, [${marker}] itself reports: ${quote}*`)
+        for (const f of extractNumbers(found.sentence)) stated.add(f)
+        break
+      }
+    }
+  }
+  // A protocol's recruitment target is not an enrolment (docs/persona-
+  // reports/dsouza-loop5.md D5-11): a kept sentence that states a planned
+  // sample from a protocol paper is said to be that, and the results paper
+  // the answer also cites gives its enrolment in its own words.
+  let protocolNote: string | undefined
+  const PLANNED =
+    /\b(?:aim(?:s|ed)? to (?:recruit|enrol|enroll|include)|plan(?:s|ned)? to|target(?:ed|s)?\b|will be (?:enrolled|recruited|included)|estimated (?:that|to|follow)|anticipated|expected to|sample size (?:of|was|is|calculation))/i
+  for (const sentence of gated.sentences) {
+    if (!PLANNED.test(sentence.text)) continue
+    if (!extractNumbers(sentence.text).some((f) => /^\d{2,}$/.test(f))) continue
+    const marker = sentence.bound[0]
+    if (marker === undefined) continue
+    const source = textsByNew.get(marker)
+    const title = citations.find((c) => c.index === marker)?.title ?? ''
+    if (!source) continue
+    // A protocol says so in its masthead or title, or writes its methods in
+    // the future tense ("450 eligible patients will be enrolled").
+    const isProtocol = (t: string, name: string) =>
+      studyDesignOf(t) === 'a trial protocol' || /\bprotocol\b/i.test(name) ||
+      (t.slice(0, 8000).match(
+          /\bwill be (?:enrolled|recruited|included|conducted|collected)\b/gi,
+        ) ??
+          []).length >= 2
+    if (!isProtocol(source, title)) continue
+    let results: { index: number; sentence: string } | undefined
+    for (const c of citations) {
+      if (c.index === marker) continue
+      const t = textsByNew.get(c.index)
+      if (!t || isProtocol(t, c.title)) continue
+      const found = ownFigureSentence(t, {
+        anchors: [],
+        outcomes: [],
+        words: ['enrolled', 'recruited', 'eligible', 'included', 'participants'],
+        wantCount: true,
+        kinds: { share: false, count: true, ratio: false },
+      })
+      if (found) {
+        results = { index: c.index, sentence: found.sentence }
+        break
+      }
+    }
+    const lead = `*[${marker}] is the study protocol: the numbers it gives are the planned ` +
+      'recruitment, not the enrolment.'
+    protocolNote = results
+      ? `${lead} The results paper [${results.index}] reports: ${
+        quoteSentence(results.sentence).replace(/^The paper itself reports: /, '')
+      }*`
+      : `${lead}*`
+    break
+  }
+  // A wrong denominator is never rewritten in the body: the check treats
+  // the n a sentence pairs with a share as part of the figure, so a
+  // sentence whose pairing the paper contradicts is removed and said so,
+  // and the helper below only adds an n the located passage gives in the
+  // figure's own bracket or cell (loop 5 D5-03).
   // A figure the cited paper carries only in its introduction or
   // discussion is that paper citing other studies: said so in one line,
   // and never asked for a denominator (D3-08, D3-13).
-  const secondhand = secondhandFigures(markedSentences(text), textsByNew)
+  const secondhand = secondhandFigures(
+    markedSentences(text).map((m) => ({
+      ...m,
+      located: gated.sentences.some((s) => s.text === m.text)
+        ? checks
+          .filter((c) => c.sentence === m.text && c.supported && c.passage !== undefined)
+          .flatMap((c) =>
+            m.bound.map((index) => ({ figure: c.figure, index, passage: c.passage! }))
+          )
+        : [],
+    })),
+    textsByNew,
+  )
   const secondhandFigureSet = new Set(secondhand.map((f) => f.figure))
   // The cited paper's own finding follows a second-hand figure when it has
   // one for the same claim: "relapses occur in 14%-35%" from the
@@ -1078,10 +1261,16 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
   text = attributed.text
   const attributionsCorrected = [...new Set(attributed.fixes.map((f) => f.surname))]
 
-  // Proportions stated without their n, and the n the cited passage gives.
-  const denominators = denominatorsMissing(sentenceTexts).filter((d) =>
-    !secondhandFigureSet.has(d.figure)
-  )
+  // Proportions stated without their n, and the n the located passage
+  // gives in the figure's own bracket or cell.
+  const denominators = denominatorsMissing(
+    gated.sentences.map((s) => ({
+      text: s.text,
+      located: checks
+        .filter((c) => c.sentence === s.text && c.supported && c.passage !== undefined)
+        .map((c) => ({ figure: c.figure, index: s.bound[0] ?? 0, passage: c.passage! })),
+    })),
+  ).filter((d) => !secondhandFigureSet.has(d.figure))
 
   // The effect size the passage carries when the answer paraphrased it away.
   const effectSizes = effectSizesFor(
@@ -1176,13 +1365,8 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
           replaced: replaced.length,
         }),
         blankedNote(gated.blanked),
-        denominatorsCorrected.length > 0
-          ? `*${
-            denominatorsCorrected.length === 1
-              ? 'One denominator was'
-              : `${denominatorsCorrected.length} denominators were`
-          } corrected to the cited passage's own pairing: ${denominatorsCorrected.join('; ')}.*`
-          : undefined,
+        ...offered,
+        protocolNote,
         effectSizeNote(effectSizes),
         boundary,
         scoped,
@@ -1237,7 +1421,6 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
       sentencesReplaced: replaced.length,
       foundIn,
       figuresSecondhandRemoved: [...new Set(secondhandRemoved)],
-      denominatorsCorrected: denominatorsCorrected.map((d) => d.split(' [')[0]!),
     },
   }
 }
