@@ -272,6 +272,13 @@ export class SentinelStream {
       const end = m.index + m[0].length + (m[0] === '\n' ? 0 : 1)
       if (end < this.pending.length) cut = end
     }
+    // A sentence that has ended at the very end of the buffer is complete:
+    // its template phrases are whole and the rewriter can see them, so it
+    // goes out now rather than waiting for the next sentence to start (a
+    // one-sentence answer otherwise reaches the reader only at flush, with
+    // the audit badge, as nothing then everything - D3-05). A digit before
+    // the stop is held: "71." may be the head of "71.1%".
+    if (cut < 0 && /[^\d\s][.!?]["'”)]?$/.test(this.pending)) cut = this.pending.length
     if (cut <= 0) return ''
     const out = this.pending.slice(0, cut)
     this.pending = this.pending.slice(cut)
