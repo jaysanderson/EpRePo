@@ -539,23 +539,28 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
       })
       if (!entry.generated && !texts.has(index)) texts.set(index, entry.text)
     }
-    // A resource the study guard would reject cannot lend a marker either.
-    if (requiredNames.length > 0) {
-      const words = requiredNames.map((name) =>
-        new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i')
+    // A resource the study guard would reject cannot lend a marker either
+    // - unless an earlier turn cited it, or the sentence names that other
+    // study itself ("in the EXPERIENCE pooled analysis" under a PERMIT
+    // question): a figure carried from the last answer is checked against
+    // the paper it came from (D3-06).
+    const prior = new Set(input.priorResourceIds ?? [])
+    const named = (entry: { text: PreparedSource; title: string }) =>
+      requiredNames.length === 0 ||
+      requiredNames.some((name) =>
+        new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(
+          `${entry.text.lower}\n${entry.title}`,
+        )
       )
-      poolEntries = poolEntries.filter((e) =>
-        words.some((word) => word.test(e.text.lower) || word.test(e.title))
-      )
-    }
     for (const sentence of bound.sentences) {
       if (!failing.has(sentence.text)) continue
+      const other = namesOtherStudy(sentence.text, terms)
       const restricted = cohortFailed.has(sentence.text) ||
-        (cohort.size > 0 && statesResultFigure(sentence.text) &&
-          !namesOtherStudy(sentence.text, terms))
-      const poolFor = restricted ? poolEntries.filter((e) => cohort.has(e.resourceId)) : [
-        ...poolEntries.filter((e) => cohort.has(e.resourceId)),
-        ...poolEntries.filter((e) => !cohort.has(e.resourceId)),
+        (cohort.size > 0 && statesResultFigure(sentence.text) && !other)
+      const allowed = poolEntries.filter((e) => other || prior.has(e.resourceId) || named(e))
+      const poolFor = restricted ? allowed.filter((e) => cohort.has(e.resourceId)) : [
+        ...allowed.filter((e) => cohort.has(e.resourceId)),
+        ...allowed.filter((e) => !cohort.has(e.resourceId)),
       ]
       const found = rescueSentence({ sentence, pool: poolFor, lexicon, questionEntities })
       if (!found) continue
@@ -605,11 +610,14 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
       }
       let best: { quote: string; score: number; index: number; resourceId: string } | undefined
       if (replaced.length >= MAX_REPLACEMENTS) break
-      for (const papers of [replacementPapers, own, block]) {
+      // A sentence about another study is never answered from the
+      // question's cohort paper: its own paper or nothing.
+      const named = namesOtherStudy(sentence.text, terms) ? [] : replacementPapers
+      for (const papers of [named, own, block]) {
         // A paper the question did not name has to answer the sentence
         // clearly: the quote must carry the claim's names or two of its
         // words, and no quote is used twice in one answer.
-        const bar = papers === replacementPapers ? 0 : 9
+        const bar = papers === named ? 0 : 9
         for (const id of papers) {
           const index = candidates.find((c) => c.resourceId === id)?.index
           const raw = index === undefined ? undefined : texts.get(index)

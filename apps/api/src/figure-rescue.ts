@@ -22,6 +22,7 @@
  */
 import type { Citation, ScoredResource } from '@research-portal/core'
 import {
+  abbreviationPairs,
   claimFeatures,
   extractNumbers,
   type FigureCheck,
@@ -32,10 +33,12 @@ import {
   outcomeFamilies,
   type PreparedSource,
   prepareSource,
+  termForms,
 } from './answer-audit.ts'
 import type { BoundSentence } from './citation-binding.ts'
 import { hasBodyHeadings, sectionAt, sectionSpans } from './secondhand.ts'
 import { looksLikeReferencePassage } from './citation-binding.ts'
+import { isMedicationTerm } from './ask-prequeries.ts'
 
 // ---------------------------------------------------------------------------
 // The cohort the question names
@@ -264,6 +267,8 @@ export function ownFigureSentence(
     exclude?: readonly string[]
     /** The words that sat beside the removed sentence's figures: the figure's own subject. */
     near?: readonly string[]
+    /** The medications the removed sentence named: the quote must name one. */
+    drugs?: readonly string[]
   },
 ): OwnFigure | undefined {
   const spans = sectionSpans(text)
@@ -276,6 +281,7 @@ export function ownFigureSentence(
   // A word broken across a PDF line ("in- creased") is joined when the
   // paper writes it whole elsewhere; a real compound keeps its hyphen.
   const lowerText = text.toLowerCase()
+  const pairs = abbreviationPairs(text.replace(/\s+/g, ' '))
   // Blank-line paragraphs, table rows included (a row is shorter than the
   // evidence passages' floor), bibliography entries left out.
   const paragraphs = text.split(/\n\s*\n/).map((p) => p.replace(/\s+/g, ' ').trim()).filter((p) =>
@@ -337,6 +343,16 @@ export function ownFigureSentence(
       // claim's own words, its label being all it has.
       if (anchorHits === 0 && wordHits < 2 && !hitWords.some((w) => w.length >= 7)) continue
       if (table && wordHits === 0) continue
+      // A claim about a named drug is answered by a sentence about that
+      // drug, by its name or the abbreviation the paper defines for it
+      // ("brivaracetam (BRV)"): a perampanel retention never stands in for
+      // brivaracetam's.
+      if (
+        cue.drugs && cue.drugs.length > 0 &&
+        !cue.drugs.some((d) =>
+          termForms(d, pairs).some((re) => re.test(lower) || re.test(sentence))
+        )
+      ) continue
       const outcomes = outcomeFamilies(sentence)
       if (cue.outcomes.length > 0 && !outcomes.some((o) => cue.outcomes.includes(o))) continue
       const normalised = normaliseFigures(sentence).toLowerCase()
@@ -508,8 +524,13 @@ export function replacementCue(
   words: string[]
   kinds: { share: boolean; count: boolean; ratio: boolean }
   near: string[]
+  drugs: string[]
 } {
   const claim = claimFeatures(sentence, lexicon, questionEntities)
+  const lowerSentence = sentence.toLowerCase()
+  const drugs = lexicon.map((t) => t.toLowerCase()).filter((t) =>
+    isMedicationTerm(t) && lowerSentence.includes(t)
+  )
   const anchors = [...new Set([...claim.anchors, ...questionEntities.map((e) => e.toLowerCase())])]
     .filter((a) => !/^(?:fas|mfas|itt|pp)$/.test(a) && !cohortTerms.includes(a))
   const figures = extractNumbers(sentence)
@@ -525,6 +546,7 @@ export function replacementCue(
     words: claim.words,
     kinds,
     near: wordsNearFigures(sentence).filter((w) => !cohortTerms.includes(w)),
+    drugs,
   }
 }
 

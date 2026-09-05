@@ -26,7 +26,7 @@ const LEXICON = ['brivaracetam', 'levetiracetam', 'perampanel', 'lamotrigine']
 
 /** The EXPERIENCE main paper and the LGI1 and anti-NMDAR consortium papers, in miniature. */
 const EXPERIENCE =
-  'Effectiveness and tolerability of 12-month brivaracetam in the real world: EXPERIENCE.\n\n' +
+  'Effectiveness and tolerability of 12-month brivaracetam (BRV) in the real world: EXPERIENCE.\n\n' +
   'Results\n\nAnalyses included 1644 adults (FAS). BRV retention was 89.4%, 79.8%, and 71.1% at 3, 6, ' +
   'and 12 months, respectively (FAS; Fig. 1d). Seizure freedom rates were 22.4% (n = 923), ' +
   '17.9% (n = 1165), and 14.9% (n = 1111).\n\nSwitched from LEV or other ASMs to BRV at index, n (%)\n\n' +
@@ -166,7 +166,10 @@ describe("the paper's own figure sentence (D3-10)", () => {
       ['levetiracetam', 'brivaracetam'],
       [],
     )
-    const own = ownFigureSentence(EXPERIENCE, { ...cue, outcomes: [], wantCount: true })
+    const own = ownFigureSentence(
+      `Levetiracetam (LEV) was the prior drug.\n\n${EXPERIENCE}`,
+      { ...cue, outcomes: [], wantCount: true },
+    )
     expect(own?.sentence).toContain(
       'Switched from LEV 709 (43.8%); Switched from other ASMs 887 (54.8%)',
     )
@@ -242,5 +245,22 @@ describe('the relationship a question pairs (D3-12)', () => {
       title: 'Adherence and mortality in epilepsy: a linkage study',
     }, pair!)).toBe(true)
     expect(exposureOutcomePair('What was the 12-month retention rate?')).toBeUndefined()
+  })
+})
+
+describe('a claim about a named drug (D3-06)', () => {
+  it('is never answered from a paper about another drug', () => {
+    const PERMIT =
+      'PERMIT study of perampanel.\n\nResults\n\nRetention on PER treatment at 12 months was 64.2% (2698/4201). ' +
+      'The seizure freedom rate was 23.2% at 12 months.'
+    const cue = replacementCue(
+      'In the EXPERIENCE pooled analysis for brivaracetam, the 12-month retention rate was 71.1% (n = 1644).',
+      LEXICON,
+      ['brivaracetam'],
+      ['retention'],
+    )
+    expect(cue.drugs).toEqual(['brivaracetam'])
+    expect(ownFigureSentence(PERMIT, cue)).toBeUndefined()
+    expect(ownFigureSentence(EXPERIENCE, cue)?.sentence).toContain('71.1%')
   })
 })
