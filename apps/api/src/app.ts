@@ -81,6 +81,7 @@ import {
   comparisonEntities,
   entityPins,
   isConferenceTitle,
+  isDemographicQuestion,
   pinnedAddendum,
   questionClauses,
   rankClosest,
@@ -3602,9 +3603,14 @@ export function buildApp(opts: BuildAppOptions): Hono {
       // The study-name guard: a paper the question names ("the BREATHS
       // trial", "UMPIRE", a quoted title) is pinned into the grounding set
       // and leads the sources, whatever retrieval ranks first.
-      const pinned = !documentScope && firstTurn
+      // A follow-up that names a study ("in the PERMIT pooled analysis",
+      // "different cohort now: the first-seizure study") pins it too (D4-22).
+      const pinned = !documentScope
         ? matchStudies(query, await provider.listResources(config).catch(() => []), lexicon)
         : []
+      // The papers a cohort designator matched: the cohort's own papers for
+      // the question-level guard, whatever their titles carry (D4-01).
+      const cohortIds = pinned.filter((p) => p.kind === 'cohort').map((p) => p.id)
       // Grows with the top paper per named entity (below); read after the
       // entity pins resolve, so every later use sees the full set.
       const pinnedIds = pinned.map((p) => p.id)
@@ -4066,7 +4072,9 @@ export function buildApp(opts: BuildAppOptions): Hono {
         let audit: AuditEvent | null = null
         let passagesRechosen = false
         let emptied = false
-        if (!documentScope && citations.length > 0 && opts.management) {
+        // Document chat runs the same check against the open document, so
+        // its answer carries the same badge (D4-21).
+        if (citations.length > 0 && opts.management) {
           // The reader sees the streamed text as "checking N figures" until
           // the gate has passed it: an answer is not complete before it has
           // been checked (D2-17).
@@ -4090,8 +4098,9 @@ export function buildApp(opts: BuildAppOptions): Hono {
               catalogue,
               authors: namedAuthors,
               pinnedResourceIds: pinnedIds,
-              pinnedTerms: pinned.map((p) => p.term),
+              pinnedTerms: pinned.filter((p) => p.kind !== 'cohort').map((p) => p.term),
               priorResourceIds: priorIds,
+              cohortResourceIds: cohortIds,
             })
             text = bound.text
             citations = bound.citations
@@ -4112,11 +4121,19 @@ export function buildApp(opts: BuildAppOptions): Hono {
         // it would read as fact. The honest decline stands in its place,
         // with the closest matches shown, not used. The same when the
         // figure gate removed every sentence that said anything.
-        if (!documentScope && emptied) {
-          // The gate removed every sentence: the audit still goes out (what
-          // failed, and why, is the finding), then the decline names the
-          // figures that could not be verified rather than a generic "no
-          // answer".
+        if (emptied) {
+          // The gate removed every sentence. When the question names a
+          // paper the first pass never cited, that paper is read directly
+          // before anything is declined (D4-09, D3-01); otherwise the audit
+          // still goes out (what failed, and why, is the finding), then the
+          // decline names the figures that could not be verified rather
+          // than a generic "no answer".
+          if (nextRetry(retryContext(), 'uncited') === 'pinned') {
+            finished = false
+            retry = 'pinned'
+            void closestMatches()
+            return
+          }
           finished = true
           record.refused = true
           if (audit) await send(audit)
@@ -4124,6 +4141,7 @@ export function buildApp(opts: BuildAppOptions): Hono {
             nearestTitles(lastSources),
             audit?.figuresRemoved ?? [],
             audit?.foundIn ?? [],
+            audit?.figuresSecondhandRemoved ?? [],
           )
           if (lastSources.length > 0) await send({ type: 'sources', resources: lastSources })
           await send({ type: 'delta', text: decline })
@@ -4135,29 +4153,33 @@ export function buildApp(opts: BuildAppOptions): Hono {
         // and without the corpus-wide copy over them (D3-15) - after the
         // one document-scoped read of a pinned paper the first pass never
         // cited (D2-08), which may answer what the decline says is missing.
-        if (
-          !documentScope && citations.length === 0 && isWholeDecline(text) &&
-          nextRetry(retryContext(), 'uncited') !== 'pinned'
-        ) {
-          finished = true
-          record.refused = true
-          if (audit) await send(audit)
-          if (lastSources.length > 0) await send({ type: 'sources', resources: lastSources })
-          await send({ type: 'done', refused: true, text })
-          return
-        }
-        if (!documentScope && citations.length === 0 && /\d/.test(text)) {
+        if (!documentScope && citations.length === 0) {
           // A named paper is in the sources and the first pass never cited
-          // it: one document-scoped read of it before declining (D2-08),
-          // the same one extra ask a generator refusal gets (D3-05).
-          if (nextRetry(retryContext(), 'uncited') === 'pinned') {
+          // it, whether the answer declined or stated figures nothing
+          // carries: one document-scoped read of it before declining
+          // (D2-08, D4-09), the same one extra ask a generator refusal
+          // gets (D3-05).
+          if (
+            (isWholeDecline(text) || /\d/.test(text)) &&
+            nextRetry(retryContext(), 'uncited') === 'pinned'
+          ) {
             finished = false
             retry = 'pinned'
             void closestMatches()
             return
           }
-          await finishRefused()
-          return
+          if (isWholeDecline(text)) {
+            finished = true
+            record.refused = true
+            if (audit) await send(audit)
+            if (lastSources.length > 0) await send({ type: 'sources', resources: lastSources })
+            await send({ type: 'done', refused: true, text })
+            return
+          }
+          if (/\d/.test(text)) {
+            await finishRefused()
+            return
+          }
         }
         if (listingAuthor && resourceIds) {
           const listed = appendOmittedPapers({
@@ -4179,8 +4201,10 @@ export function buildApp(opts: BuildAppOptions): Hono {
         // keeps only strong matches (D3-21).
         const citedIds = new Set(citations.map((c) => c.resourceId))
         const singleStudy = !documentScope && pinnedIds.length === 1 && entities.length < 2
+        // An uncited weak match is never shown as evidence on any turn (D3-21).
         const shown = lastSources.filter((s) =>
           (!s.referenceChunk || citedIds.has(s.id)) &&
+          (citedIds.has(s.id) || pinnedIds.includes(s.id) || s.relevance >= GROUNDING_FLOOR) &&
           (!singleStudy || citedIds.has(s.id) || pinnedIds.includes(s.id) ||
             s.relevance >= STRONG_MATCH)
         )
@@ -4200,6 +4224,12 @@ export function buildApp(opts: BuildAppOptions): Hono {
       // configuration crowded the grounding set, so the question is asked
       // once more on the default configuration without them. Nothing has
       // streamed by then, so the surface sees one answer.
+      // A question about who was in one named study (its ages, its women,
+      // its enrolment) is answered from that paper alone, on the platform's
+      // own resource filter, rather than from whatever else the words
+      // retrieve (D4-09).
+      const readPinnedFirst = !documentScope && pinnedIds.length === 1 && entities.length < 2 &&
+        isDemographicQuestion(query)
       const attempts: {
         intent: string | undefined
         prequeries: string[] | undefined
@@ -4208,8 +4238,9 @@ export function buildApp(opts: BuildAppOptions): Hono {
         /** A follow-up asked again without the earlier turns' papers pinned (D4-07). */
         unpinPrior?: boolean
       }[] = [{
-        intent: intentForAsk,
-        prequeries: askOpts.prequeries,
+        intent: readPinnedFirst ? undefined : intentForAsk,
+        prequeries: readPinnedFirst ? undefined : askOpts.prequeries,
+        ...(readPinnedFirst ? { resourceId: pinnedIds[0] } : {}),
       }]
       let retry: RetryKind | null = null
       // One extra ask at most, whatever the reason (D3-05, ask-retry.ts).
