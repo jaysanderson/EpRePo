@@ -84,7 +84,9 @@ import {
   questionClauses,
   rankClosest,
 } from './ask-entities.ts'
-import { markedSentences, secondhandFigures, secondhandNote } from './secondhand.ts'
+import { secondhandFigures } from './secondhand.ts'
+import { auditBriefing } from './briefing-audit.ts'
+import { exposureOutcomePair, isWholeDecline, pairCarried } from './figure-rescue.ts'
 import { briefingGrounding, groundingParagraphs } from './briefing-grounding.ts'
 import { passageDenominators, unusedReferences } from './synthesis-check.ts'
 import {
@@ -103,6 +105,7 @@ import {
   documentDecline,
   forwardableSlice,
   looksLikeProviderDecline,
+  pairDecline,
   rewriteSentinels,
   SentinelStream,
   stripModelReferences,
@@ -370,7 +373,12 @@ const askBodySchema = z.object({
   /** Intent id from the tenant's intents (docs/INTENT-ROUTING.md). */
   intent: z.string().min(1).max(40).optional(),
   context: z
-    .object({ author: z.enum(['USER', 'AGENT']), text: z.string() })
+    .object({
+      author: z.enum(['USER', 'AGENT']),
+      text: z.string(),
+      /** The resources an earlier answer cited: a figure carried forward is checked against them (D3-06). */
+      resourceIds: z.string().array().max(12).optional(),
+    })
     .array()
     .max(24)
     .optional(),
@@ -1732,6 +1740,27 @@ export function buildApp(opts: BuildAppOptions): Hono {
                 'discussion from earlier studies, not its own result.)'
             }
           }
+          // The figure audit the Ask surface runs, on every section and key
+          // takeaway: a sentence whose figures no source of the section
+          // carries beside their claim, at their outcome and for their
+          // population, is removed and counted (D3-03).
+          const generated = new Map<string, string>()
+          for (const source of result.sources) {
+            const da = [...(source.keyTakeaways ?? []), source.summary ?? ''].filter((t) =>
+              t.trim().length > 0
+            ).join('\n\n')
+            if (da) generated.set(source.id, da)
+          }
+          const audited = auditBriefing(attributed, {
+            texts,
+            generated,
+            lexicon: config.entityTerms ?? [],
+            query: parsed.data.query,
+          })
+          attributed.sections = audited.sections
+          attributed.key_takeaways = audited.key_takeaways
+          attributed.takeaway_refs = audited.takeaway_refs
+          attributed.audit = audited.audit
         }
         result.object = attributed
       }
@@ -3480,6 +3509,12 @@ export function buildApp(opts: BuildAppOptions): Hono {
       const lexicon = config.entityTerms ?? []
       const documentScope = Boolean(askOpts.resourceId)
       const firstTurn = !askOpts.context?.length
+      // The papers the session's earlier turns cited: retrieved again for
+      // a follow-up, and the texts a figure carried forward is checked
+      // against (D3-06).
+      const priorIds = [
+        ...new Set((askOpts.context ?? []).flatMap((turn) => turn.resourceIds ?? [])),
+      ].slice(0, 6)
       const send = (event: unknown) => stream.writeSSE({ data: JSON.stringify(event) })
       // Automatic routing (docs/INTENT-ROUTING.md). The rule stage is
       // synchronous and answers at once; when no rule fires the classifier
@@ -3798,6 +3833,20 @@ export function buildApp(opts: BuildAppOptions): Hono {
             recordDecline()
             return
           }
+          // A relationship the collection holds no study of: when no
+          // retrieved paper's title, summary or takeaways pairs the
+          // question's exposure with its outcome, the boundary is stated
+          // rather than an answer stitched from papers about other things
+          // (D3-12).
+          const pair = exposureOutcomePair(query)
+          if (pair && nearest.length > 0 && !nearest.some((r) => pairCarried(r, pair))) {
+            await send({ type: 'sources', resources: nearest })
+            const text = pairDecline(pair, nearestTitles(nearest))
+            await send({ type: 'delta', text })
+            await send({ type: 'done', refused: true, text })
+            recordDecline()
+            return
+          }
           // What retrieval found, shown before generation starts: the
           // platform reports its own grounding set only after the answer
           // tokens, and a reader watching an empty panel for ten seconds
@@ -3957,6 +4006,9 @@ export function buildApp(opts: BuildAppOptions): Hono {
               floor: GROUNDING_FLOOR,
               catalogue,
               authors: namedAuthors,
+              pinnedResourceIds: pinnedIds,
+              pinnedTerms: pinned.map((p) => p.term),
+              priorResourceIds: priorIds,
             })
             text = bound.text
             citations = bound.citations
@@ -3965,22 +4017,6 @@ export function buildApp(opts: BuildAppOptions): Hono {
             // Cited resources now quote the paragraph that carries the claim.
             lastSources = bound.sources
             passagesRechosen = true
-            // A figure the cited paper carries only in its introduction or
-            // discussion is that paper citing other studies: said so in one
-            // line, on every surface the route serves (D2-06, D2-14).
-            const texts = new Map<number, string>()
-            await Promise.all(citations.map(async (citation) => {
-              try {
-                texts.set(
-                  citation.index,
-                  await extractionText(opts.management!, config, citation.resourceId),
-                )
-              } catch {
-                // An unfetchable text is simply not judged.
-              }
-            }))
-            const secondhand = secondhandNote(secondhandFigures(markedSentences(text), texts))
-            if (secondhand) text += `\n\n${secondhand}`
           } catch {
             // The audit is best-effort; the answer stands with the
             // platform's own binding.
@@ -4001,10 +4037,30 @@ export function buildApp(opts: BuildAppOptions): Hono {
           finished = true
           record.refused = true
           if (audit) await send(audit)
-          const decline = withheldDecline(nearestTitles(lastSources), audit?.figuresRemoved ?? [])
+          const decline = withheldDecline(
+            nearestTitles(lastSources),
+            audit?.figuresRemoved ?? [],
+            audit?.foundIn ?? [],
+          )
           if (lastSources.length > 0) await send({ type: 'sources', resources: lastSources })
           await send({ type: 'delta', text: decline })
           await send({ type: 'done', refused: true, text: decline })
+          return
+        }
+        // "The cited sources do not provide ..." is the decline state: the
+        // model's own words about what is missing stand, without a marker
+        // and without the corpus-wide copy over them (D3-15) - after the
+        // one document-scoped read of a pinned paper the first pass never
+        // cited (D2-08), which may answer what the decline says is missing.
+        if (
+          !documentScope && citations.length === 0 && isWholeDecline(text) &&
+          nextRetry(retryContext(), 'uncited') !== 'pinned'
+        ) {
+          finished = true
+          record.refused = true
+          if (audit) await send(audit)
+          if (lastSources.length > 0) await send({ type: 'sources', resources: lastSources })
+          await send({ type: 'done', refused: true, text })
           return
         }
         if (!documentScope && citations.length === 0 && /\d/.test(text)) {
@@ -4035,9 +4091,16 @@ export function buildApp(opts: BuildAppOptions): Hono {
           citations = listed.citations
         }
         // Evidence cards never show a bibliography paragraph as a passage,
-        // and an uncited reference-list hit is not evidence at all.
+        // and an uncited reference-list hit is not evidence at all. On a
+        // question about one named study, the retrieved-but-uncited rail
+        // keeps only strong matches (D3-21).
         const citedIds = new Set(citations.map((c) => c.resourceId))
-        const shown = lastSources.filter((s) => !s.referenceChunk || citedIds.has(s.id))
+        const singleStudy = !documentScope && pinnedIds.length === 1 && entities.length < 2
+        const shown = lastSources.filter((s) =>
+          (!s.referenceChunk || citedIds.has(s.id)) &&
+          (!singleStudy || citedIds.has(s.id) || pinnedIds.includes(s.id) ||
+            s.relevance >= STRONG_MATCH)
+        )
         if (shown.length !== lastSources.length || passagesRechosen) {
           await send({ type: 'sources', resources: shown })
         }
@@ -4120,7 +4183,14 @@ export function buildApp(opts: BuildAppOptions): Hono {
               ...(current.resourceId ? { resourceId: current.resourceId } : {}),
               intent: current.intent,
               prequeries: current.prequeries,
-              ...(pinnedIds.length > 0 ? { pinnedResourceIds: pinnedIds } : {}),
+              ...(pinnedIds.length > 0 || priorIds.length > 0
+                ? {
+                  pinnedResourceIds: [
+                    ...pinnedIds,
+                    ...priorIds.filter((id) => !pinnedIds.includes(id)),
+                  ],
+                }
+                : {}),
               ...(pinnedQueries.length > 0 ? { pinnedQueries } : {}),
               ...(settings.ask ? { systemPrompt: settings.ask } : {}),
               ...(settings.images ? { images: true } : {}),

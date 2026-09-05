@@ -7,7 +7,9 @@ import {
   designLead,
   effectSizeNote,
   effectSizesFor,
+  effectSubject,
   gateFigures,
+  isCovariateList,
   nonClinicalDesign,
   removalNote,
   statesEffectSize,
@@ -199,9 +201,11 @@ describe('effect sizes the answer left out (D2-09)', () => {
     expect(sizes).toEqual([{
       index: 1,
       statement: 'adjusted hazard ratio [aHR] = 0.56; 95% CI: 0.31-1.01, P = 0.054',
+      subject: 'lamotrigine was not associated with SUDEP',
     }])
     expect(effectSizeNote(sizes)).toBe(
-      '*Effect size in the cited passage: adjusted hazard ratio [aHR] = 0.56; 95% CI: 0.31-1.01, P = 0.054 [1].*',
+      '*Effect size in the cited passage: for "lamotrigine was not associated with SUDEP", ' +
+        'adjusted hazard ratio [aHR] = 0.56; 95% CI: 0.31-1.01, P = 0.054 [1].*',
     )
   })
 
@@ -292,5 +296,74 @@ describe('study design first (D2-11)', () => {
     ).toBe(
       '*Study design: [1] and [2] are modelling studies - their results are simulated, not demonstrated in patients.*',
     )
+  })
+})
+
+describe('conclusions and connectives after a removal (D3-06, D3-15)', () => {
+  it('removes a conclusion that rested on removed sentences, and names it in the note', () => {
+    const { gated } = gate(
+      'Perampanel retention was 64.2%.[2] Brivaracetam retention was 79.9%.[1]\n\n' +
+        'Thus, perampanel had a lower retention rate than brivaracetam.[1]',
+      'How does perampanel retention compare with brivaracetam?',
+      {
+        1: 'Brivaracetam retention at 12 months was 71.1% (FAS).',
+        2: 'Retention on perampanel at 12 months was 64.2% (2698/4201).',
+      },
+    )
+    expect(gated.text).toBe('Perampanel retention was 64.2%.[1]')
+    expect(gated.removed.map((r) => r.reason)).toEqual(['entity', 'conclusion'])
+    expect(removalNote(gated.removed)).toContain(
+      'One sentence was removed from this answer, and a conclusion that rested on it: its figures (79.9%)',
+    )
+  })
+
+  it('strips a dangling connective from the sentence after a removal', () => {
+    const { gated } = gate(
+      'Across the consortium, 80% had a good outcome (n = 231).[1] ' +
+        'Additionally, in the LGI1 study, 79% achieved an mRS below 3 at 12 months (n = 55).[2]',
+      'What proportion had a good functional outcome at 12 months?',
+      { 1: PROGNOSIS, 2: 'In the LGI1 study, 79% achieved an mRS below 3 at 12 months (n = 55).' },
+    )
+    expect(gated.text).toBe(
+      'In the LGI1 study, 79% achieved an mRS below 3 at 12 months (n = 55).[1]',
+    )
+  })
+
+  it('says where removed figures were found and what was replaced', () => {
+    expect(
+      removalNote([{ text: 'x', figures: ['71.1%'], reason: 'absent' }], {
+        foundIn: ['EXPERIENCE'],
+        replaced: 1,
+      }),
+    ).toBe(
+      '*One sentence was removed from this answer: its figures (71.1%) could not be verified - ' +
+        'the figures were found in *EXPERIENCE* but could not be tied to the claim as the answer ' +
+        "stated it. One sentence whose figures could not be verified was replaced by the paper's " +
+        'own words, quoted and cited. Ask about one paper to see the figures it reports.*',
+    )
+    expect(removalNote([{ text: 'x', figures: ['0.11'], reason: 'cohort' }])).toContain(
+      'the cited paper is not the cohort or study the question asks about',
+    )
+  })
+
+  it('names the effect and skips a covariate list', () => {
+    expect(
+      isCovariateList(
+        'Age (OR 1.02), sex (OR 0.9) and anti-LGI1 diagnosis; OR 1.64; 95% CI 0.72-3.75.',
+      ),
+    )
+      .toBe(true)
+    expect(
+      isCovariateList(
+        'Rituximab was associated with time to first relapse (HR 0.10; 95% CI 0.001-0.85).',
+      ),
+    )
+      .toBe(false)
+    expect(
+      effectSubject(
+        'Results Rituximab, adjusted for concomitant use of other immunotherapies, was associated with increased time to first relapse (',
+      ),
+    )
+      .toBe('rituximab was associated with increased time to first relapse')
   })
 })

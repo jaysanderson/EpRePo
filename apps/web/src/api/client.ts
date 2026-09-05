@@ -316,7 +316,7 @@ export interface AskRequest {
   query: string
   /** Intent id chosen by the router (docs/INTENT-ROUTING.md). */
   intent?: string
-  context?: { author: 'USER' | 'AGENT'; text: string }[]
+  context?: { author: 'USER' | 'AGENT'; text: string; resourceIds?: string[] }[]
   resourceId?: string
   topicIds?: string[]
   /** 'deep' grounds on the full text of matching resources (self-heal / deep research). */

@@ -22,20 +22,21 @@ const METRICS: { key: keyof QualityScores; label: string; description: string }[
   {
     key: 'answerRelevance',
     label: 'Relevance',
-    description: 'Answer relevance: how directly the answer addresses the question asked - ' +
-      'scored automatically against the retrieved sources.',
+    description: "Answer relevance: the platform's own self-assessment of how directly the " +
+      "answer addresses the question asked. Not the portal's check of the figures.",
   },
   {
     key: 'groundedness',
     label: 'Groundedness',
-    description: 'Groundedness: how firmly the answer is supported by the retrieved material - ' +
-      'scored automatically against the retrieved sources.',
+    description: "Groundedness: the platform's own self-assessment of how firmly the answer " +
+      "is supported by the retrieved material. It is not the portal's check of the figures " +
+      'against the cited texts, and the two can disagree.',
   },
   {
     key: 'contextRelevance',
     label: 'Context',
-    description: 'Context relevance: how well the retrieved passages match the question asked - ' +
-      'scored automatically against the retrieved sources.',
+    description: "Context relevance: the platform's own self-assessment of how well the " +
+      'retrieved passages match the question asked.',
   },
 ]
 
@@ -171,7 +172,7 @@ export function TrustSignals({ quality, showLabel = true }: TrustSignalsProps) {
               'tracking-wide text-ink-3'}
           >
             <ShieldCheckIcon />
-            Answer quality
+            Platform self-assessment
           </span>
         )
         : null}
@@ -587,8 +588,9 @@ export function AnswerQualityDisclosure(
             {confidence.basis === 'audit'
               ? (
                 <p className='mb-2 text-xs leading-relaxed text-ink-3'>
-                  The platform's own scores, shown for reference - the headline above comes from the
-                  portal's check of the answer against the cited texts.
+                  The platform's self-assessment, shown for reference - it scores its own answer and
+                  can disagree with the check above, which is the portal's own audit of the figures
+                  against the cited texts.
                 </p>
               )
               : null}

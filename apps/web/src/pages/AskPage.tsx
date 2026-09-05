@@ -2167,10 +2167,20 @@ export function AskPage() {
     const answerId = makeId()
     // baseMessages ends with the question being asked (as a USER message) - the
     // request sends that as `query`, so prior turns exclude it here.
+    // Each earlier answer carries the resources it cited, so a figure the
+    // follow-up repeats is checked against those papers and they are
+    // retrieved again (D3-06).
     const contextTurns = baseMessages
       .slice(0, -1)
       .filter((message) => !message.error)
-      .map((message) => ({ author: message.author, text: message.text }))
+      .map((message) => {
+        const resourceIds = [...new Set(message.citations.map((c) => c.resourceId))].slice(0, 12)
+        return {
+          author: message.author,
+          text: message.text,
+          ...(resourceIds.length > 0 ? { resourceIds } : {}),
+        }
+      })
 
     let working: ChatMessage[] = [
       ...baseMessages,
@@ -2317,6 +2327,8 @@ export function AskPage() {
                   attributionsCorrected: event.attributionsCorrected ?? [],
                   sentencesRemoved: event.sentencesRemoved ?? 0,
                   figuresRemoved: event.figuresRemoved ?? [],
+                  figuresRescued: event.figuresRescued ?? [],
+                  sentencesReplaced: event.sentencesReplaced ?? 0,
                 },
               }))
               break

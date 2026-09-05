@@ -1786,7 +1786,11 @@ describe('POST /api/t/:slug/ask sentence-level binding and audit', () => {
     // must carry every figure a sentence states), the gate removes it, and
     // the answer says what went (D2-02: a gate on the text, not a footnote).
     expect(text).not.toContain('9.9% below 1400 mg')
-    expect(text).toContain('One sentence was removed from this answer: its figures (9.9%)')
+    // The register's own sentence stands in for it, quoted and cited (D3-10).
+    expect(text).toContain(
+      'The paper itself reports: "In the register, the malformation rate was 6.42% below 1400 mg per day."[1]',
+    )
+    expect(text).toContain("was replaced by the paper's own words, quoted and cited")
     // The auditing stage bracketed the check, with the count of figures.
     const auditing = events.filter((e) => e.type === 'stage' && e.stage === 'auditing')
     expect(auditing.map((e) => e.type === 'stage' ? [e.status, e.figures] : null)).toEqual([
@@ -1795,12 +1799,15 @@ describe('POST /api/t/:slug/ask sentence-level binding and audit', () => {
     ])
     const audit = events.find((e) => e.type === 'audit')
     expect(audit && audit.type === 'audit' ? audit : null).toMatchObject({
-      figuresChecked: 4,
+      // The 9.9% sentence was replaced by the register's own sentence, whose
+      // two figures are checked in its place.
+      figuresChecked: 6,
       figuresUnsupported: [],
       yearsUnsupported: [],
       contraindicationsUnsupported: [],
-      sentencesRemoved: 1,
-      figuresRemoved: ['9.9%'],
+      sentencesRemoved: 0,
+      figuresRemoved: [],
+      sentencesReplaced: 1,
     })
     // Every citation event precedes done; the quality judge's event follows it.
     const order = events.map((e) => e.type)

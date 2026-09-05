@@ -314,6 +314,11 @@ export function supportScore(
   else if (anchored) ok = wordRate >= 0.45 || bigramRate >= 0.2
   else if (wordRate >= 0.5 && bigramRate >= 0.25) ok = true
   else if (wordRate >= 0.85 && words.length >= 5 && bigramRate >= 0.1) ok = true
+  // A claim without a figure is placed by its key phrase: a text that has
+  // none of the sentence's word pairs, only its words scattered across
+  // forty pages, does not carry "a six-monthly dosing schedule" because it
+  // mentions dosing and schedules (D3-09).
+  if (ok && numbers.length === 0 && bigrams.length >= 2 && bigramHits === 0) return 0
   if (!ok) return 0
   return Math.min(
     1,
@@ -420,7 +425,8 @@ export function splitSentences(text: string): string[] {
   while ((m = re.exec(text)) !== null) {
     const end = m.index + m[0].length
     const before = text.slice(start, m.index)
-    if (ABBREVIATION.test(before.trimEnd())) continue
+    // "4 p.m." ends a sentence; the abbreviation rule would read its "m" as an initial.
+    if (ABBREVIATION.test(before.trimEnd()) && !/\b[ap]\.m$/i.test(before.trimEnd())) continue
     out.push(text.slice(start, end).trim())
     start = end
   }
@@ -450,6 +456,10 @@ export interface BoundSentence {
   bound: number[]
   /** Which line of the answer the sentence sits on (an index into `layout`). */
   line: number
+  /** The markers the model or platform placed on the sentence itself (the provider's numbering), kept or not. */
+  original?: number[]
+  /** The markers sprayed at the end of the sentence's block, candidates for every sentence in it. */
+  block?: number[]
 }
 
 /** One line of the bound answer: a run of sentences with its list prefix, or a line kept as is. */
@@ -475,7 +485,7 @@ export interface BindInput {
    * question names, "SANAD"): a citation whose text and title both lack it
    * is dropped, so a tau-pathology paper never carries a SANAD sentence.
    */
-  requiredName?: string
+  requiredName?: string | readonly string[]
   /**
    * Keep the provider's citation numbers rather than renumbering by first
    * appearance, for a caller that renumbers once more after its own pass
@@ -511,25 +521,33 @@ export function bindSentences(input: BindInput): BindResult {
   for (const [index, text] of input.texts) prepared.set(index, prepareText(text))
   const allPrepared = [...prepared.values()]
   const known = new Set(input.citations.map((c) => c.index))
-  const required = input.requiredName?.toLowerCase()
+  // Any one of the names the question uses will do: a question across two
+  // studies binds to a paper that carries either.
+  const required =
+    (typeof input.requiredName === 'string' ? [input.requiredName] : input.requiredName ?? []).map((
+      n,
+    ) => n.toLowerCase()).filter((n) => n.length > 0)
   const carriesName = (index: number): boolean => {
-    if (!required) return true
+    if (required.length === 0) return true
     const text = prepared.get(index)
-    if (
-      text &&
-      new RegExp(`\\b${required.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(text.lower)
-    ) {
-      return true
-    }
     const title = input.citations.find((c) => c.index === index)?.title ?? ''
-    return new RegExp(`\\b${required.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(title)
+    return required.some((name) => {
+      const word = new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i')
+      return (text !== undefined && word.test(text.lower)) || word.test(title)
+    })
   }
   const usable = (index: number) =>
     known.has(index) && !(input.belowFloor?.has(index) ?? false) && carriesName(index)
 
   let dropped = 0
   let rebound = 0
-  const sentencesOut: { text: string; bound: number[]; line: number }[] = []
+  const sentencesOut: {
+    text: string
+    bound: number[]
+    line: number
+    original: number[]
+    block: number[]
+  }[] = []
   const lines = input.text.split('\n')
   const layout: BoundLine[] = []
 
@@ -598,7 +616,14 @@ export function bindSentences(input: BindInput): BindResult {
       )
       dropped += lost.size
       outSentences.push(sentencesOut.length)
-      sentencesOut.push({ text: plain, bound, line: layout.length })
+      sentencesOut.push({
+        text: plain,
+        bound,
+        line: layout.length,
+        original: [...new Set(own)],
+        // The block's tail markers are candidates for every sentence in it.
+        block: tailMarkers.filter((n) => !own.includes(n)),
+      })
     }
     layout.push({ kind: 'sentences', prefix, sentences: outSentences })
   }
@@ -619,6 +644,8 @@ export function bindSentences(input: BindInput): BindResult {
       a - b
     ),
     line: s.line,
+    original: s.original,
+    block: s.block,
   }))
   return {
     text: renderBound(layout, sentences),
@@ -658,5 +685,5 @@ export function renderBound(
     )
   }
   // A removed list item or paragraph never leaves a double blank line behind.
-  return lines.join('\n').replace(/\n{3,}/g, '\n\n')
+  return lines.join('\n').replace(/\n{3,}/g, '\n\n').replace(/\s+$/, '')
 }

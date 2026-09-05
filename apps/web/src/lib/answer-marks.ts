@@ -20,6 +20,10 @@ export interface AnswerAudit {
   /** Sentences the figure gate removed because no cited passage carries their figures, and those figures. */
   sentencesRemoved?: number
   figuresRemoved?: string[]
+  /** Figures found in a retrieved, prior-turn or generated text after the cited passages failed them. */
+  figuresRescued?: string[]
+  /** Sentences replaced by the named paper's own figure sentence, quoted and cited. */
+  sentencesReplaced?: number
 }
 
 /** "12months" reads as "12 months" in the badge and the tooltip. */
@@ -54,12 +58,31 @@ export function auditBadge(audit: AnswerAudit | undefined): {
       (audit.denominatorsMissing ?? []).map(figureLabel).join(', ')
     }.`
     : ''
+  const replaced = audit.sentencesReplaced ?? 0
+  const rescued = (audit.figuresRescued ?? []).map(figureLabel)
+  const found = rescued.length > 0
+    ? ` ${rescued.length === 1 ? 'One figure' : `${rescued.length} figures`} (${
+      rescued.join(', ')
+    }) ${
+      rescued.length === 1 ? 'was' : 'were'
+    } found in a retrieved paper the platform had not cited, which now carries the marker.`
+    : ''
+  const quoted = replaced > 0
+    ? ` ${
+      replaced === 1 ? 'One sentence' : `${replaced} sentences`
+    } whose figures could not be verified ${
+      replaced === 1 ? 'was' : 'were'
+    } replaced by the named paper's own words, quoted and cited.`
+    : ''
+  const replacedLabel = replaced > 0
+    ? ` · ${replaced === 1 ? '1 sentence' : `${replaced} sentences`} replaced`
+    : ''
   if (unsupported === 0 && stripped === 0 && removed === 0) {
     return {
-      label: checked,
-      tone: 'ok',
+      label: `${checked}${replacedLabel}`,
+      tone: replaced > 0 ? 'warn' : 'ok',
       title:
-        `Every figure in this answer was found beside its claim in a cited passage.${cited}${denominators}`,
+        `Every figure in this answer was found beside its claim in a cited passage.${found}${quoted}${cited}${denominators}`,
     }
   }
   if (unsupported === 0 && stripped === 0) {
@@ -67,15 +90,17 @@ export function auditBadge(audit: AnswerAudit | undefined): {
     // says both so the reader knows the answer is shorter than it was.
     const figures = (audit.figuresRemoved ?? []).map(figureLabel).join(', ')
     return {
-      label: `${checked} · ${removed === 1 ? '1 sentence' : `${removed} sentences`} removed`,
+      label: `${checked} · ${
+        removed === 1 ? '1 sentence' : `${removed} sentences`
+      } removed${replacedLabel}`,
       tone: 'warn',
       title: `${
         removed === 1 ? 'One sentence was' : `${removed} sentences were`
-      } removed because no cited passage carries ${
+      } removed because no retrieved passage carries ${
         removed === 1 ? 'its' : 'their'
       } figures beside the claim${
         figures ? ` (${figures})` : ''
-      }. Every figure still in the answer was found beside its claim.${cited}${denominators}`,
+      }. Every figure still in the answer was found beside its claim.${found}${quoted}${cited}${denominators}`,
     }
   }
   const parts: string[] = []

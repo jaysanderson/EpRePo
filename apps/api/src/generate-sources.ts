@@ -117,7 +117,9 @@ export const BRIEFING_INSTRUCTIONS =
   'literature must be described as such, never as a finding of that study. In each ' +
   "section's `sources` list the exact titles of the context documents that section draws on; " +
   'a section with no source will be discarded, so only write sections the passages support. ' +
-  'Australian English.'
+  "In each section's `statements` list every figure the section states, with the outcome it " +
+  "measures and the population or analysis set it applies to in the source's own words, and " +
+  'the exact source title; a figure given for a subgroup must say so. Australian English.'
 
 /**
  * Appended to the briefing instructions when the application supplies the
@@ -212,6 +214,15 @@ export interface BriefingSectionIn {
   heading?: string
   content?: string
   sources?: unknown
+  statements?: unknown
+}
+
+/** One figure the model stated, with what it measures, whom it applies to and where it came from. */
+export interface BriefingStatementIn {
+  figure?: string
+  outcome?: string
+  population?: string
+  study?: string
 }
 
 export interface AttributedBriefingSection {
@@ -220,6 +231,8 @@ export interface AttributedBriefingSection {
   sources: AttributedSource[]
   /** Reference numbers into the briefing's `references`, in citation order. */
   refs: number[]
+  /** The model's per-figure statements, for the figure audit. */
+  statements?: BriefingStatementIn[]
 }
 
 /**
@@ -239,6 +252,7 @@ export function attributeBriefing(
   sources: ReferenceSource[],
 ): {
   sections: AttributedBriefingSection[]
+  key_takeaways: string[]
   omitted_sections: string[]
   /** Numbered references, in order of first citation, built from the resource records. */
   references: BriefingReference[]
@@ -276,7 +290,17 @@ export function attributeBriefing(
       omitted.push(heading || content.slice(0, 60))
       continue
     }
-    sections.push({ heading, content, sources: resolved, refs: resolved.map(indexOf) })
+    const statements = Array.isArray(section.statements)
+      ? section.statements.filter((st): st is BriefingStatementIn =>
+        st !== null && typeof st === 'object'
+      ).map((st) => ({
+        ...(typeof st.figure === 'string' ? { figure: st.figure } : {}),
+        ...(typeof st.outcome === 'string' ? { outcome: st.outcome } : {}),
+        ...(typeof st.population === 'string' ? { population: st.population } : {}),
+        ...(typeof st.study === 'string' ? { study: st.study } : {}),
+      }))
+      : []
+    sections.push({ heading, content, sources: resolved, refs: resolved.map(indexOf), statements })
   }
   const takeaways = Array.isArray(object.key_takeaways)
     ? object.key_takeaways.filter((t): t is string => typeof t === 'string').map(

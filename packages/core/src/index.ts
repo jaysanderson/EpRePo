@@ -1110,6 +1110,12 @@ export const AskEventSchema = z.discriminatedUnion('type', [
      */
     sentencesRemoved: z.number().int().nonnegative().optional(),
     figuresRemoved: z.string().array().optional(),
+    /** Figures found in a retrieved, prior-turn or generated text after the cited passages failed them. */
+    figuresRescued: z.string().array().optional(),
+    /** Sentences replaced by the named paper's own figure sentence, quoted and cited. */
+    sentencesReplaced: z.number().int().nonnegative().optional(),
+    /** Titles of resources that carry a removed figure somewhere, though not beside its claim. */
+    foundIn: z.string().array().optional(),
   }),
   /**
    * The routed intent's retrieval found nothing usable (a supplements-only
