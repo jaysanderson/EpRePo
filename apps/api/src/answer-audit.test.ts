@@ -12,7 +12,6 @@ import {
   figurePresent,
   figureSupportedBy,
   isSampleSizeFigure,
-  nearestCount,
   normaliseFigures,
   normaliseSource,
   numbersMissing,
@@ -405,12 +404,11 @@ describe('answer audit - matcher accuracy (D2-07)', () => {
 })
 
 describe('denominators paired from the same sentence (D3-13)', () => {
-  it('pairs the nearest n, never the first n of the sentence', () => {
+  it("pairs the n in the figure's own bracket, never the first n of the sentence", () => {
     const text =
       'Valproate was most often used (n = 826, 54%), followed by levetiracetam (n = 352, 23%).'
     expect(denominatorBeside('23%', [text])).toBe('n = 352')
     expect(denominatorBeside('54%', [text])).toBe('n = 826')
-    expect(nearestCount('a (n = 826, 54%), b (n = 352, 23%)', 30)).toBe('n = 352')
   })
 
   it('asks no denominator for a confidence bound, an I-squared or a relative change', () => {
