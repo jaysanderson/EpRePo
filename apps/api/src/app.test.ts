@@ -1862,7 +1862,13 @@ describe('POST /api/t/:slug/ask sentence-level binding and audit', () => {
       const event = events.find((e) => e.type === 'searched')
       return event && event.type === 'searched' ? event.queries : []
     }
-    expect(await searched('What rituximab dose was used for NMDAR encephalitis?')).toEqual([])
+    // An antigen alone is no subject for a drug-safety probe; a medication
+    // (rituximab is in the lexicon) on a dosing question is.
+    expect(await searched('What immunotherapy dose was used for NMDAR encephalitis?')).toEqual([])
+    expect(await searched('What rituximab dose should be used for NMDAR encephalitis?')).toEqual([
+      'contraindications, drugs to avoid and safety monitoring for rituximab',
+      'dose limits, starting dose and interactions for rituximab',
+    ])
     expect(await searched('Should valproate be avoided in women of childbearing age?')).toEqual([
       'contraindications, drugs to avoid and safety monitoring for valproate',
       'dose limits, starting dose and interactions for valproate',
