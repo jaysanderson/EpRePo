@@ -7,6 +7,7 @@
 import type { Citation, ResourceSummary, ScoredResource, TenantConfig } from '@research-portal/core'
 import {
   auditAddendum,
+  denominatorCorrections,
   denominatorsMissing,
   drugsFlaggedInSources,
   drugsMissingFromAnswer,
@@ -29,18 +30,21 @@ import {
   figuresFoundIn,
   generatedText,
   isDeclineSentence,
+  isPlanningQuestion,
   namesOtherStudy,
   ownFigureSentence,
   type PoolText,
   prepareIfNeeded,
+  quoteCarriesClaim,
   quoteSentence,
   replacementCue,
   rescueSentence,
   statesResultFigure,
+  stripTemplateLeaks,
   syntheticCitation,
   withQualifier,
 } from './figure-rescue.ts'
-import { markedSentences, secondhandFigures, secondhandNote } from './secondhand.ts'
+import { figureOffsets, markedSentences, secondhandFigures, secondhandNote } from './secondhand.ts'
 import {
   bindSentences,
   looksLikeReferencePassage,
@@ -87,6 +91,10 @@ export interface AuditEvent {
   sentencesReplaced?: number
   /** Titles of resources that carry a removed figure somewhere, though not beside its claim. */
   foundIn?: string[]
+  /** Figures removed because the cited paper carries them only where it cites other studies. */
+  figuresSecondhandRemoved?: string[]
+  /** Denominators rewritten to the pairing the cited passage gives in the figure's own bracket. */
+  denominatorsCorrected?: string[]
 }
 
 // ---------------------------------------------------------------------------
@@ -237,6 +245,8 @@ export interface BindAndAuditInput {
   pinnedTerms?: readonly string[]
   /** Resources the session's earlier turns cited: a figure carried forward is checked against them. */
   priorResourceIds?: readonly string[]
+  /** Papers the study guard pinned for a cohort the question designates: the cohort's papers, whatever their titles carry. */
+  cohortResourceIds?: readonly string[]
 }
 
 export interface BindAndAuditResult {
@@ -446,16 +456,24 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
   // The names a cited text must carry: the study the question names by
   // acronym, or any of the cohorts it designates (a question across two
   // studies binds to a paper that carries either).
-  const terms = cohortTerms(query, input.pinnedTerms ?? [])
+  const terms = cohortTerms(query, input.pinnedTerms ?? [], lexicon)
   const requiredNames = [...new Set([...(study ? [study.split(' ')[0]!] : []), ...terms])]
+  // The generator's scaffolding goes before any sentence is judged (D4-14).
   const bound = bindSentences({
-    text: input.text,
+    text: stripTemplateLeaks(input.text),
     citations: input.citations,
     texts,
     lexicon,
     belowFloor,
     questionEntities,
     ...(requiredNames.length > 0 ? { requiredName: requiredNames } : {}),
+    // A paper the study guard pinned for the cohort is the cohort's paper
+    // whatever its text calls it.
+    alwaysNamed: new Set(
+      input.citations.filter((c) => (input.cohortResourceIds ?? []).includes(c.resourceId)).map((
+        c,
+      ) => c.index),
+    ),
     // The gate renumbers once it has decided what stays.
     keepNumbering: true,
   })
@@ -505,11 +523,13 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
   checks = checks.filter((c) => !declines.has(c.sentence))
   const resourceOfIndex = new Map(input.citations.map((c) => [c.index, c.resourceId]))
   const candidates: Citation[] = [...input.citations]
-  // The cohort guard (D3-01, D3-07): when the question names a cohort or
-  // study that titles some of the retrieved papers, a figure sentence may
-  // cite only those papers - unless it names another study itself. A
-  // sentence that fails goes to the rescue below with only the cohort
-  // papers as candidates, and to the replacement after that.
+  // The cohort guard, at the question's level (D3-01, D3-07, D4-01, D4-02):
+  // when the question names a cohort, study or trial - by acronym, by a
+  // designator the study guard matched to a paper, or by a drug - every
+  // figure sentence must cite a paper about that cohort unless it names
+  // another study itself. A sentence that fails goes to the rescue below
+  // with only the cohort papers as candidates, and to the replacement
+  // after that.
   const knownResources = [
     ...input.sources,
     ...input.citations.filter((c) => !input.sources.some((s) => s.id === c.resourceId)).map((
@@ -520,13 +540,23 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
     })),
   ]
   const cohort = cohortPapers(terms, knownResources)
+  for (const id of input.cohortResourceIds ?? []) cohort.add(id)
+  const namedCohort = cohort.size > 0
+  const planning = isPlanningQuestion(query)
   const cohortFailed = new Set<string>()
   if (cohort.size > 0) {
+    const namedIndices = new Set(bound.named)
     for (const sentence of bound.sentences) {
-      if (sentence.bound.length === 0 || !statesResultFigure(sentence.text)) continue
+      if (!statesResultFigure(sentence.text)) continue
       if (namesOtherStudy(sentence.text, terms)) continue
       const ownChecks = checks.filter((c) => c.sentence === sentence.text)
       if (ownChecks.length === 0) continue
+      // A sentence the binding stripped of every marker because none of
+      // its cited papers carries the cohort's name failed this guard too.
+      const markers = [...(sentence.original ?? []), ...(sentence.block ?? [])]
+      const strippedByName = sentence.bound.length === 0 && markers.length > 0 &&
+        markers.every((n) => !namedIndices.has(n))
+      if (sentence.bound.length === 0 && !strippedByName) continue
       const citesCohort = sentence.bound.some((n) => cohort.has(resourceOfIndex.get(n) ?? ''))
       if (citesCohort) continue
       cohortFailed.add(sentence.text)
@@ -554,14 +584,45 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
     )
     if (!common || common.size === 0) failing.add(sentence.text)
   }
+  // Figures a bound sentence attributes to a paper that carries them only
+  // where it cites other studies (its introduction, its discussion): a
+  // second-hand figure is looked for first-hand in another paper before
+  // it is judged (D4-15), and on a question that names a cohort, or asks
+  // what to assume, a sentence left with a second-hand figure is removed
+  // rather than annotated (D4-02, D4-12).
+  const secondhandBySentence = new Map<string, string[]>()
+  for (const sentence of bound.sentences) {
+    if (
+      sentence.bound.length === 0 || failing.has(sentence.text) || declines.has(sentence.text) ||
+      !statesResultFigure(sentence.text)
+    ) continue
+    const flagged = secondhandFigures([{ text: sentence.text, bound: sentence.bound }], texts)
+    if (flagged.length === 0) continue
+    // A figure is second-hand for the sentence when every bound text that
+    // carries it carries it second-hand.
+    const figures = [...new Set(flagged.map((f) => f.figure))].filter((figure) => {
+      const carrying = sentence.bound.filter((n) => {
+        const t = texts.get(n)
+        return t !== undefined && figureOffsets(figure, t).length > 0
+      })
+      return carrying.length > 0 &&
+        carrying.every((n) => flagged.some((f) => f.figure === figure && f.index === n))
+    })
+    if (figures.length > 0) secondhandBySentence.set(sentence.text, figures)
+  }
   const rescued: { figures: string[]; resourceId: string }[] = []
   const prepared = new Map<string, PreparedSource>()
   const poolEntries: { index: number; text: PreparedSource; resourceId: string; title: string }[] =
     []
-  const countDeclinePending = [...declines].some((d) =>
-    /\b(?:number|how many|size|sizes|denominator|count)\b/i.test(d)
-  )
-  if (failing.size > 0 || countDeclinePending) {
+  const prior = new Set(input.priorResourceIds ?? [])
+  const named = (entry: { text: PreparedSource; title: string }) =>
+    requiredNames.length === 0 ||
+    requiredNames.some((name) =>
+      new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(
+        `${entry.text.lower}\n${entry.title}`,
+      )
+    )
+  if (failing.size > 0 || secondhandBySentence.size > 0) {
     const pool = await poolTexts(input, texts, cohort, terms)
     let nextIndex = Math.max(0, ...input.citations.map((c) => c.index)) + 1
     for (const entry of pool) {
@@ -584,14 +645,6 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
     // study itself ("in the EXPERIENCE pooled analysis" under a PERMIT
     // question): a figure carried from the last answer is checked against
     // the paper it came from (D3-06).
-    const prior = new Set(input.priorResourceIds ?? [])
-    const named = (entry: { text: PreparedSource; title: string }) =>
-      requiredNames.length === 0 ||
-      requiredNames.some((name) =>
-        new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(
-          `${entry.text.lower}\n${entry.title}`,
-        )
-      )
     for (const sentence of bound.sentences) {
       if (!failing.has(sentence.text)) continue
       const other = namesOtherStudy(sentence.text, terms)
@@ -610,9 +663,62 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
       failing.delete(sentence.text)
     }
   }
-  // The replacement (D3-10): a sentence still failing about the question's
-  // cohort or a pinned paper is replaced by that paper's own figure
-  // sentence, quoted verbatim and cited, rather than dropped.
+  // The first-hand rescue for second-hand figures (D4-15): the cited
+  // texts the sentence is not bound to, then the retrieved papers, in the
+  // cohort first; a paper that carries every figure of the sentence
+  // beside its claim among its own findings takes the marker.
+  const secondhandRemoved: string[] = []
+  if (secondhandBySentence.size > 0) {
+    const citedEntries = [...usableTexts.entries()].map(([index, t]) => ({
+      index,
+      text: prepareIfNeeded(t, prepared),
+      resourceId: resourceOfIndex.get(index) ?? '',
+      title: candidates.find((c) => c.index === index)?.title ?? '',
+    }))
+    for (const sentence of bound.sentences) {
+      const figures = secondhandBySentence.get(sentence.text)
+      if (!figures) continue
+      const other = namesOtherStudy(sentence.text, terms)
+      const restricted = cohort.size > 0 && !other
+      const pool = [...citedEntries, ...poolEntries]
+        .filter((e) => !sentence.bound.includes(e.index) && texts.has(e.index))
+        .filter((e) => other || prior.has(e.resourceId) || named(e))
+        .filter((e) => !restricted || cohort.has(e.resourceId))
+      let found: ReturnType<typeof rescueSentence> | undefined
+      for (const entry of pool) {
+        const attempt = rescueSentence({ sentence, pool: [entry], lexicon, questionEntities })
+        if (!attempt) continue
+        const still = secondhandFigures([{ text: sentence.text, bound: [entry.index] }], texts)
+        if (still.some((f) => figures.includes(f.figure))) continue
+        found = attempt
+        break
+      }
+      if (found) {
+        sentence.bound = [found.index]
+        checks = [...checks.filter((c) => c.sentence !== sentence.text), ...found.checks]
+        rescued.push({ figures: found.checks.map((c) => c.figure), resourceId: found.resourceId })
+        secondhandBySentence.delete(sentence.text)
+        continue
+      }
+      if (!namedCohort && !planning) continue
+      checks = checks.map((c) =>
+        c.sentence === sentence.text && figures.includes(c.figure)
+          ? { ...c, supported: false, supportedBy: [], reason: 'secondhand' as const }
+          : c
+      )
+      failing.add(sentence.text)
+      secondhandRemoved.push(...figures)
+      secondhandBySentence.delete(sentence.text)
+    }
+  }
+  // The replacement (D3-10, D4-03, D4-04): a sentence still failing about
+  // the question's cohort or a pinned paper is replaced by that paper's
+  // own sentence only when the quote carries the sentence's own figure at
+  // the sentence's own time point, beside the claim, under the check the
+  // sentence itself would have needed - a figure the model got right and
+  // cited to the wrong paper. A decline is never replaced, a second-hand
+  // figure is never rescued by quotation, and at most one quote stands
+  // in for a sentence.
   const replaced: { from: string; resourceId: string }[] = []
   const replacementPapers = [...cohort]
   for (const id of input.pinnedResourceIds ?? []) {
@@ -621,6 +727,9 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
   const questionOutcomes = outcomeFamilies(query)
   const quoted = new Set<string>()
   const MAX_REPLACEMENTS = 3
+  const secondhandFailed = new Set(
+    checks.filter((c) => !c.supported && c.reason === 'secondhand').map((c) => c.sentence),
+  )
   if (failing.size > 0) {
     // What the answer already states: a quote that repeats it adds nothing.
     const stated = [
@@ -629,12 +738,14 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
       ),
     ]
     for (const sentence of bound.sentences) {
-      if (!failing.has(sentence.text) || declines.has(sentence.text)) continue
+      if (
+        !failing.has(sentence.text) || declines.has(sentence.text) ||
+        secondhandFailed.has(sentence.text)
+      ) continue
+      if (replaced.length >= MAX_REPLACEMENTS) break
       // The named papers first; the paper the sentence itself cited only
       // when no named paper answers, and never for a sentence the cohort
       // guard failed (its cited paper is the wrong cohort by definition).
-      // The paper the sentence itself cited before the block's shared
-      // markers: the platform's own binding of that claim first.
       const papersOf = (indices: readonly number[]) =>
         indices.map((n) => resourceOfIndex.get(n))
           .filter((id): id is string => id !== undefined && !replacementPapers.includes(id))
@@ -649,22 +760,10 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
         exclude: stated,
       }
       let best: { quote: string; score: number; index: number; resourceId: string } | undefined
-      if (replaced.length >= MAX_REPLACEMENTS) break
-      // A sentence about another study is never answered from the
-      // question's cohort paper: its own paper or nothing. After the
-      // named papers, the sentence's own paper, its block's papers and
-      // any retrieved paper that carries one of its figures compete on
-      // score: a "231" the model misread is answered by the paper that
-      // holds the 231.
-      const named = namesOtherStudy(sentence.text, terms) ? [] : replacementPapers
+      const namedPapers = namesOtherStudy(sentence.text, terms) ? [] : replacementPapers
       const figuresOfSentence = extractNumbers(sentence.text).filter((f) =>
         /%|\./.test(f) || /^\d{3,}$/.test(f)
       )
-      // A retrieved paper answers a claim it was never cited for only when
-      // its record reads as the claim's subject: two of the sentence's
-      // content words in its title or summary ("autoimmune encephalitis
-      // consortium"), not a SUDEP genomics paper that happens to carry an
-      // 88 somewhere.
       const sentenceWords = new Set(
         (sentence.text.toLowerCase().match(/[a-z][a-z-]{4,}/g) ?? []).filter((w) =>
           !GENERIC_SENTENCE_WORDS.has(w)
@@ -680,23 +779,30 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
       }
       const carrying = poolEntries
         .filter((e) =>
-          !named.includes(e.resourceId) && !own.includes(e.resourceId) &&
+          !namedPapers.includes(e.resourceId) && !own.includes(e.resourceId) &&
           !block.includes(e.resourceId) && aboutSentence(e.resourceId) &&
           figuresOfSentence.some((f) => figurePattern(f).test(e.text.lower))
         )
         .map((e) => e.resourceId)
-      for (const papers of [named, [...own, ...block, ...carrying]]) {
-        // A paper the question did not name has to answer the sentence
-        // clearly: the quote must carry the claim's names or two of its
-        // words, and no quote is used twice in one answer.
-        const bar = papers === named ? 0 : 8
-        const strict = papers !== named
+      for (const papers of [namedPapers, [...own, ...block, ...carrying]]) {
+        const bar = papers === namedPapers ? 0 : 8
+        const strict = papers !== namedPapers
         for (const id of papers) {
           const index = candidates.find((c) => c.resourceId === id)?.index
           const raw = index === undefined ? undefined : texts.get(index)
           if (index === undefined || !raw) continue
           const found = ownFigureSentence(raw, { ...cue, exclude: [...stated, ...quoted], strict })
           if (!found || found.score < bar || quoted.has(found.sentence)) continue
+          // The same figure, at the same time point, beside the claim.
+          if (
+            !quoteCarriesClaim(
+              found.sentence,
+              sentence.text,
+              lexicon,
+              questionEntities,
+              prepareIfNeeded(raw, prepared).pairs,
+            )
+          ) continue
           if (!best || found.score > best.score) {
             best = { quote: found.sentence, score: found.score, index, resourceId: id }
           }
@@ -718,49 +824,6 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
         })),
       ]
       failing.delete(sentence.text)
-    }
-  }
-  // A decline about a count ("the number of patients in each group was
-  // not specified") when a named paper's own findings state it: the
-  // paper's sentence follows the decline, quoted and cited (D3-07).
-  const countDeclines: { from: string; resourceId: string }[] = []
-  if (declines.size > 0 && replacementPapers.length > 0) {
-    for (let i = 0; i < bound.sentences.length; i++) {
-      const sentence = bound.sentences[i]!
-      if (!declines.has(sentence.text)) continue
-      if (!/\b(?:number|how many|size|sizes|denominator|count)\b/i.test(sentence.text)) continue
-      const previous = bound.sentences.slice(0, i).reverse().find((s) => !declines.has(s.text))
-      const cue = replacementCue(
-        `${previous?.text ?? ''} ${sentence.text}`,
-        lexicon,
-        questionEntities,
-        [],
-        terms,
-      )
-      let best: { quote: string; score: number; index: number; resourceId: string } | undefined
-      for (const id of replacementPapers) {
-        const index = candidates.find((c) => c.resourceId === id)?.index
-        const raw = index === undefined ? undefined : texts.get(index)
-        if (index === undefined || !raw) continue
-        const found = ownFigureSentence(raw, { ...cue, outcomes: [], wantCount: true })
-        if (found && (!best || found.score > best.score)) {
-          best = { quote: found.sentence, score: found.score, index, resourceId: id }
-        }
-      }
-      if (!best) continue
-      countDeclines.push({ from: sentence.text, resourceId: best.resourceId })
-      sentence.text = quoteSentence(best.quote)
-      sentence.bound = [best.index]
-      declines.delete(sentence.text)
-      checks = [
-        ...checks,
-        ...extractNumbers(sentence.text).map((figure) => ({
-          figure,
-          sentence: sentence.text,
-          supported: true,
-          supportedBy: [0],
-        })),
-      ]
     }
   }
   // The population the passage states (D3-07): a kept figure sentence
@@ -817,14 +880,23 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
     ? []
     : [...new Set(checks.filter((c) => !c.supported).map((c) => c.figure))]
   const figuresRemoved = [...new Set(gated.removed.flatMap((r) => r.figures))]
+  // A paper is named as carrying a removed figure only where one of the
+  // removed sentence's own words sits beside it (D4-19).
+  const removedWords = gated.removed.flatMap((r) =>
+    r.text.toLowerCase().match(/[a-z][a-z-]{4,}/g) ?? []
+  ).filter((w) => !GENERIC_SENTENCE_WORDS.has(w))
   const foundIn = figuresRemoved.length > 0
-    ? figuresFoundIn(figuresRemoved, [
-      ...[...texts.entries()].map(([index, t]) => ({
-        title: candidates.find((c) => c.index === index)?.title ?? '',
-        text: prepareIfNeeded(t, prepared),
-      })),
-      ...poolEntries.map((e) => ({ title: e.title, text: e.text })),
-    ]).filter((t) => t.length > 0)
+    ? figuresFoundIn(
+      figuresRemoved,
+      [
+        ...[...texts.entries()].map(([index, t]) => ({
+          title: candidates.find((c) => c.index === index)?.title ?? '',
+          text: prepareIfNeeded(t, prepared),
+        })),
+        ...poolEntries.map((e) => ({ title: e.title, text: e.text })),
+      ],
+      removedWords,
+    ).filter((t) => t.length > 0)
     : []
   // The gate renumbered what it kept: the texts follow the new numbering.
   const citations = gated.citations
@@ -836,6 +908,27 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
   }
   const sentenceTexts = withTexts(gated.sentences)
   let text = gated.text
+  // A denominator the answer paired with a share that the cited passage
+  // pairs differently, in the figure's own bracket, is rewritten to the
+  // passage's pairing and said so (D4-05).
+  const denominatorsCorrected: string[] = []
+  for (const sentence of gated.sentences) {
+    const boundTexts = sentence.bound.map((n) => textsByNew.get(n)).filter((t): t is string =>
+      t !== undefined
+    )
+    if (boundTexts.length === 0) continue
+    const fixed = denominatorCorrections(sentence.text, boundTexts)
+    if (fixed.corrections.length === 0) continue
+    const pattern = new RegExp(sentence.text.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    if (!pattern.test(text)) continue
+    text = text.replace(pattern, fixed.text)
+    sentence.text = fixed.text
+    for (const c of fixed.corrections) {
+      denominatorsCorrected.push(
+        `${c.figure} (${c.to}) [${sentence.bound[0]}], not ${c.from} as the answer had it`,
+      )
+    }
+  }
   // A figure the cited paper carries only in its introduction or
   // discussion is that paper citing other studies: said so in one line,
   // and never asked for a denominator (D3-08, D3-13).
@@ -870,6 +963,19 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
         },
       }
       if (cue.outcomes.length === 0) continue
+      // The finding must be about what the question asked (D4-14): the
+      // question's outcome when it named one, and not an outcome the
+      // answer already states first-hand from the same paper.
+      if (questionOutcomes.length > 0 && !cue.outcomes.some((o) => questionOutcomes.includes(o))) {
+        continue
+      }
+      const alreadyStated = markedSentences(text).some((s) =>
+        s.text !== marked.text && s.bound.includes(index) &&
+        extractNumbers(s.text).length > 0 &&
+        outcomeFamilies(s.text).some((o) => cue.outcomes.includes(o)) &&
+        !secondhand.some((f) => f.index === index && extractNumbers(s.text).includes(f.figure))
+      )
+      if (alreadyStated) continue
       const found = ownFigureSentence(source, cue)
       if (!found) continue
       const quote = quoteSentence(found.sentence).replace(
@@ -997,8 +1103,14 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
         removalNote(gated.removed, {
           foundIn,
           replaced: replaced.length,
-          counted: countDeclines.length,
         }),
+        denominatorsCorrected.length > 0
+          ? `*${
+            denominatorsCorrected.length === 1
+              ? 'One denominator was'
+              : `${denominatorsCorrected.length} denominators were`
+          } corrected to the cited passage's own pairing: ${denominatorsCorrected.join('; ')}.*`
+          : undefined,
         effectSizeNote(effectSizes),
         boundary,
         scoped,
@@ -1050,8 +1162,10 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
       sentencesRemoved: gated.removed.length,
       figuresRemoved,
       figuresRescued: [...new Set(rescued.flatMap((r) => r.figures))],
-      sentencesReplaced: replaced.length + countDeclines.length,
+      sentencesReplaced: replaced.length,
       foundIn,
+      figuresSecondhandRemoved: [...new Set(secondhandRemoved)],
+      denominatorsCorrected: denominatorsCorrected.map((d) => d.split(' [')[0]!),
     },
   }
 }

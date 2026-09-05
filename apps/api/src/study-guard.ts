@@ -20,9 +20,9 @@ import { GENERIC_ACRONYMS, looksLikeGeneSymbol } from './intent-router.ts'
 export interface StudyMatch {
   id: string
   title: string
-  /** The acronym, quoted fragment or distinctive term in the question that named it. */
+  /** The acronym, quoted fragment, distinctive term or cohort designator in the question that named it. */
   term: string
-  kind: 'acronym' | 'title' | 'term'
+  kind: 'acronym' | 'title' | 'term' | 'cohort'
 }
 
 /** A name that titles more articles than this is a topic, not a study. */
@@ -153,7 +153,94 @@ export function matchStudies(
     const best = bestTitleMatch(query, term, articles)
     if (best) add(best, term, 'term')
   }
+  for (const designator of cohortDesignators(query)) {
+    const articles = catalogue
+      .filter((r) => !isAttachmentTitle(r.title) && carriesDesignator(r, designator.words))
+      .sort(newestFirst)
+    if (articles.length === 0 || articles.length > MAX_ARTICLES_PER_NAME) continue
+    for (const article of articles) add(article, designator.phrase, 'cohort')
+  }
   return out
+}
+
+export interface CohortDesignator {
+  /** The designator as written, without its article: "video-EEG monitoring mortality cohort". */
+  phrase: string
+  /** Its content words, lower-cased and cut to six characters. */
+  words: string[]
+}
+
+/** Words of a designator that say nothing about which paper it names. */
+const DESIGNATOR_STOP = new Set([
+  'study',
+  'trial',
+  'cohort',
+  'analysis',
+  'analyses',
+  'register',
+  'registry',
+  'series',
+  'pooled',
+  'named',
+  'same',
+  'this',
+  'that',
+  'their',
+  'other',
+  'whole',
+  'entire',
+  'overall',
+  'prospective',
+  'retrospective',
+  'multisite',
+  'multicentre',
+  'multicenter',
+  'australian',
+  'real-world',
+  'patients',
+  'adults',
+  'people',
+  'epilepsy',
+  'seizure',
+  'seizures',
+])
+
+/**
+ * The cohorts a question designates by description rather than by acronym
+ * (docs/persona-reports/dsouza-loop4.md D4-01): "the video-EEG monitoring
+ * mortality cohort", "the Melbourne video-EEG monitoring cohort", "the
+ * LGI1 encephalitis cohort", "the psychiatric comorbidity and mortality
+ * study". Each is the phrase between "the" and a study word, with at
+ * least two content words; a one-word designator is an acronym's business.
+ */
+export function cohortDesignators(query: string): CohortDesignator[] {
+  const out: CohortDesignator[] = []
+  for (
+    const m of query.matchAll(
+      /\b[Tt]he\s+((?:[\w-]+\s+){1,6}?)(cohort|study|trial|analysis|analyses|register|registry|series|programme|program)\b/g,
+    )
+  ) {
+    const phrase = `${m[1]!.trim()} ${m[2]}`
+    const words = [
+      ...new Set(
+        (m[1]!.toLowerCase().match(/[a-z][a-z0-9-]{3,}/g) ?? [])
+          .filter((w) => !DESIGNATOR_STOP.has(w))
+          .map((w) => w.slice(0, 6)),
+      ),
+    ]
+    if (words.length < 2) continue
+    if (!out.some((d) => d.phrase === phrase)) out.push({ phrase, words })
+  }
+  return out
+}
+
+/** Whether a resource's title or summary carries every word of a designator, by six-letter stem. */
+export function carriesDesignator(
+  resource: { title: string; summary?: string },
+  words: readonly string[],
+): boolean {
+  const haystack = normalise(`${resource.title} ${resource.summary ?? ''}`)
+  return words.every((w) => new RegExp(`(?:^|[^a-z0-9])${escape(w)}`).test(haystack))
 }
 
 /** Words of a question that do not single out a paper. */

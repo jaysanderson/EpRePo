@@ -186,7 +186,16 @@ function figuresToName(checks: readonly FigureCheck[]): string[] {
 }
 
 function dominantReason(failing: readonly FigureCheck[]): RemovedSentence['reason'] {
-  const order: RemovedSentence['reason'][] = ['entity', 'outcome', 'timepoint', 'terms', 'absent']
+  const order: RemovedSentence['reason'][] = [
+    'cohort',
+    'secondhand',
+    'entity',
+    'pvalue',
+    'outcome',
+    'timepoint',
+    'terms',
+    'absent',
+  ]
   for (const reason of order) if (failing.some((c) => c.reason === reason)) return reason
   return 'absent'
 }
@@ -207,8 +216,6 @@ export function removalNote(
     foundIn?: readonly string[]
     /** Sentences replaced by the named paper's own figure sentence. */
     replaced?: number
-    /** Declines about a count answered by the named paper's own sentence. */
-    counted?: number
   } = {},
 ): string | undefined {
   const parts: string[] = []
@@ -221,8 +228,16 @@ export function removalNote(
     if (reasons.has('cohort')) {
       why.push('the cited paper is not the cohort or study the question asks about')
     }
+    if (reasons.has('secondhand')) {
+      why.push(
+        'the cited paper carries them only where it cites other studies, not among its own results',
+      )
+    }
     if (reasons.has('entity')) {
       why.push('the cited passage never names the cohort, drug or study the sentence gave them to')
+    }
+    if (reasons.has('pvalue')) {
+      why.push('the cited passage gives a different p value for one of the outcomes listed')
     }
     if (reasons.has('outcome') || reasons.has('timepoint')) {
       why.push('the cited passage carries them for a different outcome or follow-up')
@@ -256,17 +271,9 @@ export function removalNote(
   }
   if ((extra.replaced ?? 0) > 0) {
     parts.push(
-      `${extra.replaced === 1 ? 'One sentence' : `${extra.replaced} sentences`} whose figures ` +
-        `could not be verified ${extra.replaced === 1 ? 'was' : 'were'} replaced by the paper's ` +
-        'own words, quoted and cited.',
-    )
-  }
-  if ((extra.counted ?? 0) > 0) {
-    const one = extra.counted === 1
-    parts.push(
-      `${one ? 'One count' : `${extra.counted} counts`} the answer called unspecified ${
-        one ? 'is' : 'are'
-      } stated by the named paper, quoted and cited.`,
+      `${extra.replaced === 1 ? 'One sentence' : `${extra.replaced} sentences`} cited to the ` +
+        `wrong paper ${extra.replaced === 1 ? 'was' : 'were'} replaced by the sentence of the ` +
+        'paper that carries the same figure at the same time point, quoted and cited.',
     )
   }
   if (parts.length === 0) return undefined

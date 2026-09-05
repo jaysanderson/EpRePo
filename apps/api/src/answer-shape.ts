@@ -334,13 +334,20 @@ export function withheldDecline(
   figures: readonly string[],
   /** Titles of retrieved papers that carry the figures somewhere, though not beside the claim (D3-15). */
   foundIn: readonly string[] = [],
+  /** Figures the cited paper carries only where it cites other studies (D4-02). */
+  secondhand: readonly string[] = [],
 ): string {
   const titles = nearestTitles.map((t) => t.trim()).filter((t) => t.length > 0).slice(0, 3)
-  const listed = figures.map((f) => f.replace(/(\d)((?:month|week|year|day|hour)s)$/, '$1 $2'))
-    .slice(0, 8)
+  const label = (f: string) => f.replace(/(\d)((?:month|week|year|day|hour)s)$/, '$1 $2')
+  const listed = figures.map(label).slice(0, 8)
   const stated = listed.length > 0 ? ` (${listed.join(', ')})` : ''
   const found = foundIn.map((t) => t.trim()).filter((t) => t.length > 0).slice(0, 2)
-  const where = found.length > 0
+  const quoted = secondhand.map(label).filter((f) => listed.includes(f)).slice(0, 6)
+  const where = quoted.length > 0
+    ? ` The cited paper carries ${quoted.join(', ')} only where it cites other studies (its ` +
+      'introduction or discussion), not among its own results, so the figure is not that ' +
+      "paper's finding about the cohort you asked about."
+    : found.length > 0
     ? ` The figures were found in ${
       found.map((t) => `*${t}*`).join(' and ')
     } but could not be tied to the claim as the answer stated it.`
