@@ -248,3 +248,29 @@ Other timings:
 | Entity API / page | h1 rendered on every load, 0.55-0.82 s |
 | Graph (phone) | ready 0.8 s, "120 entities · 84 relations" |
 | Page loads (networkidle, desktop / 390 px) | Explore 1.46 (first) then 1.00-1.07 / 1.00-1.03 s; Library 0.58-0.96 / 0.57 s; Library with Kind 0.56-0.79 / 0.57-0.59 s; Search 0.55-0.80 / 0.55-0.56 s; Resource 0.72-0.84 / 0.73-0.88 s; unknown id 2.08 s to "This document does not exist"; Ask 0.57 / 0.56 s; Investigations 0.55 / 0.55 s; Generate 0.54-0.55 / 0.54-0.56 s; Assessment 0.55-0.57 / 0.55-0.58 s; Graph 0.56-1.14 / 0.55-1.13 s; Entity 0.76-0.82 / 0.55-0.57 s; Tools 0.55 / 0.55-0.82 s; Help 0.55-0.56 / 0.56-0.57 s; How this works 0.58-0.59 / 0.55-0.57 s; dark within 0.05 s of light |
+
+---
+
+## Loop 4 fixes (merged 5 September 2026, PRs #16 and #17 into `feat/eprepo-portal`)
+
+Direction for this loop: simple and honest over clever. Unverifiable sentences are removed and
+the removal stated; substitution only when the substitute passes the same figure, time-point,
+population and outcome match, never over a decline.
+
+| Finding | Outcome |
+|---|---|
+| D4-01, D4-02, D3-01 | Number normalisation now covers thousand separators, thin spaces, fractions as percentages and PDF glyphs, unit-tested over every figure in the four reports. The cohort guard is question-level: a designated cohort is exactly its pinned papers, second-hand figures on a named-cohort question are removed, not annotated. The VEM mortality question answers 2,709 admitted, 1,805 analysed and 147 deaths from the VEM paper with the Dravet figure removed and the reason stated; the Melbourne SUDEP incidence is declined; the LGI1 question cites the LGI1 paper's own 26 (49%) and HR 0.10. |
+| D4-03, D4-04, D4-14 | Substitution requires the same figure, time point, population and outcome, at most one quote per removed sentence, and never replaces a decline. N09 keeps its correct perampanel sentence; HB's decline stands. |
+| D4-05, D4-11, D3-13, D1-14 | A denominator pairs only from the same parenthesis or table cell, never for SMRs, HRs or CIs; a wrong n in the body is corrected and the correction stated ("17.6% (739/4201)"). |
+| D4-09, D4-22, D4-12, D4-15, D4-18, D4-19, D4-20, D4-21, D3-08, D3-15, D3-21 | Pinned-paper demographics and two-part questions answered from the pinned paper with a boundary sentence; second-hand ceilings never lead; second-hand notes rescued from Results paragraphs; tables first-hand; list items inherit markers (17 of 17 cited); document chat audited and badged. |
+| D4-06, D4-07, D3-06 | Reformat-only follow-ups answer from the session's papers and passages (the three-drug table renders in full); context turns carry passages and pin prior papers so "that cohort" survives to turn four; design sentences need the cited text to state the design. |
+| D4-08, D3-05, D1-09 | The first complete sentence is verified against the retrieved papers as it lands and shown as verified while the rest streams; terse questions route by rule with no decomposition (27.6 s to 9.9 s to first word on the phone question). The platform's own retrieval stage, 6 to 10 s, is the remaining floor. |
+| D4-16, D4-17, D4-23, D3-19 | Author lookup from catalogue author metadata only, identical for every name form, headed "42 articles · 20 supplements"; two-part help questions answered part by part; closest matches weight the outcome noun. |
+
+Structured statements through `answer_json_schema` were trialled on 12 questions and not
+adopted: 16 of 24 statements verified, but the path fabricated a Melbourne incidence the prose
+path declined and cannot carry paragraph citations.
+
+Left for loop 5: a generator "overall" label on a stratum the paper does not report; N06's own
+154 (67%) is no longer quoted because the model's 80% is a different figure; a few stray extra
+markers on multi-claim sentences.
