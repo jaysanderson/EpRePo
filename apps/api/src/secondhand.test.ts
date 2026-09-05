@@ -9,6 +9,7 @@ import {
   sectionAt,
   sectionSpans,
 } from './secondhand.ts'
+import { citesEarlierWork, inTableOrLegend } from './secondhand.ts'
 
 const PAPER = [
   ' Rituximab Use for Relapse Prevention ',
@@ -104,5 +105,58 @@ describe('markedSentences and secondhandNote', () => {
       '*Second-hand figures: 83% [2] appears in the cited paper only in its introduction or ' +
         'discussion, where it cites other studies, not among its own results.*',
     )
+  })
+})
+
+describe('first-hand sections and table rows (D3-08)', () => {
+  it('reads a protocol\'s "Methods and analysis" as methods, so its sample size is first-hand', () => {
+    const protocol = 'Abstract\n\nA trial.\n\nIntroduction\n\nEarlier work found 30%.\n\n' +
+      'Methods and analysis\n\nSample size calculation\n\nA total of 220 participants (110 per group) are required.\n\n' +
+      'Discussion\n\nWe discuss.'
+    expect(secondhandFigures(
+      [{ text: 'The sample size is 220 participants, with 110 per group.', bound: [1] }],
+      new Map([[1, protocol]]),
+    )).toEqual([])
+  })
+
+  it("treats a table row and a figure legend as the paper's own data wherever the extraction put them", () => {
+    const paper =
+      'Abstract\n\nA study.\n\nIntroduction\n\nBackground.\n\nResults\n\nAEs were common.\n\n' +
+      'Discussion\n\nOthers found 12%.\n\nTable 3 Adverse events\n\nDizziness/vertigo, n (%) 701 (15.2)\n\n' +
+      'Somnolence, n (%) 491 (10.6)\n\n'
+    expect(secondhandFigures(
+      [{
+        text: 'Dizziness was reported in 15.2% (n = 701) and somnolence in 10.6% (n = 491).',
+        bound: [1],
+      }],
+      new Map([[1, paper]]),
+    )).toEqual([])
+    expect(inTableOrLegend(paper, paper.indexOf('701'))).toBe(true)
+  })
+
+  it('never judges a clock time, a follow-up week or a bare small integer', () => {
+    const paper =
+      'Abstract\n\nA.\n\nIntroduction\n\nPeaks at 11 p.m.; follow-up at weeks 52, 78 and 104; 16 Hz.\n\nResults\n\nB.'
+    expect(secondhandFigures(
+      [{
+        text: 'Discharges peak at 11 p.m.; outcomes at weeks 52, 78 and 104; 10-16 Hz.',
+        bound: [1],
+      }],
+      new Map([[1, paper]]),
+    )).toEqual([])
+  })
+})
+
+describe('a figure the paper attributes to earlier work', () => {
+  it('is second-hand even in the methods', () => {
+    const paper =
+      'Abstract\n\nA.\n\nIntroduction\n\nB.\n\nMethods\n\nThe expected SUDEP incidence of 5.9 per 1000 ' +
+      'patient-years was based on previous incidence data from a comparable group.\n\nResults\n\nC.'
+    expect(secondhandFigures(
+      [{ text: 'The SUDEP incidence was 5.9 per 1000 patient-years.', bound: [1] }],
+      new Map([[1, paper]]),
+    )).toEqual([{ figure: '5.9', index: 1 }])
+    expect(citesEarlierWork(paper, paper.indexOf('5.9'))).toBe(true)
+    expect(citesEarlierWork('We found 5.9 per 1000 in our cohort.', 9)).toBe(false)
   })
 })

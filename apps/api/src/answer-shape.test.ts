@@ -250,9 +250,14 @@ describe('SentinelStream across line breaks', () => {
 describe('withheldDecline', () => {
   it("names the figures that failed and the closest matches, in the portal's voice", () => {
     const text = withheldDecline(['Paper A', 'Paper B'], ['80%', '231', '12months'])
-    expect(text).toContain('stated figures (80%, 231, 12 months) that no cited passage carries')
-    expect(text).toContain('*Paper A*, *Paper B* - listed below but not used')
+    expect(text).toContain('stated figures (80%, 231, 12 months) that no retrieved passage carries')
+    expect(text).toContain('*Paper A*, *Paper B* - listed below')
+    expect(text).not.toContain('not used')
     expect(text).toContain('Ask about one paper directly')
     expect(withheldDecline([], [])).not.toContain('closest matches')
+    // Figures found somewhere in a paper are said to be, rather than "not used" (D3-15).
+    expect(withheldDecline(['Paper A'], ['80%'], ['Paper C'])).toContain(
+      'The figures were found in *Paper C* but could not be tied to the claim as the answer stated it.',
+    )
   })
 })

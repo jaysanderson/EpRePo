@@ -9,6 +9,8 @@
  * finding, and the reader is told so in one sentence.
  */
 
+import { extractNumbers, isClockToken } from './answer-audit.ts'
+
 export type Section =
   | 'abstract'
   | 'introduction'
@@ -26,13 +28,13 @@ export interface SectionSpan {
 }
 
 const HEADING =
-  /(?:^|\n)[ \t]*(?:\d{1,2}(?:\.\d{1,2})*[ \t]*\|?[ \t]*)?(abstract|summary|introduction|background|(?:materials?,? (?:and|&) )?methods?|(?:patients|participants|subjects) and methods|methodology|results|findings|discussion|conclusions?|references|bibliography|acknowledg(?:e)?ments?|supplementary (?:material|information))\b[ \t]*(?::|\||\n|$)/gi
+  /(?:^|\n)[ \t]*(?:\d{1,2}(?:\.\d{1,2})*[ \t]*\|?[ \t]*)?(abstract|summary|introduction|background|(?:materials?,? (?:and|&) )?methods?(?: (?:and|&) (?:analysis|analyses|materials|design))?|(?:patients|participants|subjects) and methods|methods\/design|study design(?: and (?:methods|participants|setting))?|trial design|methodology|results(?: and discussion)?|findings|discussion|conclusions?|references|bibliography|acknowledg(?:e)?ments?|supplementary (?:material|information))\b[ \t]*(?::|\||\n|$)/gi
 
 function canonical(heading: string): Section {
   const h = heading.toLowerCase()
   if (h.startsWith('abstract') || h === 'summary') return 'abstract'
   if (h.startsWith('introduction') || h.startsWith('background')) return 'introduction'
-  if (/method|patients and|participants and|subjects and/.test(h)) return 'methods'
+  if (/method|patients and|participants and|subjects and|design/.test(h)) return 'methods'
   if (h.startsWith('results') || h.startsWith('findings')) return 'results'
   if (h.startsWith('discussion')) return 'discussion'
   if (h.startsWith('conclusion')) return 'conclusion'
@@ -97,13 +99,44 @@ export function hasBodyHeadings(spans: readonly SectionSpan[]): boolean {
 export function figureOffsets(figure: string, text: string): number[] {
   const bare = figure.replace(/[%\s,]/g, '')
   if (!bare || !/\d/.test(bare)) return []
-  const body = bare.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/(\d)(?=\d)/g, '$1,?')
+  // A thousands separator may be a comma or a space in the extraction.
+  const body = bare.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/(\d)(?=\d)/g, '$1[, ]?')
   // A percentage matches only as a percentage: "14%" is not "14 days".
   const tail = figure.trim().endsWith('%') ? '\\s?%' : '(?![\\d])'
   const pattern = new RegExp(`(?<![\\d.,])${body}${tail}`, 'g')
   const out: number[] = []
   for (const m of text.matchAll(pattern)) out.push(m.index ?? 0)
   return out
+}
+
+/**
+ * Whether an offset sits on a table row or a figure or table legend: a
+ * pipe-table line, a line that reads "label n (%)", or a line within a
+ * few lines after a "Table N" or "Figure N" caption.
+ */
+export function inTableOrLegend(text: string, offset: number): boolean {
+  const lineStart = text.lastIndexOf('\n', offset) + 1
+  const lineEnd = text.indexOf('\n', offset)
+  const line = text.slice(lineStart, lineEnd === -1 ? undefined : lineEnd).trim()
+  if (/^\|.*\|$/.test(line)) return true
+  if (/^[A-Za-z][^.!?|]{1,80}?\s\d[\d,]*\s\(\d{1,3}(?:\.\d+)?\)[a-z]?\s*$/.test(line)) return true
+  if (/^(?:table|figure|fig\.?)\s+S?\d+/i.test(line)) return true
+  const before = text.slice(Math.max(0, lineStart - 600), lineStart)
+  const caption = /(?:^|\n)[ \t]*(?:table|figure|fig\.?)\s+S?\d+\b[^\n]*$/i
+  const lines = before.split('\n').slice(-6).join('\n')
+  return caption.test(lines) && !/\n\s*\n[^\n]*\n\s*\n/.test(lines)
+}
+
+/** Whether the sentence around an offset attributes its figure to earlier work. */
+export function citesEarlierWork(text: string, offset: number): boolean {
+  const start = Math.max(0, text.lastIndexOf('. ', offset) + 1, text.lastIndexOf('\n', offset) + 1)
+  const endDot = text.indexOf('. ', offset)
+  const endLine = text.indexOf('\n', offset)
+  const ends = [endDot, endLine].filter((e) => e !== -1)
+  const end = ends.length > 0 ? Math.min(...ends) : text.length
+  const sentence = text.slice(start, end)
+  return /\b(?:previous|prior|earlier|published|historical)\b[^.]{0,60}\b(?:stud(?:y|ies)|data|report|reports|literature|cohort|estimate|estimates|series|work)\b|\b(?:according to|as reported|reported by|reported in|derived from|taken from|based on (?:the )?(?:previous|prior|earlier|published))\b|\bet al\.?/i
+    .test(sentence)
 }
 
 /** Sections where a paper's own findings live. */
@@ -136,7 +169,13 @@ export function secondhandFigures(
   const out: SecondhandFigure[] = []
   const seen = new Set<string>()
   for (const sentence of sentences) {
-    const figures = sentence.text.match(/\d+(?:\.\d+)?%|\b\d+(?:\.\d+)?\b/g) ?? []
+    // The figures the audit checks, less the ones a section cannot place:
+    // a clock time, a follow-up in weeks or months, a bare integer under
+    // 100 (a week label, a table cell, a page number).
+    const figures = extractNumbers(sentence.text).filter((f) =>
+      !isClockToken(f) && !/(?:month|week|year|day|hour)s$/.test(f) &&
+      !(/^\d+$/.test(f) && Number(f) < 100)
+    ).map((f) => f.replace(/mg.*$/, ''))
     for (const figure of figures) {
       if (/^(?:19|20)\d\d$/.test(figure) || /^\d$/.test(figure)) continue
       for (const index of sentence.bound) {
@@ -145,7 +184,20 @@ export function secondhandFigures(
         if (!text || !spans || !hasBodyHeadings(spans)) continue
         const offsets = figureOffsets(figure, text)
         if (offsets.length === 0) continue
-        const sections = new Set(offsets.map((o) => sectionAt(spans, o)))
+        // A table row or a figure legend is the paper's own data wherever
+        // the extraction placed it (D3-08); a figure the paper's own
+        // sentence attributes to earlier work ("based on previous
+        // incidence data", "as reported by") is second-hand wherever it
+        // sits, a Methods power calculation included.
+        const sections = new Set(
+          offsets.map((o) =>
+            inTableOrLegend(text, o)
+              ? 'results'
+              : citesEarlierWork(text, o)
+              ? 'discussion'
+              : sectionAt(spans, o)
+          ),
+        )
         if ([...sections].some((s) => OWN.has(s))) continue
         const key = `${figure}:${index}`
         if (seen.has(key)) continue
@@ -180,6 +232,6 @@ export function secondhandNote(figures: readonly SecondhandFigure[]): string | u
   const items = figures.slice(0, 6).map((f) => `${f.figure} [${f.index}]`).join(', ')
   return `*Second-hand figures: ${items} ${
     figures.length === 1 ? 'appears' : 'appear'
-  } in the cited paper only in its introduction or discussion, where it cites other studies, ` +
-    'not among its own results.*'
+  } in the cited paper only where it cites other studies (its introduction, its discussion or ` +
+    'a figure it takes from earlier work), not among its own results.*'
 }

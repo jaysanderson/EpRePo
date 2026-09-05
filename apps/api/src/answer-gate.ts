@@ -23,7 +23,7 @@ import {
 export interface RemovedSentence {
   text: string
   figures: string[]
-  reason: NonNullable<FigureCheck['reason']>
+  reason: NonNullable<FigureCheck['reason']> | 'conclusion'
 }
 
 export interface GateResult {
@@ -93,6 +93,43 @@ export function gateFigures(
     })
     return sentence
   })
+  // A conclusion that rested on removed sentences goes with them (D3-06):
+  // "Thus, perampanel had a lower retention rate" with the retention
+  // sentences gone is a claim with nothing behind it. A kept sentence that
+  // opens with a connective to a removed one loses the connective (D3-15).
+  if (removedIndices.size > 0) {
+    for (const line of bound.layout) {
+      if (line.kind !== 'sentences') continue
+      let previousRemoved = false
+      for (const i of line.sentences) {
+        const sentence = sentences[i]!
+        if (removedIndices.has(i)) {
+          previousRemoved = true
+          continue
+        }
+        if (previousRemoved && CONNECTIVE.test(sentence.text)) {
+          sentences[i] = { ...sentence, text: stripConnective(sentence.text) }
+        }
+        previousRemoved = false
+      }
+    }
+    let anyRemovedBefore = false
+    for (const line of bound.layout) {
+      if (line.kind !== 'sentences') continue
+      for (const i of line.sentences) {
+        if (removedIndices.has(i)) {
+          anyRemovedBefore = true
+          continue
+        }
+        const sentence = sentences[i]!
+        const hasFigures = checks.some((c) => c.sentence === sentence.text)
+        if (anyRemovedBefore && !hasFigures && CONCLUSION.test(sentence.text)) {
+          removedIndices.add(i)
+          removed.push({ text: sentence.text, figures: [], reason: 'conclusion' })
+        }
+      }
+    }
+  }
   // A citation every sentence of which was removed leaves the answer with
   // it, and the rest are renumbered by first appearance so the markers, the
   // chips and "n cited" describe the gated text.
@@ -124,6 +161,20 @@ export function gateFigures(
   }
 }
 
+/** A sentence that draws a conclusion from what came before it. */
+export const CONCLUSION =
+  /^\s*(?:Thus|Therefore|Hence|Overall|In summary|In conclusion|Taken together|Consequently|This (?:suggests|indicates|means|shows)|These (?:findings|results|figures|data) (?:suggest|indicate|show))\b/i
+
+/** A connective that ties a sentence to the one before it. */
+export const CONNECTIVE =
+  /^\s*(?:Additionally|In addition|Furthermore|Moreover|Also|Similarly|Likewise|However|Conversely|In contrast|By contrast|Meanwhile|Further),?\s+/i
+
+/** The sentence without its leading connective, its first letter capitalised. */
+export function stripConnective(sentence: string): string {
+  const rest = sentence.replace(CONNECTIVE, '')
+  return rest.charAt(0).toUpperCase() + rest.slice(1)
+}
+
 /**
  * The figures worth naming for a removed sentence: its results, not the
  * timepoint that fell with them ("80%, 231" rather than "80%, 12 months,
@@ -149,23 +200,78 @@ function figureLabel(token: string): string {
  * The line that says what the gate removed and why, in the portal's voice,
  * or undefined when nothing was.
  */
-export function removalNote(removed: readonly RemovedSentence[]): string | undefined {
-  if (removed.length === 0) return undefined
-  const figures = [...new Set(removed.flatMap((r) => r.figures))].map(figureLabel)
-  const reasons = new Set(removed.map((r) => r.reason))
-  const why: string[] = []
-  if (reasons.has('entity')) {
-    why.push('the cited passage never names the cohort, drug or study the sentence gave them to')
+export function removalNote(
+  removed: readonly RemovedSentence[],
+  extra: {
+    /** Titles of resources that carry a removed figure somewhere, though not beside its claim. */
+    foundIn?: readonly string[]
+    /** Sentences replaced by the named paper's own figure sentence. */
+    replaced?: number
+    /** Declines about a count answered by the named paper's own sentence. */
+    counted?: number
+  } = {},
+): string | undefined {
+  const parts: string[] = []
+  const figured = removed.filter((r) => r.reason !== 'conclusion')
+  const conclusions = removed.length - figured.length
+  if (figured.length > 0) {
+    const figures = [...new Set(figured.flatMap((r) => r.figures))].map(figureLabel)
+    const reasons = new Set(figured.map((r) => r.reason))
+    const why: string[] = []
+    if (reasons.has('cohort')) {
+      why.push('the cited paper is not the cohort or study the question asks about')
+    }
+    if (reasons.has('entity')) {
+      why.push('the cited passage never names the cohort, drug or study the sentence gave them to')
+    }
+    if (reasons.has('outcome') || reasons.has('timepoint')) {
+      why.push('the cited passage carries them for a different outcome or follow-up')
+    }
+    if (reasons.has('terms') || reasons.has('absent')) {
+      const found = (extra.foundIn ?? []).slice(0, 2)
+      why.push(
+        found.length > 0
+          ? `the figures were found in *${
+            found.join('* and *')
+          }* but could not be tied to the claim as the answer stated it`
+          : 'no retrieved passage carries them beside the claim',
+      )
+    }
+    const count = figured.length === 1 ? 'One sentence was' : `${figured.length} sentences were`
+    const tail = conclusions > 0
+      ? `, and ${
+        conclusions === 1 ? 'a conclusion' : `${conclusions} conclusions`
+      } that rested on ${figured.length === 1 ? 'it' : 'them'}`
+      : ''
+    parts.push(
+      `${count} removed from this answer${tail}: ${
+        figured.length === 1 ? 'its' : 'their'
+      } figures (${figures.join(', ')}) could not be verified - ${why.join('; ')}.`,
+    )
+  } else if (conclusions > 0) {
+    parts.push(
+      `${conclusions === 1 ? 'One conclusion was' : `${conclusions} conclusions were`} removed ` +
+        'because the sentences it rested on were replaced.',
+    )
   }
-  if (reasons.has('outcome') || reasons.has('timepoint')) {
-    why.push('the cited passage carries them for a different outcome or follow-up')
+  if ((extra.replaced ?? 0) > 0) {
+    parts.push(
+      `${extra.replaced === 1 ? 'One sentence' : `${extra.replaced} sentences`} whose figures ` +
+        `could not be verified ${extra.replaced === 1 ? 'was' : 'were'} replaced by the paper's ` +
+        'own words, quoted and cited.',
+    )
   }
-  if (reasons.has('terms') || reasons.has('absent')) {
-    why.push('no cited passage carries them beside the claim')
+  if ((extra.counted ?? 0) > 0) {
+    const one = extra.counted === 1
+    parts.push(
+      `${one ? 'One count' : `${extra.counted} counts`} the answer called unspecified ${
+        one ? 'is' : 'are'
+      } stated by the named paper, quoted and cited.`,
+    )
   }
-  const count = removed.length === 1 ? 'One sentence was' : `${removed.length} sentences were`
-  return `*${count} removed from this answer: its figures (${figures.join(', ')}) could not be ` +
-    `verified - ${why.join('; ')}. Ask about one paper to see the figures it reports.*`
+  if (parts.length === 0) return undefined
+  if (figured.length > 0) parts.push('Ask about one paper to see the figures it reports.')
+  return `*${parts.join(' ')}*`
 }
 
 // ---------------------------------------------------------------------------
@@ -196,6 +302,8 @@ export interface EffectSize {
   index: number
   /** The passage's own words, from the ratio to the interval (and p value when given). */
   statement: string
+  /** What the effect is for, in the passage's own words: the clause before the ratio. */
+  subject?: string
 }
 
 /**
@@ -232,12 +340,16 @@ export function effectSizesFor(
       if (!named) continue
       const hit = new RegExp(EFFECT_SIZE.source, 'i').exec(sentence)
       if (!hit) continue
+      // A covariate list ("age; OR 1.02 ... diagnosis; OR 1.64 ...") is a
+      // model's terms, not an effect the question asked about (D3-10).
+      if (isCovariateList(sentence)) continue
       const statement = hit[0].replace(/\s+/g, ' ').trim()
         .replace(
           /([^(\[]*)[)\]]$/,
           (m, before: string) => before.includes('(') || before.includes('[') ? m : before,
         )
-      out.push({ index, statement })
+      const subject = effectSubject(sentence.slice(0, hit.index))
+      out.push({ index, statement, ...(subject ? { subject } : {}) })
       break
     }
     if (out.length >= 2) break
@@ -245,11 +357,56 @@ export function effectSizesFor(
   return out
 }
 
-/** The addendum line for effect sizes the answer left out. */
+/** Whether a sentence lists several ratios with their terms - a regression table in prose. */
+export function isCovariateList(sentence: string): boolean {
+  const ratios = sentence.match(/\b(?:a?OR|a?HR|RR)\s*[=:]?\s*\d+\.\d+/g) ?? []
+  if (ratios.length >= 3) return true
+  if (
+    /\b(?:covariates?|multivariable model|regression model|independent(?:ly)? (?:associated|predictor))\b/i
+      .test(sentence) && ratios.length >= 2
+  ) return true
+  // A variable's name straight before its ratio ("anti-LGI1 diagnosis;
+  // OR 1.64") is a model term, not a finding about an exposure.
+  return /\b(?:diagnosis|age|sex|gender|status|score|level|duration|onset|delay|subtype|type)\b[^.;()]{0,20}[;:,]\s*(?:a?OR|a?HR|RR)\s*[=:]?\s*\d/i
+    .test(sentence)
+}
+
+/**
+ * The clause an effect size is for, from the sentence before the ratio:
+ * "Rituximab, adjusted for concomitant use of other immunotherapies, was
+ * associated with increased time to first relapse" reads as "rituximab
+ * and time to first relapse". At most twelve words, trailing bracket
+ * dropped; undefined when the clause is empty.
+ */
+export function effectSubject(before: string): string | undefined {
+  const clause = before.replace(/\s+/g, ' ')
+    // A section heading the extraction glued on, then the adjustment
+    // clauses: "after controlling for X," and ", adjusted for Y,".
+    .replace(/^\s*(?:Results|Conclusions?|Findings|Interpretation)\s+(?=[A-Z])/, '')
+    .replace(
+      /^\s*(?:after|when|while)\s+(?:controlling|adjusting|accounting)\s+for\s+[^,;]{2,80},\s*/i,
+      '',
+    )
+    .replace(
+      /,\s*(?:adjusted|controlling|accounting|after adjustment)\s+for\s+[^,;]{2,80},\s*/gi,
+      ' ',
+    )
+    .replace(/\s+/g, ' ')
+    .replace(/[\s(,;:]+$/, '').trim()
+  if (!clause) return undefined
+  const words = clause.split(' ')
+  if (words.length < 2) return undefined
+  const short = words.length > 14 ? `... ${words.slice(-12).join(' ')}` : clause
+  return short.charAt(0).toLowerCase() + short.slice(1)
+}
+
+/** The addendum line for effect sizes the answer left out, each named for what it is an effect of. */
 export function effectSizeNote(sizes: readonly EffectSize[]): string | undefined {
   if (sizes.length === 0) return undefined
   return `*Effect size in the cited passage: ${
-    sizes.map((s) => `${s.statement} [${s.index}]`).join('; ')
+    sizes.map((s) => `${s.subject ? `for "${s.subject}", ` : ''}${s.statement} [${s.index}]`).join(
+      '; ',
+    )
   }.*`
 }
 

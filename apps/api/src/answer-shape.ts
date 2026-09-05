@@ -324,21 +324,50 @@ export function looksLikeProviderDecline(text: string): boolean {
 export function withheldDecline(
   nearestTitles: readonly string[],
   figures: readonly string[],
+  /** Titles of retrieved papers that carry the figures somewhere, though not beside the claim (D3-15). */
+  foundIn: readonly string[] = [],
 ): string {
   const titles = nearestTitles.map((t) => t.trim()).filter((t) => t.length > 0).slice(0, 3)
   const listed = figures.map((f) => f.replace(/(\d)((?:month|week|year|day|hour)s)$/, '$1 $2'))
     .slice(0, 8)
   const stated = listed.length > 0 ? ` (${listed.join(', ')})` : ''
+  const found = foundIn.map((t) => t.trim()).filter((t) => t.length > 0).slice(0, 2)
+  const where = found.length > 0
+    ? ` The figures were found in ${
+      found.map((t) => `*${t}*`).join(' and ')
+    } but could not be tied to the claim as the answer stated it.`
+    : ''
   const nearest = titles.length > 0
     ? ` The closest matches in the corpus are ${
       titles.map((t) => `*${t}*`).join(', ')
-    } - listed below but not used.`
+    } - listed below.`
     : ''
   return 'The generated answer stated figures' + stated +
-    ' that no cited passage carries beside their claim, so it has been withheld rather than ' +
-    'shown.' + nearest +
+    ' that no retrieved passage carries beside their claim, so it has been withheld rather than ' +
+    'shown.' + where + nearest +
     ' Ask about one paper directly to see the figures it reports, or narrow the question to ' +
     'one cohort, drug or study.'
+}
+
+/**
+ * The decline for a question about a relationship the collection holds no
+ * study of - "adherence and death" when no retrieved paper's title,
+ * summary or takeaways pairs the two (D3-12): the boundary stated plainly,
+ * then the closest matches so coverage is told from evidence.
+ */
+export function pairDecline(
+  pair: { exposure: string; outcome: string },
+  nearestTitles: readonly string[],
+): string {
+  const titles = nearestTitles.map((t) => t.trim()).filter((t) => t.length > 0).slice(0, 3)
+  const nearest = titles.length > 0
+    ? ` The nearest papers are ${
+      titles.map((t) => `*${t}*`).join(titles.length === 2 ? ' and ' : ', ')
+    } - listed below, none of which studies that relationship.`
+    : ''
+  return `This collection holds no study of the relationship between ${pair.exposure} and ` +
+    `${pair.outcome}, so no answer has been generated rather than one stitched from papers about ` +
+    `other things.${nearest} Ask about one of those papers directly to see what it reports.`
 }
 
 /**

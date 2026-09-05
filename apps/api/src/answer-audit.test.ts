@@ -11,11 +11,14 @@ import {
   extractNumbers,
   figurePresent,
   figureSupportedBy,
+  isSampleSizeFigure,
+  nearestCount,
   normaliseFigures,
   normaliseSource,
   numbersMissing,
   numberWordsToDigits,
   outcomeConflict,
+  populationQualifier,
   prepareSource,
   proportions,
   statesDenominator,
@@ -291,11 +294,12 @@ describe('answer audit - matcher accuracy (D2-07)', () => {
     )
   })
 
-  it('does not extract clock times, and matches abbreviated time units', () => {
+  it('extracts clock times as their own tokens, never as bare numbers, and matches abbreviated time units', () => {
     expect(
       extractNumbers('Peaks from 11 p.m. to 7 a.m. and from 12 p.m. to 2 p.m.; troughs at 08:30.'),
     )
-      .toEqual([])
+      .toEqual(['11pm', '7am', '12pm', '2pm'])
+    expect(extractNumbers('The peak is at 12 noon.')).toEqual(['12noon'])
     expect(extractNumbers('An increase of 1.66 hours cut risk over the next 48 hours.'))
       .toEqual(['1.66hours', '48hours'])
     expect(figurePresent('1.66hours', 'sleep increased by 1.66 h')).toBe(true)
@@ -397,5 +401,76 @@ describe('answer audit - matcher accuracy (D2-07)', () => {
       }]),
     ).toEqual([])
     expect(statesDenominator('Only 29 (48%) of patients met the criteria.')).toBe(true)
+  })
+})
+
+describe('denominators paired from the same sentence (D3-13)', () => {
+  it('pairs the nearest n, never the first n of the sentence', () => {
+    const text =
+      'Valproate was most often used (n = 826, 54%), followed by levetiracetam (n = 352, 23%).'
+    expect(denominatorBeside('23%', [text])).toBe('n = 352')
+    expect(denominatorBeside('54%', [text])).toBe('n = 826')
+    expect(nearestCount('a (n = 826, 54%), b (n = 352, 23%)', 30)).toBe('n = 352')
+  })
+
+  it('asks no denominator for a confidence bound, an I-squared or a relative change', () => {
+    expect(proportions('Prevalence was 29% (95%CI 23-36%; I² = 88%).')).toEqual(['29%'])
+    expect(proportions('Morning cortisol levels were 37% higher (OR = 1.37).')).toEqual([])
+  })
+
+  it('reads a sample size as a count placed by its noun, not an outcome', () => {
+    expect(isSampleSizeFigure('605', 'retention was 72.7% (n = 605, fas).')).toBe(true)
+    expect(isSampleSizeFigure('709', '709 (43.8%) switched from lev.')).toBe(true)
+    expect(isSampleSizeFigure('72.7%', 'retention was 72.7% (n = 605).')).toBe(false)
+    expect(isSampleSizeFigure('605', 'a score of 605 was recorded.')).toBe(false)
+  })
+
+  it('places an unnamed claim by its outcome at its follow-up (D3-02)', () => {
+    const paper =
+      'BRV retention was 89.4%, 79.8%, and 71.1% at 3, 6, and 12 months, respectively (FAS; Fig. 1d).'
+    const checks = verifyFigures(
+      [{ text: 'For the whole cohort, the 12-month retention was 71.1%.', texts: [paper] }],
+      [paper],
+      [],
+    )
+    expect(checks.map((c) => [c.figure, c.supported])).toEqual([['12months', true], [
+      '71.1%',
+      true,
+    ]])
+    expect(checks[1]?.passage).toContain('BRV retention was 89.4%')
+  })
+
+  it('finds a figure the extraction writes with a space for thousands', () => {
+    expect(
+      numbersMissing('82,723 adults will have incident epilepsy.', [
+        'In 10 years, 82 723 Australian adults had incident epilepsy',
+      ]),
+    ).toEqual([])
+  })
+
+  it('reads the population a passage states its figure for', () => {
+    expect(
+      populationQualifier(
+        'In patients with psychiatric comorbidity who switched from LEV to BRV, seizure freedom was 13.9%.',
+      ),
+    )
+      .toBe('with psychiatric comorbidity')
+    expect(
+      populationQualifier(
+        'At 12 months, among children without a structural cause, 20% were free.',
+      ),
+    )
+      .toBe(
+        'without a structural cause'.replace(
+          'without a structural cause',
+          'without a structural cause',
+        ),
+      )
+    expect(
+      populationQualifier('The rate was 23.2%; 52.7% of PWE with status epilepticus responded.'),
+    )
+      .toBeUndefined()
+    expect(populationQualifier('In patients with and without CLD, retention was 70%.'))
+      .toBeUndefined()
   })
 })
