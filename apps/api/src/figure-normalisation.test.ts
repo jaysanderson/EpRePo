@@ -11,7 +11,6 @@ import { describe, it } from '@std/testing/bdd'
 import { expect } from '@std/expect'
 import {
   denominatorBeside,
-  denominatorCorrections,
   extractNumbers,
   figurePresent,
   normaliseGlyphs,
@@ -379,28 +378,39 @@ describe('denominators from the same parenthesis only (D4-05, D4-11)', () => {
     expect(proportions('the SMR was 2.5 (95% CI 1.9-3.2)')).toEqual([])
   })
 
-  it("corrects a denominator the answer paired wrongly to the passage's own pairing", () => {
-    const passage =
+  it("fails a share whose bracket n the located passage pairs differently, and passes the paper's own pairing (D4-05, loop 5 D5-03)", () => {
+    const permit =
       'At 12 months, 17.6% (739/4201) of PWEs had discontinued PER due to AEs. The Full Analysis Set included 5193 PWE.'
-    const { corrections, text } = denominatorCorrections(
-      'The adverse-event discontinuation rate at 12 months was 17.6% (n = 5193, full analysis set).',
-      [passage],
+    const wrong = verifyFigures(
+      [{
+        text:
+          'The adverse-event discontinuation rate at 12 months was 17.6% (n = 5193, full analysis set).',
+        texts: [permit],
+      }],
+      [permit],
     )
-    expect(corrections).toEqual([{ figure: '17.6%', from: 'n = 5193', to: '739/4201' }])
-    expect(text).toBe('The adverse-event discontinuation rate at 12 months was 17.6% (739/4201).')
-  })
-
-  it("corrects nothing when the answer carries the passage's own n or the passage gives none", () => {
+    expect(wrong.map((c) => [c.figure, c.supported])).toEqual([
+      ['12months', true],
+      ['17.6%', false],
+      ['5193', true],
+    ])
+    const right = verifyFigures(
+      [{
+        text: 'Retention was 64.2% (n = 4201, Retention Population).',
+        texts: ['Retention on PER at 12 months was 64.2% (2698/4201), respectively'],
+      }],
+      ['Retention on PER at 12 months was 64.2% (2698/4201), respectively'],
+    )
+    expect(right.every((c) => c.supported)).toBe(true)
+    // An n the passage gives in the window of a bracket-less figure is its n.
+    const abstract =
+      'Retention, effectiveness and safety were assessed in 4721, 4392 and 4617, respectively. Retention on PER treatment at 3, 6, and 12 months was 90.5% (4273/4721), 79.8%, and 64.2%, respectively.'
     expect(
-      denominatorCorrections('Retention was 64.2% (n = 4201, Retention Population).', [
-        'and 64.2% (2698/4201), respectively',
-      ]).corrections,
-    ).toEqual([])
-    expect(
-      denominatorCorrections('Retention was 64.2% (n = 4201).', [
-        'retention was 64.2% at 12 months',
-      ])
-        .corrections,
-    ).toEqual([])
+      verifyFigures([{
+        text: 'The 12-month retention rate was 64.2% (n = 4721).',
+        texts: [abstract],
+      }], [abstract])
+        .every((c) => c.supported),
+    ).toBe(true)
   })
 })
