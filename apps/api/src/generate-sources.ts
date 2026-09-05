@@ -1,3 +1,12 @@
+/**
+ * Attributes a model-named source in Generate and Assessment to a real,
+ * retrieved resource, or drops it.
+ *
+ * Resolves the model's own claimed source title against the resources
+ * actually retrieved for the request; an invented or unmatched title is
+ * never shown. Used by the `/generate` route in `app.ts`.
+ * Serves: R22 (P6-07); PR #4, #9, #11, #14.
+ */
 import type { ScoredResource } from '@research-portal/core'
 
 /**

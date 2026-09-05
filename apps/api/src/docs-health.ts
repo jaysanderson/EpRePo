@@ -1,3 +1,12 @@
+/**
+ * Documentation-scoped probe: is Help's index actually populated?
+ *
+ * Probes each portal's documentation-scoped search at boot and after every
+ * ingest, and reports the result on `/api/health` as `docs`/`docsOk`, so a
+ * box provisioned without documentation ingestion is caught rather than
+ * silently answering "the help documentation does not cover this".
+ * Serves: R20 (P7-08, P8-12, P7-31); PR #4.
+ */
 import type { TenantConfig } from '@research-portal/core'
 import type { RetrievalProvider } from '@research-portal/retrieval'
 

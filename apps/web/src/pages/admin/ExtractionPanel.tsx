@@ -1,3 +1,10 @@
+/**
+ * The Extraction Lab admin panel: profile a document, compare extraction
+ * methods against a sandbox knowledge box, and set the routing rules that
+ * decide which method a new upload gets.
+ *
+ * Admin-only surface documented in docs/EXTRACTION-LAB.md. Serves: R26, P4-10.
+ */
 import { useEffect, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import type {

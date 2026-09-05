@@ -1,3 +1,11 @@
+/**
+ * Compare configurations: the same question run through two stored search
+ * configurations side by side, each column showing its own citations,
+ * sources and rate-limit state.
+ *
+ * Used as the portal's routing demo (R7); shares the Ask/Search pages' 429
+ * copy and countdown treatment. Serves: R7, R9.
+ */
 import { useEffect, useRef, useState } from 'react'
 import type { Intent, ScoredResource } from '@research-portal/core'
 import type { AskEvent } from '@research-portal/core'
