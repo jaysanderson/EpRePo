@@ -159,5 +159,20 @@ describe('a figure the paper attributes to earlier work', () => {
     )).toEqual([{ figure: '5.9', index: 1 }, { figure: '1000', index: 1 }])
     expect(citesEarlierWork(paper, paper.indexOf('5.9'))).toBe(true)
     expect(citesEarlierWork('We found 5.9 per 1000 in our cohort.', 9)).toBe(false)
+    // Elsevier-style numbered headings, and a text with none at all.
+    const numbered =
+      '1. Introduction\n\nA.\n\n2. Methods\n\nWe applied previous incidence data, reporting a SUDEP ' +
+      'incidence of 5.9/1000 patient-years (Nashef et al., 1995).\n\n3. Results\n\nB.'
+    expect(sectionSpans(numbered).map((s) => s.section)).toContain('results')
+    expect(
+      secondhandFigures(
+        [{ text: 'The SUDEP incidence was 5.9 per 1000 patient-years.', bound: [1] }],
+        new Map([[1, numbered]]),
+      ).map((f) => f.figure),
+    ).toEqual(['5.9', '1000'])
+    expect(secondhandFigures(
+      [{ text: 'The rate was 5.9 per 1000.', bound: [1] }],
+      new Map([[1, 'No headings here. We found 5.9 per 1000 in our cohort.']]),
+    )).toEqual([])
   })
 })

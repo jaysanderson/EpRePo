@@ -28,7 +28,7 @@ export interface SectionSpan {
 }
 
 const HEADING =
-  /(?:^|\n)[ \t]*(?:\d{1,2}(?:\.\d{1,2})*[ \t]*\|?[ \t]*)?(abstract|summary|introduction|background|(?:materials?,? (?:and|&) )?methods?(?: (?:and|&) (?:analysis|analyses|materials|design))?|(?:patients|participants|subjects) and methods|methods\/design|study design(?: and (?:methods|participants|setting))?|trial design|methodology|results(?: and discussion)?|findings|discussion|conclusions?|references|bibliography|acknowledg(?:e)?ments?|supplementary (?:material|information))\b[ \t]*(?::|\||\n|$)/gi
+  /(?:^|\n)[ \t]*(?:\d{1,2}(?:\.\d{1,2})*\.?[ \t]*\|?[ \t]*)?(abstract|summary|introduction|background|(?:materials?,? (?:and|&) )?methods?(?: (?:and|&) (?:analysis|analyses|materials|design))?|(?:patients|participants|subjects) and methods|methods\/design|study design(?: and (?:methods|participants|setting))?|trial design|methodology|results(?: and discussion)?|findings|discussion|conclusions?|references|bibliography|acknowledg(?:e)?ments?|supplementary (?:material|information))\b[ \t]*(?::|\||\n|$)/gi
 
 function canonical(heading: string): Section {
   const h = heading.toLowerCase()
@@ -181,21 +181,25 @@ export function secondhandFigures(
       for (const index of sentence.bound) {
         const text = texts.get(index)
         const spans = spansFor(index)
-        if (!text || !spans || !hasBodyHeadings(spans)) continue
+        if (!text || !spans) continue
         const offsets = figureOffsets(figure, text)
         if (offsets.length === 0) continue
         // A table row or a figure legend is the paper's own data wherever
         // the extraction placed it (D3-08); a figure the paper's own
         // sentence attributes to earlier work ("based on previous
         // incidence data", "as reported by") is second-hand wherever it
-        // sits, a Methods power calculation included.
+        // sits, a Methods power calculation included. A text without
+        // body headings is judged on that attribution alone.
+        const sectioned = hasBodyHeadings(spans)
         const sections = new Set(
           offsets.map((o) =>
             inTableOrLegend(text, o)
               ? 'results'
               : citesEarlierWork(text, o)
               ? 'discussion'
-              : sectionAt(spans, o)
+              : sectioned
+              ? sectionAt(spans, o)
+              : 'other'
           ),
         )
         if ([...sections].some((s) => OWN.has(s))) continue
