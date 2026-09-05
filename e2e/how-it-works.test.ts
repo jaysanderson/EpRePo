@@ -38,6 +38,9 @@ describe('How this works', () => {
   it('renders every section, the flow diagram and no stuck figures', async () => {
     const page = await browser.newPage(`${server.url}/t/frdc/how-it-works`)
     try {
+      // A desktop viewport, set explicitly: the runner's default window is
+      // narrower than the `lg` breakpoint, where the column diagram shows.
+      await page.setViewportSize({ width: 1440, height: 1000 })
       await page.waitForSelector('[data-testid="how-it-works-flow"]')
       // The counters request has failed (503) and the figures strip is gone.
       await settle(
@@ -118,6 +121,7 @@ describe('How this works', () => {
   it('is reachable from the header help menu and from the phone menu', async () => {
     const page = await browser.newPage(`${server.url}/t/frdc`)
     try {
+      await page.setViewportSize({ width: 1440, height: 1000 })
       await page.waitForSelector('button[aria-haspopup="menu"][aria-label="Help"]')
       await page.evaluate(() => {
         document.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"][aria-label="Help"]')
