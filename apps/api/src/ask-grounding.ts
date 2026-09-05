@@ -586,17 +586,23 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
       // The named papers first; the paper the sentence itself cited only
       // when no named paper answers, and never for a sentence the cohort
       // guard failed (its cited paper is the wrong cohort by definition).
+      // The paper the sentence itself cited before the block's shared
+      // markers: the platform's own binding of that claim first.
+      const papersOf = (indices: readonly number[]) =>
+        indices.map((n) => resourceOfIndex.get(n))
+          .filter((id): id is string => id !== undefined && !replacementPapers.includes(id))
       const own = cohortFailed.has(sentence.text)
         ? []
-        : [...sentence.bound, ...(sentence.original ?? [])]
-          .map((n) => resourceOfIndex.get(n))
-          .filter((id): id is string => id !== undefined && !replacementPapers.includes(id))
+        : papersOf([...sentence.bound, ...(sentence.original ?? [])])
+      const block = cohortFailed.has(sentence.text)
+        ? []
+        : papersOf(sentence.block ?? []).filter((id) => !own.includes(id))
       const cue = {
         ...replacementCue(sentence.text, lexicon, questionEntities, questionOutcomes, terms),
         exclude: stated,
       }
       let best: { quote: string; score: number; index: number; resourceId: string } | undefined
-      for (const papers of [replacementPapers, own]) {
+      for (const papers of [replacementPapers, own, block]) {
         for (const id of papers) {
           const index = candidates.find((c) => c.resourceId === id)?.index
           const raw = index === undefined ? undefined : texts.get(index)

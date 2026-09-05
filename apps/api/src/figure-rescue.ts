@@ -262,6 +262,8 @@ export function ownFigureSentence(
     kinds?: { share: boolean; count: boolean; ratio: boolean }
     /** Figures the answer already states: a sentence that adds none of its own is not a replacement. */
     exclude?: readonly string[]
+    /** The words that sat beside the removed sentence's figures: the figure's own subject. */
+    near?: readonly string[]
   },
 ): OwnFigure | undefined {
   const spans = sectionSpans(text)
@@ -292,12 +294,7 @@ export function ownFigureSentence(
     const table = /^\s*\|/.test(paragraph) || row
     if (!table && (section === 'introduction' || section === 'discussion')) continue
     if (sectioned && !OWN_FINDINGS.has(section) && !table) continue
-    if (
-      /\b(?:previous|prior|earlier) (?:studies|study|reports?|work)\b|\bet al\.?\b|\breported (?:that|by)\b/i
-        .test(paragraph) && !table
-    ) {
-      continue
-    }
+
     // Sibling rows of the same table ("Switched from LEV ... / Switched
     // from other ASMs ...") read as one finding.
     const rowText = row
@@ -315,6 +312,12 @@ export function ownFigureSentence(
             : `${a}-${b}`,
       ).replace(/\s+/g, ' ').trim()
       if (sentence.length < 20 || sentence.length > QUOTE_MAX) continue
+      // A sentence that cites other work is not the paper's own finding.
+      if (
+        !table &&
+        /\b(?:previous|prior|earlier) (?:studies|study|reports?|work)\b|\bet al\.?\b|\breported (?:that|by)\b/i
+          .test(sentence)
+      ) continue
       if (!table && !/^[A-Z≥]/.test(sentence)) continue
       if (!table && !/[.!?]["')]?$/.test(sentence)) continue
       if (/\b(?:mfas|subgroup|see esm|supplementar|fig\.? s\d|table s\d)\b/i.test(sentence)) {
@@ -380,13 +383,69 @@ export function ownFigureSentence(
       // A sentence listing many figures is a table in prose, rarely the
       // one fact asked for.
       const crowd = Math.max(0, figures.length - 4)
+      // The figure beside the removed sentence's own subject ("Rituximab
+      // was administered in 26") outranks the same words elsewhere.
+      const subject = (cue.near ?? []).length > 0 && figureNear(lower, cue.near!) ? 3 : 0
       const score = anchorHits * 3 + wordHits + Math.min(specific, 4) + preferred + kind + leads +
-        countWithShare + (section === 'results' ? 2 : section === 'abstract' ? 1 : 0) - length -
-        crowd
+        countWithShare + subject + (section === 'results' ? 2 : section === 'abstract' ? 1 : 0) -
+        length - crowd
       if (!best || score > best.score) best = { sentence, score }
     }
   }
   return best
+}
+
+/** The content words within four tokens of any figure in a sentence, stemmed as `claimTerms` stems them. */
+export function wordsNearFigures(sentence: string): string[] {
+  const tokens = sentence.toLowerCase().split(/\s+/)
+  const out = new Set<string>()
+  tokens.forEach((token, i) => {
+    if (!/\d/.test(token)) return
+    for (let j = Math.max(0, i - 4); j <= Math.min(tokens.length - 1, i + 4); j++) {
+      const word = tokens[j]!.replace(/[^a-z-]/g, '')
+      if (word.length >= 5 && !NEAR_STOP.has(word)) out.add(word.replace(/s$/, ''))
+    }
+  })
+  return [...out]
+}
+
+const NEAR_STOP = new Set([
+  'patients',
+  'participants',
+  'people',
+  'subjects',
+  'adults',
+  'children',
+  'months',
+  'weeks',
+  'years',
+  'their',
+  'these',
+  'those',
+  'which',
+  'there',
+  'total',
+  'cohort',
+  'study',
+  'analysis',
+  'received',
+  'achieved',
+  'reported',
+  'observed',
+  'approximately',
+])
+
+/** Whether one of the words sits within six tokens of a figure in the (lower-cased) sentence. */
+export function figureNear(lower: string, words: readonly string[]): boolean {
+  const tokens = lower.split(/\s+/)
+  return tokens.some((token, i) => {
+    if (!/\d/.test(token)) return false
+    for (let j = Math.max(0, i - 6); j <= Math.min(tokens.length - 1, i + 6); j++) {
+      const word = tokens[j]!.replace(/[^a-z-]/g, '')
+      if (words.some((w) => word.startsWith(w))) return true
+    }
+    return false
+  })
 }
 
 /** An extracted table row: a label, a count and its share in brackets, an optional footnote letter. */
@@ -448,6 +507,7 @@ export function replacementCue(
   preferred: string[]
   words: string[]
   kinds: { share: boolean; count: boolean; ratio: boolean }
+  near: string[]
 } {
   const claim = claimFeatures(sentence, lexicon, questionEntities)
   const anchors = [...new Set([...claim.anchors, ...questionEntities.map((e) => e.toLowerCase())])]
@@ -464,6 +524,7 @@ export function replacementCue(
     preferred: [...questionOutcomes],
     words: claim.words,
     kinds,
+    near: wordsNearFigures(sentence).filter((w) => !cohortTerms.includes(w)),
   }
 }
 

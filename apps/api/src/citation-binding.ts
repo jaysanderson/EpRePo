@@ -456,8 +456,10 @@ export interface BoundSentence {
   bound: number[]
   /** Which line of the answer the sentence sits on (an index into `layout`). */
   line: number
-  /** The markers the model or platform placed on the sentence (the provider's numbering), kept or not. */
+  /** The markers the model or platform placed on the sentence itself (the provider's numbering), kept or not. */
   original?: number[]
+  /** The markers sprayed at the end of the sentence's block, candidates for every sentence in it. */
+  block?: number[]
 }
 
 /** One line of the bound answer: a run of sentences with its list prefix, or a line kept as is. */
@@ -539,7 +541,13 @@ export function bindSentences(input: BindInput): BindResult {
 
   let dropped = 0
   let rebound = 0
-  const sentencesOut: { text: string; bound: number[]; line: number; original: number[] }[] = []
+  const sentencesOut: {
+    text: string
+    bound: number[]
+    line: number
+    original: number[]
+    block: number[]
+  }[] = []
   const lines = input.text.split('\n')
   const layout: BoundLine[] = []
 
@@ -612,8 +620,9 @@ export function bindSentences(input: BindInput): BindResult {
         text: plain,
         bound,
         line: layout.length,
+        original: [...new Set(own)],
         // The block's tail markers are candidates for every sentence in it.
-        original: [...new Set([...own, ...tailMarkers])],
+        block: tailMarkers.filter((n) => !own.includes(n)),
       })
     }
     layout.push({ kind: 'sentences', prefix, sentences: outSentences })
@@ -636,6 +645,7 @@ export function bindSentences(input: BindInput): BindResult {
     ),
     line: s.line,
     original: s.original,
+    block: s.block,
   }))
   return {
     text: renderBound(layout, sentences),
