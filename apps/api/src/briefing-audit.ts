@@ -47,6 +47,8 @@ export interface BriefingAudit {
   figuresRemoved: string[]
   sentencesRemoved: number
   takeawaysRemoved: number
+  /** Of the takeaways removed, those whose figure the referenced papers carry only second-hand. */
+  takeawaysSecondhand?: number
   /** Statements whose figure sits in the study text beside a different outcome or population. */
   statementsFailed: { figure: string; reason: 'outcome' | 'population' | 'absent' }[]
 }

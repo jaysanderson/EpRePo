@@ -27,8 +27,10 @@ export interface SectionSpan {
   end: number
 }
 
+// A heading may be numbered ("3 | Results"), or a Markdown heading ("##
+// Introduction:") in a text the platform extracted from HTML (loop 5 TFD).
 const HEADING =
-  /(?:^|\n)[ \t]*(?:\d{1,2}(?:\.\d{1,2})*\.?[ \t]*\|?[ \t]*)?(abstract|summary|introduction|background|(?:materials?,? (?:and|&) )?methods?(?: (?:and|&) (?:analysis|analyses|materials|design))?|(?:patients|participants|subjects) and methods|methods\/design|study design(?: and (?:methods|participants|setting))?|trial design|methodology|results(?: and discussion)?|findings|discussion|conclusions?|references|bibliography|acknowledg(?:e)?ments?|supplementary (?:material|information))\b[ \t]*(?::|\||\n|$)/gi
+  /(?:^|\n)[ \t]*(?:#{1,4}[ \t]+|\*\*)?(?:\d{1,2}(?:\.\d{1,2})*\.?[ \t]*\|?[ \t]*)?(abstract|summary|introduction|background|(?:materials?,? (?:and|&) )?methods?(?: (?:and|&) (?:analysis|analyses|materials|design))?|(?:patients|participants|subjects) and methods|methods\/design|study design(?: and (?:methods|participants|setting))?|trial design|methodology|results(?: and discussion)?|findings|discussion|conclusions?|references|bibliography|acknowledg(?:e)?ments?|supplementary (?:material|information))\b[ \t]*(?::|\||\*\*|\n|$)/gi
 
 function canonical(heading: string): Section {
   const h = heading.toLowerCase()
@@ -128,9 +130,26 @@ export function inTableOrLegend(text: string, offset: number): boolean {
     /^[\d.,<>=≤≥±%()\s/–-]+$/.test(line) && (line.match(/\d+(?:\.\d+)?/g) ?? []).length >= 2
   ) return true
   const before = text.slice(Math.max(0, lineStart - 600), lineStart)
-  const caption = /(?:^|\n)[ \t]*(?:table|figure|fig\.?)\s+S?\d+\b[^\n]*$/i
+  const caption = /(?:^|\n)[ \t]*(?:table|figure|fig\.?|graphical abstract)\s*S?\d*\b[^\n]*$/i
   const lines = before.split('\n').slice(-6).join('\n')
-  return caption.test(lines) && !/\n\s*\n[^\n]*\n\s*\n/.test(lines)
+  if (caption.test(lines) && !/\n\s*\n[^\n]*\n\s*\n/.test(lines)) return true
+  // A block of short lines is the text of a figure or graphical abstract
+  // ("13 subjects with epilepsy", "312 saliva samples collected"): the
+  // paper's own data, however the extraction placed it (loop 5 N07).
+  // Prose, a table caption and a reference list all run to long lines.
+  if (line.length <= 48 && !/[.!?]$/.test(line)) {
+    const near = [
+      ...text.slice(Math.max(0, lineStart - 400), lineStart).split('\n').map((l) => l.trim())
+        .filter((l) => l.length > 0).slice(-3),
+      ...text.slice(lineEnd === -1 ? text.length : lineEnd + 1).slice(0, 400).split('\n').map((
+        l,
+      ) => l.trim()).filter((l) => l.length > 0).slice(0, 3),
+    ]
+    if (near.length >= 4 && near.filter((l) => l.length <= 48).length >= near.length - 1) {
+      return true
+    }
+  }
+  return false
 }
 
 /** Whether the sentence around an offset attributes its figure to earlier work. */
@@ -161,7 +180,12 @@ export interface SecondhandFigure {
  * paper altogether is the audit's business, not this check's.
  */
 export function secondhandFigures(
-  sentences: readonly { text: string; bound: readonly number[] }[],
+  sentences: readonly {
+    text: string
+    bound: readonly number[]
+    /** The passage the audit located a figure in, per marker: judged instead of every occurrence of the number. */
+    located?: readonly { figure: string; index: number; passage: string }[]
+  }[],
   texts: ReadonlyMap<number, string>,
 ): SecondhandFigure[] {
   const spansByIndex = new Map<number, SectionSpan[]>()
@@ -188,7 +212,9 @@ export function secondhandFigures(
         const text = texts.get(index)
         const spans = spansFor(index)
         if (!text || !spans) continue
-        const offsets = figureOffsets(figure, text)
+        const place = (sentence.located ?? []).find((l) => l.figure === figure && l.index === index)
+        const at = place ? offsetOfPassage(text, place.passage) : -1
+        const offsets = at >= 0 ? [at] : figureOffsets(figure, text)
         if (offsets.length === 0) continue
         // A table row or a figure legend is the paper's own data wherever
         // the extraction placed it (D3-08); a figure the paper's own
@@ -217,6 +243,25 @@ export function secondhandFigures(
     }
   }
   return out
+}
+
+/**
+ * Where a normalised passage sits in the raw extracted text, by its first
+ * words, tolerant of the line breaks, hyphenation and separators the
+ * normalisation removed; -1 when it cannot be found.
+ */
+export function offsetOfPassage(text: string, passage: string): number {
+  const words = (passage.match(/[A-Za-z][A-Za-z-]{3,}/g) ?? []).slice(0, 5)
+  if (words.length < 2) return -1
+  const pattern = words
+    .map((w) =>
+      w.replace(/-/g, '').split('').map((ch) => ch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join(
+        '[-\\s]?',
+      )
+    )
+    .join('[\\s\\S]{1,24}?')
+  const m = new RegExp(pattern, 'i').exec(text)
+  return m ? m.index : -1
 }
 
 /**

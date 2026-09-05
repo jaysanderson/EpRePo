@@ -24,14 +24,15 @@ export function normaliseFigures(text: string): string {
  * The glyphs a PDF extraction writes where the paper has a decimal point,
  * a plus-minus sign or a thin space (docs/persona-reports/dsouza-loop4.md
  * D4-10): "1¢66 § 0¢52 h" is "1.66 ± 0.52 h", "1·66" (a Lancet-style
- * middle dot) is "1.66", and a thin, narrow, figure or non-breaking space
+ * middle dot) is "1.66", "0⋅70" (the dot operator a Lancet PDF extracts,
+ * loop 5 GB) is "0.70", and a thin, narrow, figure or non-breaking space
  * between digits or before a unit is an ordinary space. Applied to the
  * answer and to every source before any figure is read or quoted.
  */
 export function normaliseGlyphs(text: string): string {
   return text
     .replace(/[    ]/g, ' ')
-    .replace(/(\d)[¢·•](\d)/g, '$1.$2')
+    .replace(/(\d)[¢·•⋅∙‧](\d)/g, '$1.$2')
     .replace(/§/g, '±')
 }
 
@@ -241,9 +242,10 @@ export function figurePattern(token: string, flags = ''): RegExp {
   // its own.
   const proportion = unit === '%' ? proportionForm(value) : undefined
   // A time unit may follow its spread or interval: "1.66 ± 0.52 h", "414
-  // (IQR 256, 967) days" (D4-10).
+  // (IQR 256, 967) days" (D4-10). The interval's label is matched in either
+  // case: the check runs over a lower-cased text (loop 5 K5).
   const spread = time
-    ? '(?:\\s?\\(?±\\s?\\d+(?:\\.\\d+)?\\)?|\\s?\\((?:IQR|range|SD|95% CI)[^)]{0,30}\\))?'
+    ? '(?:\\s?\\(?±\\s?\\d+(?:\\.\\d+)?\\)?|\\s?\\((?:iqr|IQR|range|sd|SD|95\\s?% ci|95\\s?% CI)[^)]{0,30}\\))?'
     : ''
   return new RegExp(
     `(?:${number}${spread}(?:${unitPattern}|-\\d+(?:\\.\\d+)?${unitPattern})${
@@ -572,9 +574,12 @@ export function termForms(
   term: string,
   pairs: readonly { phrase: string; abbr: string }[],
 ): RegExp[] {
-  const forms: RegExp[] = [new RegExp(escapeRegExp(term).replace(/-/g, '-?\\s?'))]
+  const forms: RegExp[] = [new RegExp(spellings(escapeRegExp(term)).replace(/-/g, '-?\\s?'))]
   // A paper's table writes "Female" where the answer says "women".
   if (term === 'women' || term === 'woman') forms.push(/\bfemales?\b/)
+  // The abbreviation every paper uses without defining it.
+  if (term === 'interquartile') forms.push(/\biqrs?\b/i)
+  if (term === 'confidence') forms.push(/\bci\b/i)
   // "147 died" is the paper's "147 deceased" or "147 deaths".
   if (term === 'died' || term === 'death' || term === 'deaths') {
     forms.push(/\bdeceased\b|\bdeaths?\b|\bdie\b/)
@@ -597,6 +602,19 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
+/**
+ * British and American spellings as one pattern: "enrolment" finds
+ * "enrollment", "generalised" finds "generalized", "favourable" finds
+ * "favorable" (loop 5 HC, XB). Applied to an escaped term.
+ */
+export function spellings(escaped: string): string {
+  return escaped
+    .replace(/^enrol(?!l)/, 'enroll?')
+    .replace(/(?<=[a-z])i[sz](?=e|ed|es|ing|ation)/g, 'i[sz]')
+    .replace(/(?<=[a-z])our(?=[a-z])/g, 'ou?r')
+    .replace(/(?<=[a-z])ae(?=[a-z])/g, 'a?e')
+}
+
 // ---------------------------------------------------------------------------
 // Outcomes and timepoints: a figure beside a different outcome or a
 // different follow-up is a figure about something else
@@ -607,13 +625,16 @@ const OUTCOME_FAMILIES: [string, RegExp][] = [
   ['relapse', /\brelaps/],
   ['retention', /\bretention\b|\bretained\b/],
   ['seizure freedom', /\bseizure[- ]free|\bremission\b/],
-  ['mortality', /\bmortality\b|\bdeaths?\b|\bdied\b|\bsudep\b|\bfatal/],
+  ['mortality', /\bmortality\b|\bdeaths?\b|\bdied\b|\bdeceased\b|\bsudep\b|\bfatal/],
   ['discontinuation', /\bdiscontinu|\bwithdraw/],
   [
     'response',
-    /\brespon(?:se|der)|50\s?%\s+(?:seizure\s+)?reduction|reduction (?:of|in) seizure frequency/,
+    /\brespon(?:se|der)|50\s?%\s*(?:\([^)]{0,30}\)\s*)?(?:seizure\s+)?reduction|reduction (?:of|in) seizure frequency|reduction from baseline in [a-z ]{0,20}seizure/,
   ],
-  ['adverse events', /\badverse (?:event|effect|reaction)|\btolerab|\bside[- ]effect|\bteaes?\b/],
+  [
+    'adverse events',
+    /\badverse[- ](?:event|effect|reaction)|\btolerab|\bside[- ]effect|\bteaes?\b|\baes?\b/,
+  ],
   ['functional outcome', /\bmrs\b|\bmodified rankin|\bfunctional outcome|\bdisabilit/],
   ['drug resistance', /\bdrug[- ]resist|\bdre\b|\brefractor|\bpharmacoresist/],
   ['recurrence', /\brecurren/],
@@ -638,10 +659,11 @@ export function timepointsInMonths(text: string): number[] {
   const lower = text.toLowerCase()
   for (const m of lower.matchAll(TIMEPOINT)) {
     // A median or mean duration ("a median of 414 days", "mean retention
-    // time 18.7 months") is a result, not the follow-up it was measured at.
-    const before = lower.slice(Math.max(0, (m.index ?? 0) - 60), m.index ?? 0)
+    // time 18.7 months", "a median time to first relapse of 414 days") is
+    // a result, not the follow-up it was measured at.
+    const before = lower.slice(Math.max(0, (m.index ?? 0) - 80), m.index ?? 0)
     if (
-      /\b(?:median|mean|average)\b(?:\s+(?!at\b|follow)[a-z-]+){0,3}\s*(?:[\d.,]+\s*(?:\([^)]{0,30}\))?\s*)?$/
+      /\b(?:median|mean|average)\b(?:\s+(?!at\b|follow)[a-z-]+){0,6}\s*(?:[\d.,]+\s*(?:\([^)]{0,30}\))?\s*)?$/
         .test(before)
     ) {
       continue
@@ -705,7 +727,7 @@ export function isSampleSizeFigure(figure: string, normalisedSentence: string): 
   if (/%|\.|mg|[a-z]/.test(figure)) return false
   const n = figure.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   return new RegExp(
-    `\\bn\\s*=\\s*${n}(?![\\d])|(?<![\\d.])${n}\\s+(?:[a-z-]+\\s+)?(?:patients|participants|subjects|adults|children|individuals|people|persons|cases|controls|women|men|pwe|episodes|records|respondents|eyes|samples)|(?<![\\d.])${n}\\s*[)/]|/\\s*${n}(?![\\d])|(?<![\\d.])${n}\\s*\\(\\d{1,3}(?:\\.\\d+)?\\s?%\\)`,
+    `\\bn\\s*=\\s*${n}(?![\\d])|(?<![\\d.])${n}\\s+(?:[a-z-]+\\s+)?(?:patients|participants|subjects|adults|children|individuals|people|persons|cases|controls|women|men|pwe|episodes|records|respondents|eyes|samples)|(?<![\\d.])${n}\\s*[)/]|/\\s*${n}(?![\\d])|(?<![\\d.])${n}\\s*\\(\\d{1,3}(?:\\.\\d+)?\\s?%\\)|\\bout of\\s+${n}(?![\\d])`,
   ).test(normalisedSentence)
 }
 
@@ -760,6 +782,47 @@ export function qualifierForFigure(figure: string, text: PreparedSource): string
   return qualifier
 }
 
+/**
+ * The bracket a position sits inside, when it does: the unmatched "(" or
+ * "[" within 300 characters before it and its closer after it. A semicolon
+ * or a line break inside a statistics bracket ("[χ2 = 6.94; odds ratio =
+ * 10.00, 95% CI (1.68, 59.31)]") does not end the sentence the bracket
+ * belongs to, and the window of a figure inside it is the sentence's
+ * (loop 5 RB).
+ */
+export function bracketSpan(text: string, at: number): { open: number; close: number } | null {
+  // The outermost unmatched opener: "(1.68, 59.31)" inside "[odds ratio =
+  // 10.00, 95% CI (1.68, 59.31)]" belongs to the square bracket's sentence.
+  let depth = 0
+  const floor = Math.max(0, at - 300)
+  let open = -1
+  let unmatched = 0
+  for (let i = at - 1; i >= floor; i--) {
+    const ch = text[i]
+    if (ch === ')' || ch === ']') depth++
+    else if (ch === '(' || ch === '[') {
+      if (depth === 0) {
+        open = i
+        unmatched++
+      } else depth--
+    }
+  }
+  if (open === -1) return null
+  depth = 0
+  const ceiling = Math.min(text.length, at + 300)
+  for (let i = at; i < ceiling; i++) {
+    const ch = text[i]
+    if (ch === '(' || ch === '[') depth++
+    else if (ch === ')' || ch === ']') {
+      if (depth === 0) {
+        unmatched--
+        if (unmatched === 0) return { open, close: i }
+      } else depth--
+    }
+  }
+  return null
+}
+
 /** The sentence a position falls in, within its paragraph, in the normalised text. */
 export function ownSentenceBounds(
   text: string,
@@ -767,8 +830,10 @@ export function ownSentenceBounds(
   /** Whether a semicolon before a word ends the clause, as in `claimWindowBounds`. */
   clauses = true,
 ): { start: number; end: number } {
-  const floor = Math.max(0, at - 500)
-  const before = text.slice(floor, at)
+  const span = bracketSpan(text, at)
+  const from = span ? span.open : at
+  const floor = Math.max(0, from - 500)
+  const before = text.slice(floor, from)
   const clause = clauses ? ';\\s+(?=[a-z(])|' : ''
   // On a lower-cased text every sentence opens in lower case; on the
   // original a sentence opens with a capital, and an abbreviation's stop
@@ -780,12 +845,30 @@ export function ownSentenceBounds(
     ...before.matchAll(new RegExp(`${opener}|${clause}${PARAGRAPH_MARK}\\s*`, 'g')),
   ].map((m) => m.index + m[0].length)
   const start = boundaries.length > 0 ? boundaries[boundaries.length - 1]! : 0
-  const after = text.slice(at, at + 400)
-  const endMatch = new RegExp(
-    `[.!?](?:\\s|$)|${clauses ? ';\\s(?=[a-z(])|;$|' : ''}\\s${PARAGRAPH_MARK}`,
-  ).exec(after)
-  const end = endMatch ? at + endMatch.index + 1 : at + after.length
-  return { start: floor + start, end }
+  const tail = span ? span.close + 1 : at
+  return { start: floor + start, end: sentenceEnd(text, tail, 400, clauses) }
+}
+
+/**
+ * Where the sentence (or clause) that continues at `from` ends: the first
+ * stop, clause semicolon or paragraph mark outside any bracket, within
+ * `max` characters; "(FAS; n = 1111)" is part of its sentence.
+ */
+function sentenceEnd(text: string, from: number, max: number, clauses: boolean): number {
+  const ceiling = Math.min(text.length, from + max)
+  let depth = 0
+  for (let i = from; i < ceiling; i++) {
+    const ch = text[i]!
+    if (ch === '(' || ch === '[') depth++
+    else if (ch === ')' || ch === ']') depth = Math.max(0, depth - 1)
+    if (depth > 0) continue
+    if (ch === '.' || ch === '!' || ch === '?') {
+      if (i + 1 >= text.length || /\s/.test(text[i + 1]!)) return i + 1
+    } else if (clauses && ch === ';') {
+      if (i + 1 >= text.length || /\s[a-z(]/.test(text.slice(i + 1, i + 3))) return i + 1
+    } else if (ch === PARAGRAPH_MARK && i > from && /\s/.test(text[i - 1]!)) return i
+  }
+  return ceiling
 }
 
 /** A cited text prepared once for many figure checks. */
@@ -800,6 +883,504 @@ export interface PreparedSource {
 export function prepareSource(text: string): PreparedSource {
   const original = normaliseText(text)
   return { lower: original.toLowerCase(), original, pairs: abbreviationPairs(original) }
+}
+
+// ---------------------------------------------------------------------------
+// Locate first (docs/persona-reports/dsouza-loop5.md D5-01 to D5-04): the
+// figure is found in the cited paper's text and the sentence or table row
+// that carries it is what the claim is judged against - never a window of
+// nearby words alone.
+// ---------------------------------------------------------------------------
+
+/** One occurrence of a figure in a prepared text, with the sentence or table row that carries it. */
+export interface LocatedFigure {
+  /** Position of the figure in `text.lower`. */
+  at: number
+  /** The sentence that carries the figure (lower-cased), or the table row with its label and column headings. */
+  sentence: string
+  /** The same span of the original-case text. */
+  sentenceOriginal: string
+  /** The sentence and up to three before it within the paragraph (a table row's block is its own window), lower-cased. */
+  window: string
+  windowOriginal: string
+  /** Whether the figure sits in a table row rather than prose. */
+  row: boolean
+  /** A table row's label: the words before its first number, and the label line the extraction put before it. */
+  label: string
+  /** Whether the row's label says its numbers are counts ("N (%)", "Number deceased"). */
+  countRow: boolean
+  /** The window's own paragraph up to the figure (a row's block): where an n paired with the figure may sit. */
+  paragraph: string
+}
+
+/** A paragraph of the normalised text: its bounds and its trimmed content. */
+interface Paragraph {
+  start: number
+  end: number
+}
+
+function paragraphAt(text: string, at: number): Paragraph {
+  const mark = text.lastIndexOf(PARAGRAPH_MARK, at)
+  const start = mark === -1 ? 0 : mark + 1
+  const next = text.indexOf(PARAGRAPH_MARK, at)
+  const end = next === -1 ? text.length : next
+  return { start, end }
+}
+
+function paragraphBefore(text: string, paragraph: Paragraph): Paragraph | null {
+  if (paragraph.start <= 1) return null
+  const end = paragraph.start - 1
+  const mark = text.lastIndexOf(PARAGRAPH_MARK, end - 1)
+  return { start: mark === -1 ? 0 : mark + 1, end }
+}
+
+/**
+ * Whether a paragraph of the normalised text is an extracted table row:
+ * two or more numbers, at most a short label of words, no sentence inside
+ * it and no closing stop - "N (%) 868 (48%) 937 (52%)", "Number deceased
+ * 60 87 63", "9 (4-14) 9 (5-13)", "Female, n (%) 13 (50%)".
+ */
+export function isRowParagraph(paragraph: string): boolean {
+  const p = paragraph.trim()
+  if (p.length === 0 || p.length > 400) return false
+  const numbers = p.match(/(?<![\w.])\d[\d,]*(?:\.\d+)?%?/g) ?? []
+  if (numbers.length < 2) return false
+  if (/[.!?]\s+[A-Za-z]/.test(p) || /[.!?]$/.test(p)) return false
+  const letters = p.replace(/[\d.,%()[\]±<>=≤≥/–—-]+/g, ' ').replace(/\s+/g, ' ').trim()
+  return letters.length <= 70 && letters.split(' ').filter(Boolean).length <= 8
+}
+
+/** Whether a short paragraph is a table cell or caption rather than prose. */
+function isCellParagraph(paragraph: string): boolean {
+  const p = paragraph.trim()
+  if (p.length === 0) return false
+  if (/^(?:t\s?a\s?b\s?l\s?e|table)\s+s?\d+/i.test(p)) return p.length <= 220
+  if (p.length > 90) return false
+  return !/[.!?]\s+[A-Za-z]/.test(p) && !/[.!?]$/.test(p)
+}
+
+const CAPTION = /^(?:t\s?a\s?b\s?l\s?e|table)\s+s?\d+/i
+
+/** "N (%)", "n", "No.", "Number deceased", "Deaths": a label under which bare numbers are counts. */
+const COUNT_LABEL =
+  /(?:^|[\s,(])(?:n|no\.?|number|count|counts|total|deaths?|deceased|died|patients|participants|subjects)(?:$|[\s,()%])/i
+
+/**
+ * The block a table row belongs to: the caption and column headings the
+ * extraction placed before it (short cell paragraphs, skipping sibling
+ * rows, at most fourteen paragraphs back and stopping at prose), the
+ * label line put just before it, and the row itself. A figure in a table
+ * cell is judged against its row label and its column headings, which is
+ * where the paper says what the cell counts (loop 5 N12, E4, XA, DCB).
+ */
+function rowBlock(text: PreparedSource, paragraph: Paragraph): {
+  spans: Paragraph[]
+  label: string
+} {
+  const spans: Paragraph[] = [paragraph]
+  const rowText = text.lower.slice(paragraph.start, paragraph.end).trim()
+  const labelParts = [rowText.replace(/\d.*$/s, '').trim()]
+  let previous = paragraphBefore(text.lower, paragraph)
+  let steps = 0
+  let adjacent = true
+  while (previous && steps < 14) {
+    const content = text.lower.slice(previous.start, previous.end).trim()
+    steps++
+    if (content.length === 0) {
+      previous = paragraphBefore(text.lower, previous)
+      continue
+    }
+    if (isRowParagraph(content)) {
+      adjacent = false
+      previous = paragraphBefore(text.lower, previous)
+      continue
+    }
+    if (!isCellParagraph(content)) break
+    spans.unshift(previous)
+    if (adjacent && labelParts.length < 3) labelParts.push(content)
+    if (CAPTION.test(content)) break
+    previous = paragraphBefore(text.lower, previous)
+  }
+  return { spans, label: labelParts.filter((p) => p.length > 0).join(' ') }
+}
+
+/** The short forms a table's label writes a time unit in. */
+const UNIT_IN_LABEL: Record<string, RegExp> = {
+  years: /(?:^|[\s,(])(?:y|yr|yrs|years?)(?:$|[\s,)])/,
+  months: /(?:^|[\s,(])(?:mo|mos|months?)(?:$|[\s,)])/,
+  weeks: /(?:^|[\s,(])(?:wk|wks|weeks?)(?:$|[\s,)])/,
+  days: /(?:^|[\s,(])(?:d|days?)(?:$|[\s,)])/,
+  hours: /(?:^|[\s,(])(?:h|hr|hrs|hours?)(?:$|[\s,)])/,
+}
+
+/**
+ * Every place a figure occurs in a prepared text, each with the sentence
+ * or table row that carries it. A figure with a time unit is also found as
+ * the bare number of a table row whose label names the unit ("Follow-up
+ * duration, y, median (IQR)" over "9 (4-14) 9 (5-13)", loop 5 XA).
+ */
+export function locateFigure(figure: string, text: PreparedSource): LocatedFigure[] {
+  const out: LocatedFigure[] = []
+  const seen = new Set<number>()
+  const place = (at: number, unitRow?: string) => {
+    if (seen.has(at)) return
+    const paragraph = paragraphAt(text.lower, at)
+    const content = text.lower.slice(paragraph.start, paragraph.end)
+    const row = isRowParagraph(content)
+    if (unitRow && !row) return
+    if (row) {
+      const block = rowBlock(text, paragraph)
+      if (unitRow && !UNIT_IN_LABEL[unitRow]!.test(block.label)) return
+      const lower = block.spans.map((s) => text.lower.slice(s.start, s.end).trim()).join(
+        ` ${PARAGRAPH_MARK} `,
+      )
+      const original = block.spans.map((s) => text.original.slice(s.start, s.end).trim()).join(
+        ` ${PARAGRAPH_MARK} `,
+      )
+      seen.add(at)
+      out.push({
+        at,
+        sentence: lower,
+        sentenceOriginal: original,
+        window: lower,
+        windowOriginal: original,
+        row: true,
+        label: block.label,
+        countRow: COUNT_LABEL.test(block.label),
+        paragraph: lower,
+      })
+      return
+    }
+    const own = ownSentenceBounds(text.lower, at)
+    const window = claimWindowBounds(text.lower, at)
+    // The window may reach back over a paragraph mark (a table cell reaches
+    // its heading); an n paired with the figure never comes from before one.
+    const before = text.lower.slice(window.start, at)
+    const paragraphStart = window.start + Math.max(0, before.lastIndexOf(PARAGRAPH_MARK) + 1)
+    seen.add(at)
+    out.push({
+      at,
+      sentence: text.lower.slice(own.start, own.end),
+      sentenceOriginal: text.original.slice(own.start, own.end),
+      window: text.lower.slice(window.start, window.end),
+      windowOriginal: text.original.slice(window.start, window.end),
+      row: false,
+      label: '',
+      countRow: false,
+      paragraph: text.lower.slice(paragraphStart, window.end),
+    })
+  }
+  const re = figurePattern(figure, 'g')
+  let m: RegExpExecArray | null
+  while ((m = re.exec(text.lower)) !== null) place(m.index)
+  const time = /^(\d+(?:\.\d+)?)((?:month|week|year|day|hour)s)$/.exec(figure)
+  if (time) {
+    const bare = new RegExp(`(?<![\\d.])${time[1]!.replace('.', '\\.')}(?![\\d])`, 'g')
+    while ((m = bare.exec(text.lower)) !== null) place(m.index, time[2])
+  }
+  return out
+}
+
+/** Words of a quantity phrase that name nothing about which quantity it is. */
+const PHRASE_STOP = new Set([
+  'rate',
+  'rates',
+  'ratio',
+  'ratios',
+  'level',
+  'levels',
+  'value',
+  'values',
+  'score',
+  'scores',
+  'group',
+  'groups',
+  'cohort',
+  'cohorts',
+  'patients',
+  'participants',
+  'subjects',
+  'people',
+  'persons',
+  'individuals',
+  'adults',
+  'children',
+  'women',
+  'men',
+  'cases',
+  'controls',
+  'study',
+  'studies',
+  'analysis',
+  'trial',
+  'month',
+  'months',
+  'week',
+  'weeks',
+  'year',
+  'years',
+  'day',
+  'days',
+  'hour',
+  'hours',
+  'time',
+  'timepoint',
+  'mark',
+  'point',
+  'least',
+  'most',
+  'more',
+  'less',
+  'than',
+  'only',
+  'about',
+  'approximately',
+  'around',
+  'roughly',
+  'nearly',
+  'almost',
+  'over',
+  'under',
+  'just',
+  'total',
+  'overall',
+  'specifically',
+  'respectively',
+  'which',
+  'that',
+  'these',
+  'those',
+  'this',
+  'with',
+  'without',
+  'from',
+  'were',
+  'was',
+  'had',
+  'has',
+  'have',
+  'been',
+  'being',
+  'each',
+  'both',
+  'all',
+  'any',
+  'per',
+  'the',
+  'and',
+  'for',
+  'stated',
+  'reported',
+  'not',
+])
+
+/** A verb or link that closes the phrase before a figure: "the rate was 33.6%", "included 1,216 patients". */
+const PHRASE_LINK =
+  /\b(?:was|were|is|are|of|at|reached|reaching|included|includes|comprised|comprising|involved|involving|totalled|totaled|had|has|showed|showing|reported|found|achieved|occurred in|experienced|documented|recorded|identified|enrolled|recruited|implanted|by|to|from|in|among|for|=|:)\s*(?:only|approximately|about|around|roughly|over|under|just|nearly|almost|up to|a|an|the|as|being)?\s*(?:approximately|about|around|roughly|nearly|almost|over)?\s*$/
+
+/** Clause boundaries inside a claim sentence: each figure is judged with the clause it sits in. */
+const CLAUSE_BREAK =
+  /;|,\s*(?:while|whereas|and|but|compared|versus|vs\.?)\s|\s(?:while|whereas)\s/g
+
+/** The designators and quoted titles of a clause: they name a study, not the quantity. */
+const DESIGNATOR_PHRASE =
+  /\b(?:the|this|that|a|an)\s+(?:[\w"'-]+\s+){0,6}?(?:cohort|study|trial|analysis|analyses|register|registry|paper|consortium|programme|program)\b|"[^"]{12,}"/g
+
+export interface QuantityPhrase {
+  /** The clause of the claim the figure sits in, lower-cased, as written. */
+  rawClause: string
+  /** The same clause with designators and quoted titles removed. */
+  clause: string
+  /** The distinctive words of the noun phrase the figure measures, lower-cased and stemmed as claim terms are. */
+  words: string[]
+  /** The claim's names that sit in that phrase: the intervention the figure is given to ("LITT achieved 76%"). */
+  anchors: string[]
+  /** The outcome families the phrase (or, failing that, the clause, or the sentence) names. */
+  families: string[]
+  /** Whether a percentage is a responder threshold in the claim ("50% responder rate"). */
+  threshold: boolean
+  /** The n the claim pairs with the figure in its own bracket ("14.9% (n = 1111)", "64.2% (2698/4201)"). */
+  pairedNs: string[]
+}
+
+/**
+ * The quantity a figure measures in the claim: the noun phrase before its
+ * verb ("the adverse-event discontinuation rate was 33.6%"), the words
+ * after it when the phrase is empty ("80% of EDs occur during sleep"), or
+ * the label of the bracket it sits in ("(n = 4201, retention population)").
+ * The located sentence in the paper must share one of its words, and every
+ * outcome it names (all-cause is not adverse-event, loop 5 TFA); a
+ * responder threshold in one must be a threshold in the other (loop 5
+ * DCC); an n paired in the claim's bracket must be the paper's pairing
+ * (loop 5 TFA, D4-05).
+ */
+export function quantityPhrase(
+  claim: ClaimFeatures,
+  figure: string,
+  entities: ReadonlySet<string> = new Set(),
+): QuantityPhrase {
+  const sentence = claim.normalised
+  const m = figurePattern(figure).exec(sentence)
+  const empty: QuantityPhrase = {
+    rawClause: sentence,
+    clause: sentence,
+    words: [],
+    anchors: [],
+    families: [],
+    threshold: false,
+    pairedNs: [],
+  }
+  if (!m) return empty
+  const at = m.index
+  const after = at + m[0].length
+  let clauseStart = 0
+  let clauseEnd = sentence.length
+  for (const b of sentence.matchAll(CLAUSE_BREAK)) {
+    const i = b.index ?? 0
+    if (i < at) clauseStart = i + b[0].length
+    else if (i >= after && clauseEnd === sentence.length) clauseEnd = i
+  }
+  const rawClause = sentence.slice(clauseStart, clauseEnd)
+  const clause = rawClause.replace(DESIGNATOR_PHRASE, ' ').replace(/\s+/g, ' ').trim()
+  const stripped = sentence.replace(DESIGNATOR_PHRASE, ' ')
+  const distinctive = (phrase: string): string[] => {
+    const out: string[] = []
+    for (const w of phrase.toLowerCase().match(/[a-z][a-z-]{2,}/g) ?? []) {
+      const parts = w.includes('-') ? [w, ...w.split('-')] : [w]
+      for (const part of parts) {
+        if (part.length < 3 || STOP.has(part) || GENERIC.has(part) || PHRASE_STOP.has(part)) {
+          continue
+        }
+        if (entities.has(part) || claim.anchors.includes(part)) continue
+        if (/^(?:month|week|year|day|hour)s?$|^(?:mg|kg|ml)$/.test(part)) continue
+        const stem = part.replace(/s$/, '')
+        if (!out.includes(stem)) out.push(stem)
+      }
+    }
+    return out
+  }
+  // The bracket the figure sits in, when it does: an n's label is the
+  // analysis set after it; a statistic's label is the name before it.
+  let phrase = ''
+  const span = bracketSpan(sentence, at)
+  if (span && span.open >= clauseStart) {
+    const inside = sentence.slice(span.open + 1, at)
+    if (/^\s*n\s*=\s*$/.test(inside)) {
+      phrase = sentence.slice(after, span.close).replace(/^[\s,;]+/, '')
+    } else if (/[a-z]{3,}/.test(inside)) {
+      phrase = inside.replace(/[\d.,;:=%()-]+/g, ' ')
+    }
+  }
+  // The words after the figure: "80% of EDs in this group occur", "24
+  // completed the study", "937 patients had a psychiatric diagnosis".
+  const following = (): string => {
+    const rest = sentence.slice(after, clauseEnd).replace(
+      /^\s*(?:of|out of|the|in|among|per)\s+/,
+      '',
+    )
+    const cut = /[,;:.]|\s(?:which|that|with|compared|versus|vs\.?|at\s+\d)\b/.exec(rest)
+    return (cut ? rest.slice(0, cut.index) : rest).split(/\s+/).slice(0, 8).join(' ')
+  }
+  // The subject before the figure's verb: "the adverse-event
+  // discontinuation rate was 33.6%", "the safety population included 1216".
+  const subject = (): string => {
+    const before = sentence.slice(clauseStart, at)
+    const link = PHRASE_LINK.exec(before)
+    if (!link) return ''
+    const words = before.slice(0, link.index).replace(DESIGNATOR_PHRASE, ' ').trim().split(/\s+/)
+      .filter(Boolean)
+    return words.slice(-8).join(' ')
+  }
+  if (!phrase.trim()) {
+    const ofNoun = /^\s*(?:of|out of)\s+/.test(sentence.slice(after, clauseEnd))
+    const candidates = ofNoun ? [following(), subject()] : [subject(), following()]
+    phrase = candidates.find((c) => distinctive(c).length > 0) ?? ''
+    if (!phrase) {
+      const tail = sentence.slice(clauseStart, at).replace(DESIGNATOR_PHRASE, ' ').trim().split(
+        /\s+/,
+      ).slice(-4).join(' ')
+      if (distinctive(tail).length > 0) phrase = tail
+    }
+  }
+  const words = distinctive(phrase)
+  // The name the figure is given to sits in its subject ("LITT achieved
+  // 76%") or in the phrase itself.
+  const named = `${subject()} ${phrase}`
+  const anchorsInPhrase = claim.anchors.filter((a) => named.includes(a))
+  const phraseFamilies = outcomeFamilies(phrase.replace(DESIGNATOR_PHRASE, ' '))
+  const families = phraseFamilies.length > 0
+    ? phraseFamilies
+    : outcomeFamilies(clause).length > 0
+    ? outcomeFamilies(clause)
+    : outcomeFamilies(stripped)
+  return {
+    rawClause,
+    clause,
+    words,
+    anchors: anchorsInPhrase,
+    families,
+    threshold: figure.endsWith('%') && isThresholdAt(sentence, at, after),
+    pairedNs: figure.endsWith('%') ? pairedNsAfter(sentence.slice(after)) : [],
+  }
+}
+
+/**
+ * Whether the percentage at a position is a responder threshold rather
+ * than a rate: "≥ 50% seizure reduction", "at least 50% reduction", "the
+ * 50% responder rate". A rate of 50% is none of these.
+ */
+export function isThresholdAt(text: string, at: number, after: number): boolean {
+  const before = text.slice(Math.max(0, at - 16), at)
+  const rest = text.slice(after, after + 40)
+  if (/(?:[≥>]\s?=?\s?|at least\s|more than\s|greater than\s|over\s)$/.test(before)) return true
+  if (/^\s+or\s+(?:greater|more|higher)\b/.test(rest)) return true
+  if (/^\s+respon/.test(rest)) return true
+  // "a 50% reduction" defines a responder; "a 45.7% reduction in seizure
+  // frequency" is a measured change. A threshold is a round figure.
+  const round = /^(?:25|50|75|90|100)\s?%$/.test(text.slice(at, after).trim())
+  return round &&
+    /^\s+(?:(?:seizure|seizure[- ]frequency)\s+)?reduction/.test(rest)
+}
+
+/** The n a claim pairs with a share in the bracket after it: "(n = 1111)", "(2698/4201)", "(395 out of 1,674)". */
+export function pairedNsAfter(rest: string): string[] {
+  const m = /^[^%\d(]{0,40}?\(\s*(?:n\s*=\s*)?(\d[\d,]*)(?:\s*(?:\/|out of|of)\s*(\d[\d,]*))?/.exec(
+    rest,
+  )
+  if (!m) return []
+  return [m[1]!, m[2]].filter((n): n is string => n !== undefined).map((n) => n.replace(/,/g, ''))
+}
+
+/**
+ * The ns a located text pairs with the share at an occurrence: the bracket
+ * after it ("14.9% (n = 1111)", "64.2% (2698/4201)"), or the count before
+ * it in a "13 (50%)" cell with the whole its block gives ("(N = 26)",
+ * "of 1805"). Empty when the text pairs nothing with the figure there.
+ */
+export function pairedNsAt(lower: string, occ: LocatedFigure, figureLength: number): string[] {
+  const rest = lower.slice(occ.at + figureLength, occ.at + figureLength + 60)
+  const after =
+    /^\s*\(\s*(?:[a-z]{2,6}\s*[;:,]\s*)?(?:n\s*=\s*)?(\d[\d,]*)(?:\s*(?:\/|out of|of)\s*(\d[\d,]*))?/
+      .exec(rest)
+  const out: string[] = []
+  if (after) {
+    for (const n of [after[1], after[2]]) if (n) out.push(n.replace(/,/g, ''))
+    return out
+  }
+  const before = lower.slice(Math.max(0, occ.at - 14), occ.at)
+  const counted = /(\d[\d,]*) \($/.exec(before)
+  if (counted?.[1] && /^\s*\)/.test(rest)) {
+    out.push(counted[1].replace(/,/g, ''))
+    for (
+      const w of occ.window.matchAll(
+        /\bn\s*=\s*(\d[\d,]*)|\b(?:of|among)\s+(?:the\s+)?(\d[\d,]{2,})\b/g,
+      )
+    ) {
+      const n = (w[1] ?? w[2])?.replace(/,/g, '')
+      if (n && !out.includes(n)) out.push(n)
+    }
+  }
+  return out
 }
 
 /** What a sentence brings to a figure check, computed once per sentence. */
@@ -835,7 +1416,8 @@ export function claimFeatures(
     outcomes: outcomeFamilies(sentence),
     timepoints: timepointsInMonths(normaliseFigures(digits)),
     figures: extractNumbers(sentence),
-    normalised: normaliseFigures(digits).toLowerCase(),
+    // The claim is read as the sources are: "1,805 adults" is "1805 adults".
+    normalised: normaliseFigures(digits).toLowerCase().replace(/,(?=\d{3}\b)/g, ''),
   }
 }
 
@@ -845,16 +1427,20 @@ function isSpecificFigure(figure: string): boolean {
 }
 
 /**
- * Whether one text carries the figure beside the claim: the figure must
- * occur in a window (its own sentence and up to three before it, within
- * the paragraph) that also carries one of the claim's names - or, for a
- * sentence with no names, two of its specific words, or three of its
- * content words when it has no specific words - and that window must not
- * attribute the figure to a different outcome or a different follow-up.
- * The figure followed by the same noun as in the sentence ("220
- * participants") counts as beside the claim. Every name the question also
- * uses must be somewhere in the text: a figure the sentence gives the
- * Melbourne cohort cannot come from a paper that never mentions Melbourne.
+ * Whether one text carries the figure beside the claim. The figure is
+ * located first: each occurrence brings the sentence or table row that
+ * carries it (and, for prose, the window of up to three sentences before
+ * it within the paragraph). The claim is placed when that sentence shares
+ * one of the claim's names, two of its specific words, the noun the figure
+ * qualifies, a word of the quantity the figure measures, every outcome that
+ * quantity names, or the name the question routes on; a table cell is
+ * placed by its row label and column headings, and a "13 (50%)" cell by
+ * the pair of figures the claim states together. The located sentence must
+ * then not attribute the figure to a different outcome, follow-up,
+ * statistic, responder threshold or denominator pairing. Every name the
+ * figure's own clause gives it must be somewhere in the text: a figure the
+ * sentence gives the Melbourne cohort cannot come from a paper that never
+ * mentions Melbourne.
  */
 export function figureSupportedBy(
   figure: string,
@@ -867,16 +1453,26 @@ export function figureSupportedBy(
   const hits = (forms: RegExp[][], lower: string, original: string) =>
     forms.filter((alternatives) => alternatives.some((re) => re.test(lower) || re.test(original)))
       .length
+  const quantity = quantityPhrase(claim, figure, new Set(claim.anchors))
+  // A comparison sentence gives each study its own figure (loop 5 ED):
+  // each paper is asked only for the names of the clause its figure sits
+  // in, and for every one of them.
   for (const name of claim.mandatory) {
+    if (!quantity.rawClause.includes(name)) continue
     const forms = termForms(name, text.pairs)
     if (!forms.some((re) => re.test(text.lower) || re.test(text.original))) {
       return { supported: false, reason: 'entity' }
     }
   }
-  const re = figurePattern(figure, 'g')
-  // The noun the figure qualifies in the sentence: "220 participants".
+  const phraseForms = quantity.words.map((w) => termForms(w, text.pairs))
+  const routingForms = claim.mandatory.map((name) => termForms(name, text.pairs))
+  const foreign = quantity.anchors.filter((a) => !isSubjectOf(a, text)).map((a) =>
+    termForms(a, text.pairs)
+  )
+  // The noun the figure qualifies in the sentence: "220 participants",
+  // "80% of EDs".
   const SMALL = '(?:\\s+(?:of|the|in|among|a|an|per|with))*'
-  const nounMatch = new RegExp(`${figurePattern(figure).source}${SMALL}\\s+([a-z][a-z-]{3,})`)
+  const nounMatch = new RegExp(`${figurePattern(figure).source}${SMALL}\\s+([a-z][a-z-]{2,})`)
     .exec(claim.normalised)
   const noun = nounMatch?.[1]
   // A count of people is placed by any noun for people: "147 patients
@@ -893,14 +1489,20 @@ export function figureSupportedBy(
     )
     : null
   const sampleSize = isSampleSizeFigure(figure, claim.normalised)
-  let m: RegExpExecArray | null
+  const timepoint = isTimepointFigure(figure)
+  const result = !sampleSize && !timepoint
+  // The follow-up the figure is stated at is the one in its own clause: a
+  // "12-week trial" the question plans for is not the follow-up of the
+  // placebo rate the sentence quotes (loop 5 TFD).
+  const claimTimepoints = quantity.clause === claim.normalised
+    ? claim.timepoints
+    : timepointsInMonths(quantity.clause)
   let reason: FigureCheck['reason'] = 'absent'
-  while ((m = re.exec(text.lower)) !== null) {
-    const { start, end } = claimWindowBounds(text.lower, m.index)
-    const lower = text.lower.slice(start, end)
-    const original = text.original.slice(start, end)
-    const own = ownSentenceBounds(text.lower, m.index)
-    const ownSentence = text.lower.slice(own.start, own.end)
+  for (const occ of locateFigure(figure, text)) {
+    const lower = occ.window
+    const original = occ.windowOriginal
+    const ownSentence = occ.sentence
+    const ownOriginal = occ.sentenceOriginal
     let beside = false
     // Two of the sentence's figures in one window ("937 (52%)", "14%-35%")
     // place a claim that names nothing: two numbers matching at once is not
@@ -942,10 +1544,10 @@ export function figureSupportedBy(
     }
     if (
       !beside && claim.anchors.length === 0 && claim.outcomes.length > 0 &&
-      !isTimepointFigure(figure) && !sampleSize &&
+      !timepoint && !sampleSize &&
       outcomeFamilies(ownSentence).some((o) => claim.outcomes.includes(o)) &&
-      (claim.timepoints.length === 0 ||
-        timepointsInMonths(lower).some((w) => claim.timepoints.some((s) => sameTimepoint(s, w))))
+      (claimTimepoints.length === 0 ||
+        timepointsInMonths(lower).some((w) => claimTimepoints.some((s) => sameTimepoint(s, w))))
     ) {
       // A claim that names no intervention, cohort or study is placed by
       // its outcome: the figure, with its unit, in a sentence about the
@@ -955,6 +1557,38 @@ export function figureSupportedBy(
       // (D3-02). A claim that names LITT still needs LITT beside it.
       beside = true
     }
+    // Locate first (loop 5 D5-01): the sentence or table row that carries
+    // the figure places the claim when it shares a word of the quantity
+    // the figure measures ("80% of EDs" beside "80% of EDs in Group 1",
+    // "24 completed" beside "24 participants completed"), every outcome
+    // that quantity names, or the name the question routes on. A table
+    // cell is placed by its row label and column headings, and a "13
+    // (50%)" cell by the count and share the claim states together.
+    // A name the figure's own phrase gives it ("LITT achieved 76%") must
+    // still be in the window, unless the paper is about that name (it
+    // abbreviates it, or names it throughout): an RFTC review's 76% is
+    // not LITT's, while the EXPERIENCE paper's seizure freedom rates are
+    // brivaracetam's on every page.
+    const named = foreign.every((forms) => forms.some((re) => re.test(lower) || re.test(original)))
+    if (
+      !beside && named && phraseForms.length > 0 &&
+      hits(phraseForms, ownSentence, ownOriginal) >= 1
+    ) {
+      beside = true
+    }
+    if (
+      !beside && named && result && quantity.families.length > 0 &&
+      quantity.families.every((f) => outcomeFamilies(ownSentence).includes(f))
+    ) {
+      beside = true
+    }
+    if (
+      !beside && named && routingForms.length > 0 &&
+      hits(routingForms, ownSentence, ownOriginal) >= 1
+    ) {
+      beside = true
+    }
+    if (!beside && named && occ.row && countWithShare(claim, figure, ownSentence)) beside = true
     if (!beside && sampleSize && isCountOfPeople(figure, ownSentence)) {
       // A count the answer states as a sample size ("n = 1644") is placed
       // by the paper writing it as a count of people too ("1644 adults",
@@ -962,10 +1596,22 @@ export function figureSupportedBy(
       // something else; the sentence's other figures still have to match.
       beside = true
     }
+    // A bare number on a count row ("Number deceased 60 87") is a count of
+    // what the label and headings say: the claim must share a word or an
+    // outcome with them (loop 5 E4).
+    // The column headings apply to every row, so only the row's own label
+    // can say what its numbers count: "Number deceased" is the deaths,
+    // whatever a "Depressive disorder" column heading says above it.
+    const countRowPlaced = occ.countRow && sampleSize && named &&
+      (hits(phraseForms, occ.label, occ.label) >= 1 ||
+        hits(wordForms, occ.label, occ.label) >= 1 ||
+        (quantity.families.length > 0 &&
+          quantity.families.every((f) => outcomeFamilies(occ.label).includes(f))))
+    if (!beside && countRowPlaced) beside = true
     // And the other way round: a sample size the claim states is never
     // placed by a bare number in a range or a score ("[6-231]") whatever
     // names sit beside it; the text's own sentence must count with it.
-    if (beside && sampleSize && !isSampleSizeFigure(figure, ownSentence)) {
+    if (beside && sampleSize && !isSampleSizeFigure(figure, ownSentence) && !countRowPlaced) {
       if (reason === 'absent') reason = 'terms'
       continue
     }
@@ -979,16 +1625,27 @@ export function figureSupportedBy(
     // never by a table's univariable column or a sentence about the mean
     // (D4-18). The claim's terms are otherwise satisfied, so the reason
     // stays 'terms'.
-    if (!sampleSize && !isTimepointFigure(figure) && statisticQualifierConflict(claim, lower)) {
+    if (result && statisticQualifierConflict(claim, lower)) {
       if (reason === 'absent') reason = 'terms'
       continue
     }
     // A sample size is placed by its noun and contradicts no outcome or
     // follow-up; a result is judged by the sentence it sits in first, then
     // by the passage before it.
-    if (!sampleSize && !isTimepointFigure(figure)) {
-      if (timepointConflict(claim.timepoints, lower)) {
+    if (result) {
+      if (timepointConflict(claimTimepoints, lower)) {
         reason = 'timepoint'
+        continue
+      }
+      // Every outcome the quantity names must be in the located sentence's
+      // window: an all-cause discontinuation is not an adverse-event
+      // discontinuation, and a worsening-frequency rate is not a seizure
+      // freedom rate (loop 5 TFA, XB).
+      if (
+        quantity.families.length > 0 &&
+        !quantity.families.every((f) => outcomeFamilies(lower).includes(f))
+      ) {
+        reason = 'outcome'
         continue
       }
       const ownOutcomes = outcomeFamilies(ownSentence)
@@ -999,15 +1656,74 @@ export function figureSupportedBy(
         reason = 'outcome'
         continue
       }
+      // A responder threshold is not a rate: the paper's "50% responder
+      // rate" cannot vouch for "the responder rate was 50%" (loop 5 DCC).
+      if (figure.endsWith('%')) {
+        const length = (figurePattern(figure).exec(text.lower.slice(occ.at)) ?? [''])[0].length
+        if (quantity.threshold !== isThresholdAt(text.lower, occ.at, occ.at + length)) {
+          if (reason === 'absent') reason = 'terms'
+          continue
+        }
+        // The n the claim pairs with the share in its own bracket must be
+        // the paper's pairing for that share: the bracket the located
+        // sentence gives, or, when it gives none, an n in its window
+        // (loop 5 TFA, TDE; D4-05).
+        if (quantity.pairedNs.length > 0) {
+          const paired = pairedNsAt(text.lower, occ, length)
+          const agrees = paired.length > 0
+            ? quantity.pairedNs.some((n) => paired.includes(n))
+            : quantity.pairedNs.some((n) => figurePattern(n).test(occ.paragraph))
+          if (!agrees) {
+            if (reason === 'absent') reason = 'terms'
+            continue
+          }
+        }
+      }
     }
     // The passage reported is the whole sentence: its opening frame names
-    // the population the figure is for.
-    // Bounds read on the original case: a lower-cased "Fig. S1a" would
-    // read as a sentence end.
-    const whole = ownSentenceBounds(text.original, m.index, false)
+    // the population the figure is for. Bounds read on the original case:
+    // a lower-cased "Fig. S1a" would read as a sentence end.
+    if (occ.row) return { supported: true, passage: ownOriginal }
+    const whole = ownSentenceBounds(text.original, occ.at, false)
     return { supported: true, passage: text.original.slice(whole.start, whole.end) }
   }
   return { supported: false, reason }
+}
+
+/**
+ * Whether a paper is about a name: it defines an abbreviation for it, or
+ * names it eight times or more. The EXPERIENCE paper is about
+ * brivaracetam; an RFTC review that compares itself with LITT is not
+ * about LITT.
+ */
+export function isSubjectOf(name: string, text: PreparedSource): boolean {
+  const forms = termForms(name, text.pairs)
+  if (text.pairs.some((p) => p.phrase === name || p.phrase.endsWith(` ${name}`))) return true
+  let count = 0
+  const re = new RegExp(forms[0]!.source, 'g')
+  while (re.exec(text.lower) !== null && count < 8) count++
+  return count >= 8
+}
+
+/**
+ * Whether a table cell pairs a count and a share the claim states together:
+ * the claim's "13 out of 26, or 50%" is the row's "Female, n (%) 13 (50%)"
+ * (loop 5 DCB).
+ */
+export function countWithShare(claim: ClaimFeatures, figure: string, row: string): boolean {
+  const counts = claim.figures.filter((f) => f !== figure && /^\d+$/.test(f))
+  const shares = claim.figures.filter((f) => f !== figure && f.endsWith('%'))
+  if (figure.endsWith('%')) {
+    return counts.some((c) =>
+      new RegExp(`(?<![\\d.])${c}\\s*\\(${escapeRegExp(figure)}\\)`).test(row)
+    )
+  }
+  if (/^\d+$/.test(figure)) {
+    return shares.some((s) =>
+      new RegExp(`(?<![\\d.])${figure}\\s*\\(${escapeRegExp(s)}\\)`).test(row)
+    )
+  }
+  return false
 }
 
 /**
@@ -1178,8 +1894,12 @@ export function claimWindow(text: string, at: number): string {
 
 /** The bounds `claimWindow` slices, for callers that slice a parallel text. */
 export function claimWindowBounds(text: string, at: number): { start: number; end: number } {
-  const floor = Math.max(0, at - 500)
-  const before = text.slice(floor, at)
+  // A figure inside a bracket takes the window of the sentence the bracket
+  // belongs to, whatever punctuation the bracket holds.
+  const span = bracketSpan(text, at)
+  const from = span ? span.open : at
+  const floor = Math.max(0, from - 500)
+  const before = text.slice(floor, from)
   // A semicolon ends a clause only before a word: "(aHR = 0.56; 95% CI
   // 0.31-1.01)" is one statistic, and the drug named before it vouches
   // for the interval after it. A paragraph break (a heading, a table row)
@@ -1197,10 +1917,8 @@ export function claimWindowBounds(text: string, at: number): { start: number; en
   // sentences back: all of it is the window.
   const start = boundaries.length >= 4 ? boundaries[boundaries.length - 4]! : 0
   // The sentence after is never part of the window, nor the next paragraph.
-  const after = text.slice(at, at + 250)
-  const endMatch = new RegExp(`[.!?](?:\\s|$)|;\\s(?=[a-z(])|;$|\\s${PARAGRAPH_MARK}`).exec(after)
-  const end = endMatch ? at + endMatch.index + 1 : at + after.length
-  return { start: floor + start, end }
+  const tail = span ? span.close + 1 : at
+  return { start: floor + start, end: sentenceEnd(text, tail, 250, true) }
 }
 
 // ---------------------------------------------------------------------------
@@ -1617,54 +2335,6 @@ function denominatorInParenthesis(
   return undefined
 }
 
-export interface DenominatorCorrection {
-  figure: string
-  /** The n the answer paired with the figure. */
-  from: string
-  /** The pairing the cited passage gives in the figure's own parenthesis. */
-  to: string
-}
-
-/**
- * The denominators a sentence pairs with its proportions that the cited
- * passage pairs differently (D4-05): "17.6% (n = 5193, full analysis set)"
- * where the paper writes "17.6% (739/4201)". Only a parenthesis that
- * follows the figure in the sentence counts on the answer's side, and only
- * the figure's own parenthesis on the passage's side; a sentence that
- * carries the passage's own n, or a passage with no bracket, corrects
- * nothing. Each correction carries the sentence rewritten with the
- * passage's pairing.
- */
-export function denominatorCorrections(
-  sentence: string,
-  texts: readonly string[],
-): { corrections: DenominatorCorrection[]; text: string } {
-  const corrections: DenominatorCorrection[] = []
-  let text = sentence
-  for (const figure of proportions(sentence)) {
-    const own = new RegExp(
-      `${
-        figurePattern(figure).source
-      }\\s*\\(\\s*(?:n\\s*=\\s*)?(\\d[\\d,]*)(?:\\s*\\/\\s*(\\d[\\d,]*))?(?:\\s*[,;]\\s*[^)]{0,60})?\\)`,
-      'i',
-    )
-    const m = own.exec(text)
-    if (!m) continue
-    const stated = denominatorBeside(figure, texts)
-    if (!stated) continue
-    const ns = stated.match(/\d[\d,]*/g)?.map((n) => n.replace(/,/g, '')) ?? []
-    const answerNs = [m[1]!, m[2]].filter((n): n is string => n !== undefined).map((n) =>
-      n.replace(/,/g, '')
-    )
-    // The answer's n is one the passage pairs with the figure: no correction.
-    if (answerNs.some((n) => ns.includes(n))) continue
-    const at = m.index
-    text = `${text.slice(0, at)}${figure} (${stated})${text.slice(at + m[0].length)}`
-    corrections.push({ figure, from: m[2] ? `${m[1]}/${m[2]}` : `n = ${m[1]}`, to: stated })
-  }
-  return { corrections, text }
-}
-
 export interface DenominatorCheck {
   figure: string
   /** The n the cited passage states beside the figure, when it does. */
@@ -1675,24 +2345,45 @@ export interface DenominatorCheck {
 
 /**
  * Proportions the answer states in a sentence that carries no count of its
- * own, each with the denominator its bound passage gives when one is there.
+ * own, each with the denominator the located passage gives in the figure's
+ * own parenthesis or table cell (docs/persona-reports/dsouza-loop5.md
+ * D5-03, D5-13): only the sentence the audit verified the figure in is
+ * read, never another occurrence of the same number elsewhere in the
+ * paper. A quoted sentence, a figure the paper states as a decimal
+ * proportion ("F1 = 0.8"), a confidence interval and an effect size take
+ * no denominator and are not listed.
  */
 export function denominatorsMissing(
-  sentences: readonly { text: string; texts: readonly { index: number; text: string }[] }[],
+  sentences: readonly {
+    text: string
+    /** The passages the audit located each figure in, with the marker of the paper. */
+    located: readonly { figure: string; index: number; passage: string }[]
+  }[],
 ): DenominatorCheck[] {
   const out: DenominatorCheck[] = []
   const seen = new Set<string>()
   for (const sentence of sentences) {
+    if (/^\s*The paper(?:'s own finding| itself reports)/.test(sentence.text)) continue
     const figures = proportions(sentence.text)
     if (figures.length === 0 || statesDenominator(sentence.text)) continue
     for (const figure of figures) {
       if (seen.has(figure)) continue
+      const places = sentence.located.filter((l) => l.figure === figure)
+      if (places.length === 0) continue
+      // A share the paper gives as a proportion has no n beside it to add.
+      const asPercent = places.filter((l) =>
+        new RegExp(
+          `(?<![\\d.])${figure.replace('%', '').replace('.', '\\.')}\\s?(?:%|percent|per cent)`,
+        )
+          .test(normaliseText(l.passage))
+      )
+      if (asPercent.length === 0) continue
       seen.add(figure)
       let found: DenominatorCheck = { figure }
-      for (const { index, text } of sentence.texts) {
-        const stated = denominatorBeside(figure, [text])
+      for (const place of asPercent) {
+        const stated = denominatorBeside(figure, [place.passage])
         if (stated) {
-          found = { figure, stated, index }
+          found = { figure, stated, index: place.index }
           break
         }
       }
@@ -1713,7 +2404,7 @@ const DESIGNS: [RegExp, string][] = [
   // A paper that IS a protocol says so of itself; "the study protocol was
   // approved" is every trial's ethics line.
   [
-    /\b(?:this|the present) (?:study |trial )?protocol\b|\bprotocol for an? \b|\b(?:describes?|presents?|outlines?|reports?) the (?:study |trial )?protocol\b|\bstudy protocol\b.{0,60}\b(?:randomi[sz]ed|controlled) trial\b/i,
+    /\b(?:this|the present) (?:study |trial )?protocol\b|\bprotocol for an? \b|\b(?:describes?|presents?|outlines?|reports?) the (?:study |trial )?protocol\b|\bstudy protocol\b.{0,60}\b(?:randomi[sz]ed|controlled) trial\b|^[\s\S]{0,1500}\bstudy ?protocols?\b/i,
     'a trial protocol',
   ],
   [
@@ -1748,7 +2439,12 @@ const DESIGNS: [RegExp, string][] = [
  * says - the audit reports designs, it never guesses them.
  */
 export function studyDesignOf(text: string): string | undefined {
-  const head = text.slice(0, 8000)
+  // A section label the extraction letter-spaces ("S T U D Y P R O T O C O L")
+  // reads as its word.
+  const head = text.slice(0, 8000).replace(
+    /\b(?:[A-Za-z] ){3,}[A-Za-z]\b/g,
+    (m) => m.replace(/ /g, ''),
+  )
   for (const [re, label] of DESIGNS) if (re.test(head)) return label
   return undefined
 }

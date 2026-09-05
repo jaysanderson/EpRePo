@@ -243,7 +243,10 @@ export function carriesDesignator(
   words: readonly string[],
 ): boolean {
   const haystack = normalise(`${resource.title} ${resource.summary ?? ''}`)
-  return words.every((w) => new RegExp(`(?:^|[^a-z0-9])${escape(w)}`).test(haystack))
+  // "heart-rate" in the question is "heart rate" in the title (loop 5 XF).
+  return words.every((w) =>
+    new RegExp(`(?:^|[^a-z0-9])${escape(w).replace(/-/g, '[-\\s]?')}`).test(haystack)
+  )
 }
 
 /** Words of a question that do not single out a paper. */

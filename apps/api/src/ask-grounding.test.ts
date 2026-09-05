@@ -297,12 +297,12 @@ describe('bindAndAudit over the loop 4 cases', () => {
     expect(result.text).toContain('- Week 24[1]')
   })
 
-  it("corrects a denominator to the passage's own pairing and says so (D4-05)", async () => {
+  it("removes a share whose bracket n the passage pairs differently, and quotes the paper's own pairing (D4-05, loop 5 D5-03)", async () => {
     const result = await bindAndAudit({
       management: management({ permit: PERMIT }),
       config,
       query:
-        'What adverse-event discontinuation should I assume for perampanel at 12 months, with denominators?',
+        'In the PERMIT study, what adverse-event discontinuation should I assume for perampanel at 12 months, with denominators?',
       text:
         'The adverse-event discontinuation rate at 12 months was 17.6% (n = 5193, full analysis set).[1]',
       citations: [{ index: 1, resourceId: 'permit', title: 'PERMIT study' }],
@@ -316,13 +316,47 @@ describe('bindAndAudit over the loop 4 cases', () => {
       lexicon: ['perampanel'],
       variant: undefined,
       floor: 0.3,
+      pinnedResourceIds: ['permit'],
+      pinnedTerms: ['PERMIT'],
     })
-    expect(result.text).toContain('17.6% (739/4201).[1]')
+    // The body is never rewritten: the pairing the answer stated is not
+    // the paper's, so the sentence goes and the paper's own sentence, with
+    // the same figure at the same time point, stands in.
     expect(result.text).not.toContain('(n = 5193')
+    expect(result.text).not.toContain('corrected to the cited passage')
     expect(result.text).toContain(
-      "One denominator was corrected to the cited passage's own pairing",
+      'The paper itself reports: "At 12 months, 17.6% (739/4201) of PWEs had discontinued PER due to AEs."[1]',
     )
-    expect(result.audit.denominatorsCorrected).toEqual(['17.6% (739/4201)'])
+    expect(result.audit.sentencesReplaced).toBe(1)
+  })
+
+  it("keeps a pairing the paper gives in the figure's own bracket or window (loop 5 Q15, TDB)", async () => {
+    const language =
+      'Cortical stimulation predicts language decline following SEEG-guided RFTHC.\n\nAbstract\n\n' +
+      '63% (5/8) of patients with radiofrequency thermocoagulation of a language-positive site ' +
+      'experienced a language decline, compared with only 11% (3/28) who declined following ' +
+      'radiofrequency thermocoagulation of language-negative sites.\n\nResults\n\nThe lesion ' +
+      'involved the frontal lobe in 4/36 (11%) patients.'
+    const result = await bindAndAudit({
+      management: management({ language }),
+      config,
+      query:
+        'Does radiofrequency thermocoagulation cause language decline, and what proportion of patients declined?',
+      text:
+        '63% (5/8) of patients at a language-positive site experienced a language decline, compared to only 11% (3/28) who declined following RFTHC of language-negative sites.[1]',
+      citations: [{
+        index: 1,
+        resourceId: 'language',
+        title: 'Cortical stimulation predicts language decline',
+      }],
+      sources: [resource('language', 'Cortical stimulation predicts language decline', 'RFTHC.')],
+      lexicon: [],
+      variant: undefined,
+      floor: 0.3,
+    })
+    expect(result.text).toContain('11% (3/28)')
+    expect(result.text).not.toContain('4 of 36')
+    expect(result.audit.sentencesRemoved).toBe(0)
   })
 
   it('pairs each proportion with the n in its own bracket in the denominator note (D4-05)', async () => {

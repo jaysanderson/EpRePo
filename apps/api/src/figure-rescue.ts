@@ -181,15 +181,51 @@ export function carriesCohortTerm(text: string, term: string): boolean {
 export function cohortPapers(
   terms: readonly string[],
   resources: readonly { id: string; title: string; summary?: string }[],
+  /**
+   * A paper's extracted text, when fetched: a medication term the question
+   * names is also looked for in the paper's opening pages, by stem, so a
+   * paper about "valproic acid (VPA)" is a valproate paper (loop 5 N03).
+   */
+  textOf: (id: string) => string | undefined = () => undefined,
 ): Set<string> {
   const out = new Set<string>()
   if (terms.length === 0) return out
   for (const r of resources) {
     const haystack = `${r.title}\n${r.summary ?? ''}`
-    if (terms.some((t) => carriesCohortTerm(haystack, t))) out.add(r.id)
+    if (terms.some((t) => carriesCohortTerm(haystack, t))) {
+      out.add(r.id)
+      continue
+    }
+    const head = textOf(r.id)?.slice(0, 3000)
+    if (
+      head &&
+      terms.some((t) =>
+        isMedicationTerm(t) && t.length >= 6 &&
+        new RegExp(`(?:^|[^a-z0-9])${escape(t.slice(0, 6))}`, 'i').test(head)
+      )
+    ) {
+      out.add(r.id)
+    }
   }
   if (out.size === resources.length) return new Set()
   return out
+}
+
+/**
+ * How an answer names a paper in its prose when it has to say which paper
+ * a figure comes from (docs/persona-reports/dsouza-loop5.md D5-12): the
+ * study acronym its title carries ("PERMIT", "EXPERIENCE", "UMPIRE"), or
+ * the title itself.
+ */
+export function studyLabel(title: string): string {
+  for (const m of title.matchAll(/\b[A-Z][A-Z0-9-]{3,}\b/g)) {
+    const token = m[0]
+    if (
+      !/^(?:EEG|MRI|SEEG|SUDEP|PNES|ASM|ASMS|AED|AEDS|RCT|ILAE|LGI1|NMDAR|CASPR2|GABA|MOG|AQP4|GTCS|FBTCS|COVID|COVID-19|DNA|RNA|PCR|CSF|STXBP1|SCN1A|SCN8A|KCNQ2|IGE|JME|GGE|DRE|TLE|MTLE|FLE|LGS|CBD|THC|VNS|DBS|RNS|LITT|RFTC|RFTHC|QOL|PRO|PROS|HIV|USA|UK|AUS|ECG|PET|CT|SPECT|II|III|IV)$/
+        .test(token)
+    ) return token
+  }
+  return title
 }
 
 /**
@@ -405,8 +441,14 @@ export function ownFigureSentence(
       if (figures.length === 0) continue
       if (cue.exclude && figures.every((f) => cue.exclude!.includes(f))) continue
       const lower = sentence.toLowerCase()
-      const anchorHits = anchors.filter((a) => lower.includes(a)).length
-      const hitWords = words.filter((w) => lower.includes(w))
+      // A name by the abbreviation the paper defines for it ("PER"), a
+      // word by its stem ("discontinuation" beside "discontinued").
+      const carries = (term: string) =>
+        lower.includes(term) ||
+        termForms(term, pairs).some((re) => re.test(lower) || re.test(sentence)) ||
+        (term.length >= 7 && lower.includes(term.slice(0, 6)))
+      const anchorHits = anchors.filter(carries).length
+      const hitWords = words.filter(carries)
       const wordHits = hitWords.length
       // One long, distinctive word ("rituximab", "retention") places a
       // sentence as two ordinary ones do; a table row needs one of the
@@ -669,10 +711,17 @@ export function quoteCarriesClaim(
   /** The abbreviations the quote's paper defines ("perampanel (PER)"), from its full text. */
   pairs: readonly { phrase: string; abbr: string }[] = [],
 ): boolean {
-  const claim = claimFeatures(sentence, lexicon, questionEntities)
+  // The bracket the removed sentence paired with its share is the pairing
+  // the quote replaces: the figure, its outcome and its time point are what
+  // must match (D4-05, loop 5 D5-03).
+  const unpaired = sentence.replace(
+    /\s*\((?:n\s*=\s*)?\d[\d,]*(?:\s*\/\s*\d[\d,]*)?(?:\s*[,;]\s*[^)]{0,40})?\)/g,
+    '',
+  )
+  const claim = claimFeatures(unpaired, lexicon, questionEntities)
   const own = prepareSource(quote)
   const prepared = { ...own, pairs: [...own.pairs, ...pairs] }
-  const results = extractNumbers(sentence).filter((f) =>
+  const results = extractNumbers(unpaired).filter((f) =>
     !/(?:month|week|year|day|hour)s$/.test(f) && !isSampleSizeFigure(f, claim.normalised) &&
     (/%|\./.test(f) || /^\d{3,}$/.test(f))
   )

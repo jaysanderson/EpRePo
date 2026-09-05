@@ -228,10 +228,13 @@ describe('answer audit - abbreviations, denominators and designs', () => {
     const passage = 'The 12-month retention rate was 71.1% in the full analysis set (n = 1644).'
     expect(
       denominatorsMissing([
-        { text: 'The 12-month retention rate was 71.1%.', texts: [{ index: 1, text: passage }] },
+        {
+          text: 'The 12-month retention rate was 71.1%.',
+          located: [{ figure: '71.1%', index: 1, passage }],
+        },
         {
           text: 'Seizure freedom was 23.2%.',
-          texts: [{ index: 2, text: 'seizure freedom was 23.2% overall' }],
+          located: [{ figure: '23.2%', index: 2, passage: 'seizure freedom was 23.2% overall' }],
         },
       ]),
     ).toEqual([
@@ -241,9 +244,61 @@ describe('answer audit - abbreviations, denominators and designs', () => {
     expect(
       denominatorsMissing([{
         text: 'Retention at 12 months was 64.2%.',
-        texts: [{ index: 1, text: 'retention at 12 months was 64.2% (3031/4721)' }],
+        located: [{
+          figure: '64.2%',
+          index: 1,
+          passage: 'retention at 12 months was 64.2% (3031/4721)',
+        }],
       }]),
     ).toEqual([{ figure: '64.2%', stated: '3031/4721', index: 1 }])
+    // Only the located passage is read (loop 5 D5-13): the 6-month row's
+    // "(N = 74)" never pairs with a 12-month 76% found elsewhere, a quoted
+    // sentence is not asked for an n, and a share the paper gives as a
+    // proportion ("F1 = 0.8") has none to add.
+    expect(
+      denominatorsMissing([{
+        text: '76% of patients achieved seizure freedom at 12 months with cross-electrode RFTC.',
+        located: [{
+          figure: '76%',
+          index: 1,
+          passage:
+            'a crosselectrode RFTC study of 21 patients with HS reported that 76% had seizure freedom at 12 months',
+        }],
+      }]),
+    ).toEqual([{ figure: '76%' }])
+    expect(
+      denominatorsMissing([{
+        text:
+          'The paper itself reports: "BRV retention was 89.4%, 79.8%, and 71.1% at 3, 6, and 12 months."',
+        located: [{
+          figure: '71.1%',
+          index: 1,
+          passage: 'BRV retention was 89.4%, 79.8%, and 71.1%',
+        }],
+      }]),
+    ).toEqual([])
+    expect(
+      denominatorsMissing([{
+        text: 'Approximately 80% of EDs in this group occur during the sleep period.',
+        located: [{
+          figure: '80%',
+          index: 1,
+          passage:
+            'We found F1 = 0.8, suggesting that 80% of EDs in Group 1 were clustered during the sleep period.',
+        }],
+      }]),
+    ).toEqual([{ figure: '80%' }])
+    expect(
+      denominatorsMissing([{
+        text: 'Just over a third (37%) occurred during sleep.',
+        located: [{
+          figure: '37%',
+          index: 1,
+          passage:
+            'In contrast, F2 is 0.37, suggesting that in Group 2 just over a third of discharges occur during the sleep period.',
+        }],
+      }]),
+    ).toEqual([])
   })
 
   it('reads the study design from the paper itself', () => {
@@ -396,7 +451,7 @@ describe('answer audit - matcher accuracy (D2-07)', () => {
     expect(
       denominatorsMissing([{
         text: 'The hazard ratio was 0.05 and the SMR was 2.5.',
-        texts: [{ index: 1, text: passage }],
+        located: [{ figure: '0.05', index: 1, passage }],
       }]),
     ).toEqual([])
     expect(statesDenominator('Only 29 (48%) of patients met the criteria.')).toBe(true)

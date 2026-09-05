@@ -5,7 +5,7 @@ the loop 5 PRs into `feat/eprepo-portal`). Written for an engineer joining the p
 `docs/INTENT-ROUTING.md` (the router and the stored search configurations),
 `docs/ARAG-DEV.md` (platform facts and known bugs), `docs/EPREPO-ROADMAP.md` (the roadmap items
 R1 to R27 and the P-findings) and the loop reports in `docs/persona-reports/dsouza-loop1.md` to
-`loop4.md` (the D-findings cited below, by loop and id: `D2-07` is finding 7 of loop 2).
+`loop5.md` (the D-findings cited below, by loop and id: `D2-07` is finding 7 of loop 2).
 
 ## What it is, in one paragraph
 
@@ -38,9 +38,11 @@ the failing figures named.
 | Grounding set | The resources and paragraphs the platform generated from (its retrieval item), plus the pinned papers the application adds. |
 | Cited text | A cited resource's full extracted text, fetched from the platform's extraction endpoint and cached per process; reference lists stripped before use. |
 | Binding | Re-deriving, sentence by sentence, which cited texts carry a sentence. |
+| Located sentence | The sentence, or the table row with its label and column headings, that carries a figure in a cited text. Every figure check is a check of the claim against this sentence (loop 5, "locate first"). |
+| Quantity | What a figure measures in the claim: the noun phrase before its verb ("the adverse-event discontinuation rate was 33.6%"), the words after it ("80% of EDs"), or the label of the bracket it sits in ("(n = 4201, retention population)"), with the outcome families that phrase names, its responder threshold and the n it pairs. |
 | Audit | The figure, cohort, second-hand, year, contraindication, denominator and attribution checks over the bound sentences. |
 | Gate | The decision the audit's result becomes: remove, rescue, replace, qualify or keep each sentence. |
-| Addenda | The italic lines under the answer that state what the layer did and what the papers add (removed sentences, corrected denominators, effect sizes, study designs, second-hand figures, the corpus boundary). |
+| Addenda | The italic lines under the answer that state what the layer did and what the papers add (removed sentences, the paper's own figure for the question's outcome after a removal, a protocol's planned recruitment beside the results paper's enrolment, effect sizes, study designs, second-hand figures, denominators the located passage gives, the corpus boundary). |
 | Decline | The portal's own refusal text, with the closest matches named and shown "not used". |
 
 ## 1. The event sequence of one ask
@@ -59,9 +61,9 @@ never has to infer. Times in brackets are what the loop 4 runs measured on the l
 | 6 | **Stream shaping and the first verified sentence** | Each delta passes through the reference-list stop (a model-authored "References:" block or a trailing run of `[n] Title.` lines is never forwarded) and the sentinel rewriter (`SentinelStream`: "the context does not provide" becomes "the cited sources do not provide", the platform's guardrail sentence is dropped, a sentence is released the moment its stop arrives). The provider holds the platform's fixed decline copy and a `[n` split across chunks; a code-fence line is never forwarded. The first complete sentence is checked against the texts fetched in step 2: every figure beside the claim's own terms in one of those papers, which must also carry the question's cohort name; the surface is told which paper. The surface renders everything that streams in the checking style (muted ink, a dashed rule, the badge "Unchecked - still streaming, the check follows") and shows the verified line only under visible text; the gated text replaces everything at `done` in full ink (D5-08). | Deterministic. | (none) | `delta`, `verified` (at the platform's first token, 7 to 11 s) | `answer-shape.ts`, `ask-stream-verify.ts`, provider `splitPartialMarker` |
 | 7 | **Finish the text** | At the platform's `done`: the model's reference lines are stripped (a heading block, a trailing author-year entry, a cited title written out), the sentinels rewritten in the final text and the "(inference)" token removed, code fences stripped, header-only tables and empty headings dropped (D5-05, D5-16), a generation that stopped mid-sentence is cut back to its last complete sentence (`done.truncated`; a table row that closes its pipe is complete, one cut before it is dropped alone). Citation chips take the bibliographic title with the generated headline as subtitle. | Deterministic. | (none) | `stage auditing started { figures }` | `answer-shape.ts` `stripModelReferences`, `rewriteSentinels`, `trimTruncatedTail` |
 | 8 | **Binding** | The cited texts (eight at most) are fetched and their reference sections cut. Each sentence keeps only the markers whose cited text carries its named entities (both of two, 60 percent of many), a name the question also uses (the cohort, drug or study), the study design it states, every figure beside the claim's own terms, and enough of its content words and word pairs, including at least one of its rare words. A marker to a source under the display floor is dropped unless the source is pinned. Headings carry no markers; a list item inherits the nearest marked line's citation when the text carries it; a table row's markers sit inside its last cell. | Deterministic. | The platform's extraction endpoint (`extractionText`). | (none yet) | `citation-binding.ts` `bindSentences`, `supportScore`, `rareWords`; `ask-grounding.ts` `bindAndAudit` |
-| 9 | **Audit** | Over the bound sentences: (a) `verifyFigures`, every figure in the passage its sentence is bound to, beside one of the claim's names or two of its words, in the figure's sentence and up to three before within the paragraph (a table cell reaches its heading), at the claim's outcome and follow-up; (b) the cohort guard, under a designated cohort every result-figure sentence must cite a cohort paper unless it names another study; (c) the rescue, a failing sentence's figures looked up in the full text and DA fields of the cohort papers, the pinned papers, the prior turns' papers and the retrieved resources, and the first paper carrying every figure beside the claim lends its marker (a citation the platform never made); (d) second-hand figures, a figure the cited paper carries only where it cites other studies is looked for first-hand elsewhere, and on a named-cohort or planning question a sentence left with one is removed; (e) the replacement, a still-failing sentence about the cohort or a pinned paper is replaced by that paper's own results sentence, verbatim and cited, only when it carries the same figure at the same time point beside the claim, at most one quote per sentence and three per answer, never over a decline; (f) the population qualifier the supporting passage frames ("In patients with psychiatric comorbidity, ...") carried into the sentence. | Deterministic. | Extraction endpoint; DA summary and key takeaways as texts of their own. | (none yet) | `answer-audit.ts`, `figure-rescue.ts`, `secondhand.ts` |
-| 10 | **Gate** | `gateFigures`: a sentence whose figures failed is removed, except a table row, which keeps its place with each failing cell marked "not verified" and the rest of the row intact (D5-05); a figure sentence with no marker inherits the one cited text that carries every figure it states or is removed; a conclusion whose supporting sentences went goes with them; a dangling connective is stripped; the survivors are renumbered by first appearance. A denominator the answer paired differently from the passage's own bracket is rewritten to the passage's pairing. A contraindication no cited passage states is removed (safety variant or a treatment-decision question). "X and colleagues" over a paper X did not write is rewritten to the paper's first author. Years are post-checked against every retrieved source's metadata and the cited texts. | Deterministic. | Resource metadata (`year`, `published`). | (none yet) | `answer-gate.ts`, `answer-audit.ts` `denominatorCorrections`, `stripUnsupportedContraindications`, `yearsUnsupported`; `ask-author.ts` |
-| 11 | **Addenda** | Appended in italics: the removal note (figures named, and where they were found if a paper carries them beside other words), the denominator corrections, the effect size a cited passage carries when a risk question got none, the study-design line that leads an answer grounded on a modelling or preclinical paper, the study designs in the sources' own words (clinical variant), the second-hand note, the corpus-boundary note for a study the question names that no held title carries, the author-scope note, denominators the passage gives for a bare proportion, and the drugs the sources flag that a which-drug answer left out. Evidence cards are re-pointed at the paragraph that carries the claims bound to each source (page kept when retrieval supplied it). | Deterministic. | Retrieval paragraphs with pages (`ScoredResource.passages`). | `sources` (re-chosen passages, weak uncited matches dropped), `citation` (renumbered), `audit`, `done { text, truncated? }` | `answer-gate.ts` `removalNote`, `effectSizeNote`, `designLead`; `evidence-passages.ts`; `ask-grounding.ts` `auditAddendum` |
+| 9 | **Audit** | Over the bound sentences: (a) `verifyFigures`, every figure located first in the texts its sentence is bound to: each occurrence brings the sentence or table row that carries it (a cell with its row label and column headings), and the claim is placed when that sentence shares one of its names, two of its specific words, the noun the figure qualifies, a word of the quantity the figure measures, every outcome that quantity names, or the name the question routes on; the located sentence must then not give the figure a different outcome, follow-up, statistic, responder threshold or denominator pairing; (b) the cohort guard, under a designated cohort every result-figure sentence must cite a cohort paper unless it names another study; (c) the rescue, a failing sentence's figures looked up in the full text and DA fields of the cohort papers, the pinned papers, the prior turns' papers and the retrieved resources, and the first paper carrying every figure beside the claim lends its marker (a citation the platform never made); (d) second-hand figures, a figure the cited paper carries only where it cites other studies is looked for first-hand elsewhere, and on a named-cohort or planning question a sentence left with one is removed; (e) the replacement, a still-failing sentence about the cohort or a pinned paper is replaced by that paper's own results sentence, verbatim and cited, only when it carries the same figure at the same time point beside the claim, at most one quote per sentence and three per answer, never over a decline; (f) the population qualifier the supporting passage frames ("In patients with psychiatric comorbidity, ...") carried into the sentence. | Deterministic. | Extraction endpoint; DA summary and key takeaways as texts of their own. | (none yet) | `answer-audit.ts`, `figure-rescue.ts`, `secondhand.ts` |
+| 10 | **Gate** | `gateFigures`: a sentence whose figures failed is removed, except a table row, which keeps its place with each failing cell marked "not verified" and the rest of the row intact (D5-05); a figure sentence with no marker inherits the one cited text that carries every figure it states or is removed; a conclusion whose supporting sentences went goes with them; a dangling connective is stripped; the survivors are renumbered by first appearance. A denominator the answer paired differently from the located figure's own bracket is a failed figure (removed, or replaced by the paper's own sentence when it carries the same figure at the same time point), never a rewrite. Under a designated cohort or a planning question, result sentences from more than one paper each open with the paper they come from. A contraindication no cited passage states is removed (safety variant or a treatment-decision question). "X and colleagues" over a paper X did not write is rewritten to the paper's first author. Years are post-checked against every retrieved source's metadata and the cited texts. | Deterministic. | Resource metadata (`year`, `published`). | (none yet) | `answer-gate.ts`, `answer-audit.ts` `denominatorCorrections`, `stripUnsupportedContraindications`, `yearsUnsupported`; `ask-author.ts` |
+| 11 | **Addenda** | Appended in italics: the removal note (figures named, and where they were found if a paper carries them beside other words), the paper's own figure for the question's outcome after a removal ("For the outcome asked about, [n] itself reports: ..."), a protocol's planned recruitment named as such beside the results paper's enrolment, the effect size a cited passage carries when a risk question got none, the study-design line that leads an answer grounded on a modelling or preclinical paper, the study designs in the sources' own words (clinical variant), the second-hand note, the corpus-boundary note for a study the question names that no held title carries, the author-scope note, denominators the passage gives for a bare proportion, and the drugs the sources flag that a which-drug answer left out; the denominators line only ever names an n the located passage gives in the figure's own bracket or cell. Evidence cards are re-pointed at the paragraph that carries the claims bound to each source (page kept when retrieval supplied it). | Deterministic. | Retrieval paragraphs with pages (`ScoredResource.passages`). | `sources` (re-chosen passages, weak uncited matches dropped), `citation` (renumbered), `audit`, `done { text, truncated? }` | `answer-gate.ts` `removalNote`, `effectSizeNote`, `designLead`; `evidence-passages.ts`; `ask-grounding.ts` `auditAddendum` |
 | 12 | **Done, confidence and the quality tail** | `done` carries the gated text and goes out before the REMi judge answers; the page replaces the streamed text, releases the composer and saves the session. The judge started before `done` in the provider, capped at 8 s, and its `quality` event trails on the same stream. Confidence is audit-led: an unsupported figure, year or contraindication is Low; every figure found and at least half the sentences cited is High; removed sentences cap it at Moderate; the platform's groundedness may lower an audited verdict one step and never raise it, and never reaches High on its own. | REMi: one platform call, advisory. | The platform's REMi scoring. | `done` (9 to 30 s), `stage validating`, `quality` | provider `ask` tail; `apps/web/src/lib/confidence.ts` `assessConfidence`; `answer-marks.ts` for the badge |
 
 **The retry policy (step 5 repeated, at most once).** A refusal, an answer the binding stripped
@@ -98,6 +100,12 @@ follow-ups too.
 pipe tables and key-resources block as `extra_context` and a document-chat prompt addendum, runs
 the same binding and audit against the open document (badge "N figures checked · Checked against
 this document's text") and never retries; its decline is document-scoped.
+
+**An uncited figure answer on a question that names a paper** (loop 5 HC, D4-09): when the
+platform attaches no citation at all to an answer that states figures, and the study guard pinned
+a paper, the pinned paper is bound as the answer's source and the gate binds each figure sentence
+to it when it carries every figure; what it does not carry is removed as usual, and an answer
+nothing binds is still withheld.
 
 ## 2. The rules, and the findings that motivated each
 
@@ -210,6 +218,30 @@ Every rule below exists because a reviewer found the defect it prevents. The ids
   verified cells stand, the row keeps its marker (or inherits the text that carries its passing
   figures), and the addendum names the figures; the table turn used to come back with one row of
   three (D5-05, D4-06).
+- **Locate first** (loop 5 section 6; D5-01 to D5-04; PR #20). Loop 5 found fourteen sentences
+  the cited paper carried word for word removed ("80% of EDs in Group 1 were clustered during the
+  sleep period", the "937 (52%)" and "Number deceased 60 87" cells, "The remaining 24 participants
+  completed", "odds ratio = 10.00, 95% CI (1.68, 59.31)" inside a bracket with a semicolon, an
+  "0⋅70" the extraction wrote with the dot operator) and seven wrong quantities under a clean badge
+  (a "50% responder rate" read as a rate of 50%, an all-cause discontinuation as an adverse-event
+  one, a worsening-frequency rate as seizure freedom, a share paired with another population's n).
+  Both were the same defect: a window of nearby words was tested instead of the sentence the figure
+  lives in. Now every occurrence of a figure is located and judged as its own sentence or table
+  row (`locateFigure`); the claim is placed when that sentence shares the claim's quantity words,
+  every outcome family the quantity names, or the question's routing entity, and a table cell by
+  its row label and column headings or by a "13 (50%)" pair the claim states together
+  (`quantityPhrase`, `countWithShare`); and the located sentence must agree on the responder
+  threshold (`isThresholdAt`: a round "50% reduction" is a definition, "45.7% reduction" a result)
+  and on the n the claim pairs in its own bracket (`pairedNsAt`: the located bracket, or an n in
+  the located paragraph when it has none). A name the figure's own subject gives it must still be
+  in the window unless the paper is about that name (it abbreviates it or names it throughout:
+  `isSubjectOf`), so an RFTC review's 76% is still not LITT's. A figure's clause, not its
+  sentence, decides which question names and follow-up apply to it (a comparison sentence gives
+  each study its own figure). Number normalisation now covers the dot operator, British and
+  American spellings ("enrolment", "generalised", "favourable"), "IQR" for "interquartile", a
+  lower-cased interval label ("(iqr 256, 967) days"), a bracket-aware sentence end ("(FAS; n =
+  1111)") and a duration found as the bare number of a table row whose label names the unit
+  ("Follow-up duration, y").
 
 ### The cohort guard, the rescue and the replacement
 - **The cohort guard applies at the question's level.** Loop 3 found the anti-NMDAR hazard ratio
@@ -217,7 +249,18 @@ Every rule below exists because a reviewer found the defect it prevents. The ids
   Dravet series' "25 of 205" under the video-EEG mortality cohort riding through four turns under
   High confidence (D4-01, D4-02; PR #17). A designated cohort is exactly its pinned papers; a
   drug or syndrome term never widens it; a paper whose summary merely mentions the cohort is not
-  one of them.
+  one of them. **It never fires against the paper the question names or describes** (loop 5
+  D5-02; PR #20): under a cohort the question names by drug, a paper the question pinned is a
+  cohort paper, a medication term is also looked for by stem in a paper's opening pages
+  ("valproic acid (VPA)" is the valproate paper), and a sentence the guard fails is looked up in
+  the cohort papers the answer cited for something else before it is removed (the SUDEP
+  case-control paper's own "101 SUDEP cases and 199 living epilepsy controls").
+- **Two populations under one question are named** (loop 5 D5-12, TDE; PR #20): under a
+  designated cohort or a planning question, when the result sentences the gate kept come from
+  more than one paper, each sentence that names no study of its own opens with the paper it
+  comes from ("In *Infradian rhythms ... in healthy adults*, 70% (369/525) ..." beside "In
+  *Multiday cycles of heart rate ...*, participants with epilepsy documented 3,619 seizures"), by
+  the study acronym its title carries or the title itself (`studyLabel`).
 - **The rescue looks a figure up before withholding it.** Loop 3 found the gate withholding
   correct figures from retrieved but uncited papers (C1, R1, TD1, E2: 71.1 percent and 1644
   "could not be verified" a minute after the portal cited them) because the audit only saw the
@@ -234,6 +277,11 @@ Every rule below exists because a reviewer found the defect it prevents. The ids
   question's outcome and add a figure the answer does not already state.
 - **An emptied answer is retried on the cohort paper before it is declined**, and a decline about
   who was in a named study is asked on that paper's resource filter first (D4-09, D3-01; PR #17).
+- **The paper's own figure for the question's outcome is offered after a removal** when the
+  model's figure differs from it (loop 5 D5-14; PR #20): the consortium paper's "At 12 months, a
+  favourable mRS (≤ 2) occurred in 154 (67%) patients" after an "80% (n = 231)" no paper carries,
+  as an italic line naming the paper, cited, never as a substitute for the removed sentence, at
+  most two per answer.
 
 ### Second-hand figures and sections
 - **A figure the cited paper carries only in its Introduction or Discussion is that paper citing
@@ -242,15 +290,37 @@ Every rule below exists because a reviewer found the defect it prevents. The ids
   the paper's own sentence attributes to earlier work is second-hand wherever it sits; "Methods
   and analysis" reads as Methods (the BREATHS protocol's 110 was a false flag). On a named-cohort
   or "what should I assume" question a sentence left with a second-hand figure is removed, not
-  annotated (D4-02, D4-12; PR #17).
+  annotated (D4-02, D4-12; PR #17). **The judgement reads the located passage**, not every
+  occurrence of the number in the paper (loop 5 D5-15; PR #20): the placebo-response paper's own
+  "22% in the lower group" in its results no longer clears the introduction's "over 22% after
+  2020" the answer repeated; Markdown headings ("## Introduction:") section a text the platform
+  extracted from HTML; and a block of short lines is figure or graphical-abstract text, the
+  paper's own data ("312 saliva samples collected" was a false flag).
+- **An assessment's answer key and a briefing's key takeaway are never a second-hand figure**
+  (loop 5 D5-10; PR #20): a quiz question whose correct answer or explanation states a figure its
+  source paper carries only where it cites other studies is dropped and counted
+  (`omitted_secondhand`, said on the page), and a takeaway whose figure every referenced paper
+  carries only second-hand is dropped and counted (`takeawaysSecondhand`).
 
 ### Denominators, effect sizes, designs, years, drugs, authors
 - **Every proportion carries its n and analysis set** by prompt rule, and the audit lists the
   ones that do not with the n the passage gives (D1-14; PR #8). A denominator pairs only within
   the figure's own bracket or table cell, never the nearest n, never for a threshold, an SMR, an
-  HR or a CI, and a wrong pairing in the body is corrected and the correction stated (D2-07,
-  D3-13, D4-05, D4-11; PRs #12, #14, #17). The 95 of a confidence interval and an effect size are
-  not proportions.
+  HR or a CI (D2-07, D3-13, D4-05, D4-11; PRs #12, #14, #17). The 95 of a confidence interval and
+  an effect size are not proportions. **The body is never rewritten** (loop 5 D5-03, D5-13; PR
+  #20): loop 5 found the corrector replacing a correct "11% (3/28)" with a frontal-lobe row's "4
+  of 36" and a correct "(n = 121)" with a nested "(56 (46.3%))". The n a sentence pairs with a
+  share in its own bracket is now part of the figure check (`pairedNsAt`), so a pairing the
+  located passage contradicts fails the figure and the sentence is removed or replaced by the
+  paper's own sentence; the denominators line reads only the passage the audit located the
+  figure in, adds an n only from that passage's own bracket or cell, and says nothing for a quoted
+  sentence, a share the paper gives as a decimal proportion ("F1 = 0.8"), a confidence interval
+  or an effect size.
+- **A protocol's sample size is planned recruitment, not enrolment** (loop 5 D5-11; PR #20): a
+  kept sentence that states a planned sample from a paper that is a protocol (its masthead, its
+  title, or methods in the future tense) gets the note "[n] is the study protocol: the numbers it
+  gives are the planned recruitment, not the enrolment", with the results paper's own enrolment
+  sentence quoted when the answer also cites one.
 - **The effect size a passage carries is stated** when a risk question got none, named for what
   it is for, covariate lists skipped (D2-09, D3-10; PRs #12, #14).
 - **Study design first**: a modelling, simulation or preclinical source that the first citing
@@ -331,9 +401,14 @@ PRs #16 and #17:
   beside the point of a comparison sentence (T2 in loop 3, one bullet). The safer path is
   removal with the reason stated, which is what the layer now prefers.
 - **Over-removal is the price of the gate.** A correct figure the platform did not cite and the
-  rescue pool does not carry is removed. N06's own "154 (67%)" is no longer quoted because the
-  model's 80 percent is a different figure; the honest removal stands. The pool is bounded
-  (eight cited texts, eight further texts) for latency.
+  rescue pool does not carry is removed. N06's own "154 (67%)" is offered under the removal as the
+  paper's own figure for the outcome, never as a substitute; the honest removal stands. The pool
+  is bounded (eight cited texts, eight further texts) for latency.
+- **A figure the paper's own abstract states loosely passes.** Loop 5 PD read "In 10 years, 82723
+  Australian adults had incident epilepsy, whereas 125223 formed the prevalent cohort" as a
+  ten-year projection of 125,223; the located sentence carries the figure beside "10 years" and
+  "Australian adults", and only the results section says the 125,223 is the 2024 base. A
+  deterministic check that reads one sentence cannot overrule the abstract's own wording.
 - **The population qualifier applies only when every occurrence of the figure in the bound text
   opens with the same frame**, so a figure a paper gives twice (whole cohort and subgroup) is
   left unqualified (D3-07 for N02, partly open).
@@ -370,7 +445,7 @@ PR #17). The ones that cover the trust layer:
 | `apps/api/src/study-guard.test.ts` (11), `ask-entities.test.ts` (17), `ask-author.test.ts` (14), `ask-prequeries.test.ts` (7), `ask-session.test.ts` (12), `ask-retry.test.ts` (9), `ask-terse.test.ts` (4) | Pinning and cohort designators, per-entity pins and question clauses, author scope, author constructions and attribution, prequery gating, follow-up context, follow-ups that stay within the earlier papers, reformatting and its budget, the single-retry policy, the terse topic pin |
 | `apps/api/src/answer-shape.test.ts` (32), `ask-stream-verify.test.ts` (8) | Reference-block stripping, sentinels on stream and text, truncation, table rows; the first verified sentence |
 | `apps/api/src/citation-binding.test.ts` (26) | Sentence binding, entity and rare-word rules, design terms, list items, table-row markers, renumbering |
-| `apps/api/src/answer-audit.test.ts` (32), `figure-normalisation.test.ts` (13, fifty figure rows from the four reports), `figure-rescue.test.ts` (18), `secondhand.test.ts` (12), `answer-gate.test.ts` (15), `loop4-guards.test.ts` (17), `ask-grounding.test.ts` (9) | Figure matching and normalisation, outcome and follow-up conflicts, denominators, contraindications, years; the rescue, cohort guard and replacement; section classification and second-hand figures; the gate, removal note, effect sizes and design lead; the loop 4 guards; `bindAndAudit` end to end with stubbed texts |
+| `apps/api/src/answer-audit.test.ts` (32), `figure-normalisation.test.ts` (13, fifty figure rows from the four reports), `figure-rescue.test.ts` (18), `secondhand.test.ts` (12), `answer-gate.test.ts` (15), `loop4-guards.test.ts` (17), `loop5-locate.test.ts` (28, the loop 5 figures: located sentences and table rows, quantity phrases, thresholds, pairings, the cohort and stitch rules, offered findings and the protocol note), `ask-grounding.test.ts` (10) | Figure matching and normalisation, outcome and follow-up conflicts, denominators, contraindications, years; the rescue, cohort guard and replacement; section classification and second-hand figures; the gate, removal note, effect sizes and design lead; the loop 4 guards; locate first; `bindAndAudit` end to end with stubbed texts |
 | `apps/api/src/evidence-passages.test.ts` (6) | The card passage that carries the bound claims |
 | `apps/api/src/app.test.ts` (87) | The `/ask` route with a stub provider and management: routing, the grounding gate, fallback, pinned retry, withheld decline, the contraindication strip, document chat, author lookup, prequery expectations, the audit event |
 | `packages/retrieval/src/providers/arag/intents.test.ts` (12), `ask-structured.test.ts`, `display.test.ts` | Configuration names and filters, prequery construction, structured asks, refusal detection |

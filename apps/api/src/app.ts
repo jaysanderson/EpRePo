@@ -88,9 +88,15 @@ import {
   questionClauses,
   rankClosest,
 } from './ask-entities.ts'
-import { secondhandFigures } from './secondhand.ts'
+import { figureOffsets, secondhandFigures } from './secondhand.ts'
 import { auditBriefing } from './briefing-audit.ts'
-import { cohortTerms, exposureOutcomePair, isWholeDecline, pairCarried } from './figure-rescue.ts'
+import {
+  cohortTerms,
+  exposureOutcomePair,
+  isWholeDecline,
+  pairCarried,
+  syntheticCitation,
+} from './figure-rescue.ts'
 import { namedEntities } from './citation-binding.ts'
 import { briefingGrounding, groundingParagraphs } from './briefing-grounding.ts'
 import { passageDenominators, unusedReferences } from './synthesis-check.ts'
@@ -1793,6 +1799,44 @@ export function buildApp(opts: BuildAppOptions): Hono {
           attributed.key_takeaways = audited.key_takeaways
           attributed.takeaway_refs = audited.takeaway_refs
           attributed.audit = audited.audit
+          // A key takeaway is never built on a second-hand figure (loop 5
+          // D5-10): one whose figure every referenced paper carries only
+          // where it cites other studies is dropped and counted, as the
+          // Ask path removes such a sentence on a named-cohort question.
+          const refResource = new Map(attributed.references.map((r) => [r.index, r.resourceId]))
+          const keptTakeaways: string[] = []
+          const keptRefs: number[][] = []
+          attributed.key_takeaways.forEach((takeaway, i) => {
+            const refs = attributed.takeaway_refs[i] ?? []
+            const byIndex = new Map<number, string>()
+            for (const ref of refs) {
+              const id = refResource.get(ref)
+              const t = id ? texts.get(id) : undefined
+              if (t) byIndex.set(ref, t)
+            }
+            const flagged = byIndex.size > 0
+              ? secondhandFigures([{ text: takeaway, bound: [...byIndex.keys()] }], byIndex)
+              : []
+            const secondhand = [...new Set(flagged.map((f) => f.figure))].filter((figure) => {
+              const carrying = [...byIndex.entries()].filter(([, t]) =>
+                figureOffsets(figure, t).length > 0
+              )
+              return carrying.length > 0 &&
+                carrying.every(([ref]) =>
+                  flagged.some((f) => f.figure === figure && f.index === ref)
+                )
+            })
+            if (secondhand.length > 0) {
+              audited.audit.takeawaysRemoved += 1
+              audited.audit.takeawaysSecondhand = (audited.audit.takeawaysSecondhand ?? 0) + 1
+              return
+            }
+            keptTakeaways.push(takeaway)
+            keptRefs.push(refs)
+          })
+          attributed.key_takeaways = keptTakeaways
+          attributed.takeaway_refs = keptRefs
+          attributed.audit = audited.audit
         }
         result.object = attributed
       }
@@ -1805,6 +1849,58 @@ export function buildApp(opts: BuildAppOptions): Hono {
           result.passagesByResource,
           looksLikeReferenceChunk,
         )
+        // An answer key is never a second-hand figure (loop 5 D5-10): a
+        // question whose correct answer or explanation states a figure
+        // its source paper carries only where it cites other studies is
+        // dropped and counted, never asked.
+        if (opts.management) {
+          const quiz = result.object as {
+            questions?: {
+              options?: unknown
+              correct_index?: unknown
+              explanation?: unknown
+              source_resource_id?: unknown
+            }[]
+          } & Record<string, unknown>
+          const kept: NonNullable<typeof quiz.questions> = []
+          let omittedSecondhand = 0
+          for (const question of quiz.questions ?? []) {
+            const id = typeof question.source_resource_id === 'string'
+              ? question.source_resource_id
+              : undefined
+            let text: string | undefined
+            if (id) {
+              try {
+                text = await extractionText(opts.management, config, id)
+              } catch {
+                // An unfetchable source leaves the question as attributed.
+              }
+            }
+            if (!text) {
+              kept.push(question)
+              continue
+            }
+            const options = Array.isArray(question.options)
+              ? question.options.filter((o): o is string => typeof o === 'string')
+              : []
+            const correct = typeof question.correct_index === 'number'
+              ? options[question.correct_index]
+              : undefined
+            const key = [
+              correct ?? '',
+              typeof question.explanation === 'string' ? question.explanation : '',
+            ].filter(Boolean).join(' ')
+            const flagged = key
+              ? secondhandFigures([{ text: key, bound: [1] }], new Map([[1, text]]))
+              : []
+            if (flagged.length > 0) {
+              omittedSecondhand += 1
+              continue
+            }
+            kept.push(question)
+          }
+          result.object = { ...quiz, questions: kept, omitted_secondhand: omittedSecondhand }
+        }
       }
       // Comparison cells that came back empty get one targeted second look -
       // "Not specified" must mean the corpus is silent, not that retrieval
@@ -4127,8 +4223,17 @@ export function buildApp(opts: BuildAppOptions): Hono {
         >(
           lastSources.map((s) => [s.id, s]),
         )
+        // An answer that states figures with no citation at all, on a
+        // question that names a paper: the pinned paper is read as the
+        // answer's source and the gate binds each figure sentence to it
+        // when it carries every figure (loop 5 HC, D4-09: "mean age 45
+        // years, 13 women (50%)" from the UMPIRE table, uncited by the
+        // platform). What it does not carry is removed as usual.
+        const syntheticIds = heldCitations.length === 0 && !documentScope && /\d/.test(text)
+          ? pinnedIds.slice(0, 3)
+          : []
         await Promise.all(
-          [...new Set(heldCitations.map((c) => c.resourceId))]
+          [...new Set([...heldCitations.map((c) => c.resourceId), ...syntheticIds])]
             .filter((id) => !byId.has(id))
             .map(async (id) => {
               try {
@@ -4139,9 +4244,15 @@ export function buildApp(opts: BuildAppOptions): Hono {
               }
             }),
         )
-        let citations = heldCitations.map((citation) =>
+        let citations = [
+          ...heldCitations,
+          ...syntheticIds.map((id, i) =>
+            syntheticCitation(i + 1, { id, title: byId.get(id)?.title ?? '' })
+          ),
+        ].map((citation) =>
           merchandiseCitation(enrichments, config.slug, citation, byId.get(citation.resourceId))
         )
+        const syntheticOnly = syntheticIds.length > 0
         let audit: AuditEvent | null = null
         let passagesRechosen = false
         let emptied = false
@@ -4186,7 +4297,9 @@ export function buildApp(opts: BuildAppOptions): Hono {
             passagesRechosen = true
           } catch {
             // The audit is best-effort; the answer stands with the
-            // platform's own binding.
+            // platform's own binding - and with none when the binding was
+            // the portal's own guess at a pinned paper.
+            if (syntheticOnly) citations = []
           }
           await send({ type: 'stage', stage: 'auditing', status: 'completed' })
         }
