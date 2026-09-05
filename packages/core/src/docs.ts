@@ -146,6 +146,124 @@ export const DOC_PAGES: DocPage[] = [
     ],
   },
   {
+    id: 'how-this-works',
+    category: 'Getting started',
+    title: 'How this works',
+    summary: 'Where the content comes from, what happens to each document, how a question is ' +
+      'answered and what the portal checks before it shows you an answer.',
+    sections: [
+      {
+        heading: 'Where the content comes from',
+        body: 'The portal reads one collection: research papers, their supplementary files and ' +
+          "video material, loaded into the portal's knowledge index by the people who run it. " +
+          'Nothing else is read. What you can search, ask and browse is exactly what is in that ' +
+          'collection, and the Library shows the current count.\n\n' +
+          'The illustrated version of this page, **How this works** under Help, shows the ' +
+          'live figures for the collection and a diagram of the flow described here.',
+      },
+      {
+        heading: 'What happens when a document is added',
+        body: 'Every document goes through the same steps before it can be found:\n\n' +
+          '1. **Text and tables are extracted** from the file page by page, so a passage can ' +
+          'later be traced back to where it sits in the paper. Video material is transcribed.\n' +
+          '2. **Enrichment agents read the extracted text** and write a plain-language summary ' +
+          'and key takeaways, assign topic and study-design labels, label individual passages, ' +
+          'and record the relations between the entities the paper mentions (conditions, genes, ' +
+          'medications, researchers and institutions) for the knowledge graph.\n' +
+          '3. **The document, its passages and its labels are indexed** for retrieval by meaning ' +
+          'and by exact term.\n\n' +
+          'The original file is never altered. The generated fields sit beside it and are shown ' +
+          "on the document page as generated fields, never as the paper's own words.",
+      },
+      {
+        heading: 'How a question is answered',
+        body: 'Three things happen between the question and the answer:\n\n' +
+          '1. **The question is routed.** The portal reads the question and chooses the retrieval ' +
+          'configuration that suits it: an identifier or a bare term is an exact lookup that ' +
+          'lists the documents; a question about choosing or dosing a treatment is a clinical ' +
+          'decision that always checks contraindications and monitoring; a broad question is an ' +
+          'evidence review grounded on full text; a question about what is newest is answered ' +
+          'newest first with the year stated; a question that names a table, a data sheet or a ' +
+          'protocol document reads the supplementary files beside the papers; everything else ' +
+          'runs on the default configuration. The choice is shown beside the answer as a chip, ' +
+          'and you can change it and ask again.\n' +
+          '2. **The index returns the passages.** The chosen configuration retrieves the ' +
+          'passages that match the question, by meaning and by exact term, and ranks them. A ' +
+          'study named in the question is pinned into the sources so it cannot be crowded out.\n' +
+          '3. **The answer is written only from those passages.** Nothing is drawn from general ' +
+          'knowledge or from the internet. Every sentence carries a citation to the passage it ' +
+          'came from, and opening the citation shows that passage in the paper.',
+      },
+      {
+        heading: 'How the answer is checked before you see it',
+        body: 'Before an answer is shown, the portal checks it against the cited text, sentence ' +
+          'by sentence:\n\n' +
+          '- **Figures.** Every number, percentage, dose and range in a sentence must appear in ' +
+          "the cited passage beside the claim's own terms. A figure the cited passage does not " +
+          'carry is looked for in the full text of the retrieved papers, and if one of them ' +
+          'carries it the sentence is cited to that paper instead. A figure found nowhere means ' +
+          'the sentence is removed, and the answer says that it was.\n' +
+          '- **Populations.** A sentence about a named cohort, trial or study may only cite ' +
+          'papers about that cohort, so a figure from a different population cannot be passed ' +
+          'off as the one you asked about.\n' +
+          '- **Named studies.** A removed sentence about a named paper is replaced by that ' +
+          "paper's own sentence, quoted verbatim and cited.\n" +
+          '- **Years and contraindications.** A year must come from a cited resource. A ' +
+          'medication the answer calls contraindicated must be called that by a cited passage, ' +
+          'and a medication the cited sources flag is never dropped silently.\n\n' +
+          'These checks are plain text comparisons against the extracted text of the papers, ' +
+          'with no language model in the loop, so the check cannot invent support. The ' +
+          'confidence label under the answer comes from that check together with the ' +
+          "platform's own quality scoring of how well the answer addresses the question, how " +
+          'firmly it is grounded and how relevant the retrieved passages were. Groundedness ' +
+          'decides: a fluent answer on weak grounding is marked low.',
+      },
+      {
+        heading: 'What you can do with it',
+        body: '- **Search** finds documents fast, with a short cited answer over them or the ' +
+          'results alone.\n' +
+          '- **Ask** is the full conversation: a grounded, cited answer, follow-ups that keep ' +
+          'the context, saved sessions and deep research for broad questions.\n' +
+          '- **Library and the reader** browse the whole collection and open any paper at the ' +
+          'cited passage.\n' +
+          '- **Chat with a document** asks questions of one paper alone.\n' +
+          '- **Investigations** gather evidence around a research question over time and ' +
+          'synthesise it.\n' +
+          '- **Generate** writes a briefing, comparison, timeline or set of questions and ' +
+          'answers from the collection, with references.\n' +
+          '- **Assessment** builds a knowledge check on any area of the collection.\n' +
+          '- **The knowledge map** shows the conditions, genes, medications, researchers and ' +
+          'institutions in the collection and how they connect.\n' +
+          '- **Watches** re-run a search or a question daily and flag it when the collection ' +
+          'has something new.\n' +
+          '- **Exports** take an answer trail, an investigation or a generated artefact out as ' +
+          'a Word document, and a briefing as a print-ready copy for saving as a PDF ' +
+          '(portable document format) file.',
+      },
+      {
+        heading: 'What it deliberately does not do',
+        body:
+          '- It never answers without a source. An answer with nothing to cite is not shown.\n' +
+          '- It says plainly when the collection does not hold something, and shows the closest ' +
+          'passages it found, rather than filling the gap.\n' +
+          '- It does not browse the internet. Every answer comes from the collection alone.\n' +
+          '- It does not change the papers. Extraction and enrichment sit beside the original, ' +
+          'which stays exactly as published.',
+      },
+      {
+        heading: 'Under the hood',
+        body: 'For technical readers. The knowledge index, retrieval, answer generation, ' +
+          'citations, the answer quality signal, the enrichment agents and the entity relations ' +
+          'graph are provided by Progress Agentic RAG (retrieval-augmented generation), the ' +
+          'knowledge platform the portal runs on. The portal adds the intent routing, the ' +
+          'verification layer described above, and the reading tools: the reader, document ' +
+          'chat, investigations, generation, assessment, watches and exports. The platform sits ' +
+          'behind one retrieval interface in the portal, and the credentials for it never ' +
+          'reach the browser.',
+      },
+    ],
+  },
+  {
     id: 'search',
     category: 'Finding answers',
     title: 'Search: a cited answer, or just the results',

@@ -924,6 +924,12 @@ body {
   max-width: 72ch;
 }
 
+/* The How-this-works flow diagram: SVG node corners that follow the shape dial. */
+.rp-flow-node {
+  rx: var(--rp-radius);
+  ry: var(--rp-radius);
+}
+
 /* ---------------------------------------------------------------------------
  * Surfaces
  * ------------------------------------------------------------------------- */

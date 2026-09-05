@@ -47,6 +47,48 @@ describe('documentation content integrity', () => {
     }
   })
 
+  it('explains how the portal works, second after getting started, in plain language', () => {
+    const page = docPageById('how-this-works')
+    expect(page).toBeDefined()
+    expect(DOC_PAGES[1]?.id).toBe('how-this-works')
+    expect(page?.category).toBe('Getting started')
+    expect(page?.sections.map((section) => section.heading)).toEqual([
+      'Where the content comes from',
+      'What happens when a document is added',
+      'How a question is answered',
+      'How the answer is checked before you see it',
+      'What you can do with it',
+      'What it deliberately does not do',
+      'Under the hood',
+    ])
+    const text = docPageToPlainText(page!)
+    // The answer pipeline, in the words a clinician-researcher would use.
+    for (
+      const phrase of [
+        'Text and tables are extracted',
+        'Enrichment agents',
+        'study-design labels',
+        'The question is routed',
+        'The index returns the passages',
+        'written only from those passages',
+        'Every sentence carries a citation',
+        'no language model in the loop',
+        'Groundedness decides',
+        'never answers without a source',
+        'does not browse the internet',
+        'does not change the papers',
+      ]
+    ) {
+      expect(text).toContain(phrase)
+    }
+    // The platform is named exactly once, in the technical note, with its acronym expanded.
+    expect(text.match(/Progress Agentic RAG/g)?.length).toBe(1)
+    expect(text).toContain('retrieval-augmented generation')
+    expect(text).toContain('(portable document format)')
+    // Live figures belong to the illustrated page, never hardcoded into the prose.
+    expect(text).not.toMatch(/\b\d{3,} (?:resources|papers|paragraphs|sentences)\b/)
+  })
+
   it('uses Australian English and no em dashes in user-facing copy', () => {
     // US spellings chosen so they are not substrings of their Australian forms
     // (e.g. "colour" does not contain "color", "artefact" does not contain "artifact").

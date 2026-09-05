@@ -12,6 +12,8 @@ import {
 } from '../lib/theme.ts'
 import { CommandPalette } from '../components/CommandPalette.tsx'
 import { AccountMenu } from '../components/AccountMenu.tsx'
+import { HelpItemIcon, HelpMenu } from '../components/HelpMenu.tsx'
+import { helpMenuItems } from '../components/help-menu-items.ts'
 import { KbSwitcher } from '../components/KbSwitcher.tsx'
 import { PortalFooter } from '../components/PortalFooter.tsx'
 import { SignInDialog } from '../components/SignInDialog.tsx'
@@ -49,9 +51,9 @@ const MOBILE_NAV_ITEMS: { path: string; label: string; end: boolean }[] = [
   ...NAV_ITEMS,
 ]
 
-// One name each for the help and account controls, read by both the header
-// icons and the phone sheet's rows so the two surfaces cannot drift apart. The
-const HELP_LABEL = 'Help'
+// One name for the account control, read by both the header icon and the phone
+// sheet's row so the two surfaces cannot drift apart. The help destinations come
+// from `helpMenuItems` for the same reason.
 const ACCOUNT_LABEL = 'My account'
 
 /** Sun and moon, for the viewer's scheme toggle. */
@@ -73,25 +75,6 @@ function SchemeIcon({ scheme, className }: { scheme: 'light' | 'dark'; className
           <path d='M12 2.5v2.5M12 19v2.5M2.5 12H5M19 12h2.5M5.3 5.3l1.8 1.8M16.9 16.9l1.8 1.8M5.3 18.7l1.8-1.8M16.9 7.1l1.8-1.8' />
         </>
       )}
-    </svg>
-  )
-}
-
-function HelpIcon({ className }: { className: string }) {
-  return (
-    <svg
-      viewBox='0 0 24 24'
-      fill='none'
-      stroke='currentColor'
-      strokeWidth='1.6'
-      strokeLinecap='round'
-      strokeLinejoin='round'
-      className={className}
-      aria-hidden='true'
-    >
-      <circle cx='12' cy='12' r='9' />
-      <path d='M9.4 9.2a2.7 2.7 0 015.2.9c0 1.8-2.6 2.4-2.6 4' />
-      <path d='M12 17.4h.01' />
     </svg>
   )
 }
@@ -503,18 +486,7 @@ export function TenantLayout() {
                 </button>
               </span>
               <span className='hidden sm:inline-flex'>
-                <Link
-                  to={`/t/${config.slug}/help`}
-                  aria-label={HELP_LABEL}
-                  title={HELP_LABEL}
-                  className='rp-focus flex h-[calc(2.75rem*var(--rp-density-ctl,1))] w-[calc(2.75rem*var(--rp-density-ctl,1))] shrink-0 items-center justify-center rounded-full border transition-colors duration-150'
-                  style={{
-                    borderColor: 'color-mix(in srgb, var(--rp-brand-fg) 25%, transparent)',
-                    color: 'var(--rp-brand-fg)',
-                  }}
-                >
-                  <HelpIcon className='h-6 w-6' />
-                </Link>
+                <HelpMenu slug={config.slug} />
               </span>
               <span className='hidden sm:inline-flex'>
                 <AccountMenu
@@ -671,13 +643,16 @@ export function TenantLayout() {
                   <SchemeIcon scheme={scheme} className='h-5 w-5 shrink-0' />
                   {scheme === 'dark' ? 'Light mode' : 'Dark mode'}
                 </button>
-                <NavLink
-                  to={`/t/${config.slug}/help`}
-                  className='rp-navsheet-action rp-focus-inverse'
-                >
-                  <HelpIcon className='h-5 w-5 shrink-0' />
-                  {HELP_LABEL}
-                </NavLink>
+                {helpMenuItems(config.slug).map((item) => (
+                  <NavLink
+                    key={item.key}
+                    to={item.href}
+                    className='rp-navsheet-action rp-focus-inverse'
+                  >
+                    <HelpItemIcon item={item} className='h-5 w-5 shrink-0' />
+                    {item.label}
+                  </NavLink>
+                ))}
                 <AccountMenu
                   isAdmin={accountIsAdmin}
                   label={accountLabel}
