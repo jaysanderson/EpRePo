@@ -689,7 +689,7 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
         // A paper the question did not name has to answer the sentence
         // clearly: the quote must carry the claim's names or two of its
         // words, and no quote is used twice in one answer.
-        const bar = papers === named ? 0 : 9
+        const bar = papers === named ? 0 : 11
         for (const id of papers) {
           const index = candidates.find((c) => c.resourceId === id)?.index
           const raw = index === undefined ? undefined : texts.get(index)
