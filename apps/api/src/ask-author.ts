@@ -72,8 +72,10 @@ const NOT_A_SURNAME = new Set([
   'december',
 ])
 
+/** Diacritics and apostrophes removed: "D'Souza", "D’Souza" and "DSouza" are one surname (D3-04). */
 function fold(value: string): string {
-  return value.replace(/[’‘`]/g, "'").toLowerCase()
+  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[’‘`']/g, '')
+    .toLowerCase()
 }
 
 /** Surname from an "Surname AB" / "Surname, A. B." / "A. B. Surname" author string. */
@@ -114,9 +116,11 @@ export function authorsNamed(
   const lexiconLower = new Set(lexicon.map((t) => t.toLowerCase()))
   const out: NamedAuthor[] = []
   const seen = new Set<string>()
+  // The possessive is part of the name's shape, not of the name: "D'Souza's
+  // papers" names D'Souza (D3-11).
   for (
     const m of query.matchAll(
-      /(?<![\w'’])([A-Z][a-z]*['’]?[A-Z]?[a-z]+(?:-[A-Z][a-z]+)?)(?![\w'’])/g,
+      /(?<![\w'’])([A-Z][a-z]*['’]?[A-Z]?[a-z]+(?:-[A-Z][a-z]+)?)(?:['’]s\b)?(?![\w'’])/g,
     )
   ) {
     const word = m[1]!
@@ -155,6 +159,11 @@ export function authorTopicQuery(query: string, surnames: readonly string[]): st
     )
   }
   text = text
+    // "Which of X's papers report on Y, and what did each find?" is Y (D3-11).
+    .replace(
+      /\bwhich\s+of\b|\b(?:papers?|publications?|articles?|studies|work)\s+(?:report|reported|describe|described|address|addressed|examine|examined|study|studied|investigate|investigated|cover|covered|deal)\w*\s*(?:on|about|with)?\b|,?\s*(?:and\s+)?what\s+(?:did|do|does)\s+(?:each|they|it|those|these)\s+(?:find|report|show|conclude|say)\b/gi,
+      ' ',
+    )
     .replace(
       /\b(?:what|which|where|when)\s+(?:has|have|had|did|does|do|is|are|was|were)\b|\b(?:has|have)\s+(?:been\s+)?(?:published|written|authored|reported|found|shown|studied|investigated)\b|\b(?:published|publish|publications?|papers?|work|works|studies|research|contributions?)\s+(?:on|about|into|regarding|concerning)\b|\b(?:their|his|her|the)\s+(?:work|research|papers?|publications?|studies)\b/gi,
       ' ',
@@ -236,4 +245,144 @@ export function correctAttributions(
     }).join(' ')
   })
   return { text: lines.join('\n'), fixes }
+}
+
+// ---------------------------------------------------------------------------
+// A list of an author's papers (D3-11). "Which of X's papers report on Y, and
+// what did each find?" is answered from the author-scoped retrieval, and the
+// generator names the papers it chose to; the ones it left out are listed
+// after it from the same sources, each with its own marker, so a paper in
+// the grounding set is never missing from the answer.
+// ---------------------------------------------------------------------------
+
+/** Whether a question asks for a list of papers rather than a finding. */
+export function isPaperListingQuestion(query: string): boolean {
+  // The paper noun heads the interrogative phrase ("which of X's papers",
+  // "what papers", "list the papers"); "what did the studies find" asks
+  // for a finding, not a list.
+  return /\b(?:which|what)\s+(?:of\s+(?:the\s+)?(?:[A-Za-z'’-]+\s+){0,2}?)?(?:[A-Za-z'’-]+\s+)?(?:papers?|publications?|articles?|studies|work)\b|\b(?:list|name|enumerate)\s+(?:the\s+|all\s+|every\s+)?(?:[A-Za-z'’-]+\s+)?(?:papers?|publications?|articles?|studies)\b/i
+    .test(query)
+}
+
+/** The prompt addendum for an author-scoped listing question. */
+export function paperListingAddendum(surname: string, topic: string): string {
+  return `The sources are limited to papers by ${surname} in this collection. The question asks ` +
+    `which of them concern ${topic || 'the topic'}: name every source paper that does, by its ` +
+    'exact title, with what it found and a marker after each, and leave none of them out.'
+}
+
+const LISTING_STOP = new Set([
+  'what',
+  'which',
+  'with',
+  'from',
+  'that',
+  'this',
+  'have',
+  'does',
+  'each',
+  'find',
+  'report',
+  'papers',
+  'paper',
+  'study',
+  'studies',
+  'about',
+  'their',
+])
+
+/** The topic's content words, hyphens and case folded: "sub-scalp EEG" is {subscalp, eeg}. */
+function topicWords(topic: string): string[] {
+  return [
+    ...new Set(
+      topic.toLowerCase().replace(/-/g, '').match(/[a-z][a-z0-9]{2,}/g) ?? [],
+    ),
+  ].filter((w) => !LISTING_STOP.has(w))
+}
+
+/**
+ * Whether a source is about the topic: its title carries at least one of
+ * the topic's words and, with its matched passage, all of them (one may be
+ * missing from a longer topic). A summary that mentions the topic in
+ * passing does not make a paper about it.
+ */
+function carriesTopic(
+  source: { title: string; matchedPassage?: string },
+  words: readonly string[],
+): boolean {
+  if (words.length === 0) return false
+  const fold = (text: string) => text.toLowerCase().replace(/-/g, '')
+  const title = fold(source.title)
+  const titleHits = words.filter((w) => title.includes(w)).length
+  if (titleHits === 0) return false
+  const have = `${title} ${fold(source.matchedPassage ?? '')}`
+  const hits = words.filter((w) => have.includes(w)).length
+  return hits >= (words.length >= 3 ? words.length - 1 : words.length)
+}
+
+/** Whether the answer already names the paper (by the head of its title). */
+function mentionsTitle(text: string, title: string): boolean {
+  const head = title.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().split(' ').slice(0, 6)
+    .join(' ')
+  return head.length > 0 &&
+    text.toLowerCase().replace(/[^a-z0-9]+/g, ' ').includes(head)
+}
+
+export interface PaperListingSource {
+  id: string
+  title: string
+  summary?: string
+  matchedPassage?: string
+  year?: string
+  kind?: string
+}
+
+/**
+ * Appends the author-scoped sources on the topic that the answer left
+ * unnamed, each as a line with its title, year and study design and a
+ * marker bound to that source. New citations continue the answer's own
+ * numbering. Returns the text and citations unchanged when every source on
+ * the topic is already named, or when the question is not a listing.
+ */
+export function appendOmittedPapers(input: {
+  text: string
+  query: string
+  topic: string
+  surname: string
+  sources: readonly PaperListingSource[]
+  scopeIds: readonly string[]
+  citations: readonly Citation[]
+  kindLabel: (id: string) => string
+}): { text: string; citations: Citation[]; added: number } {
+  const unchanged = { text: input.text, citations: [...input.citations], added: 0 }
+  if (!isPaperListingQuestion(input.query)) return unchanged
+  const words = topicWords(input.topic)
+  if (words.length === 0) return unchanged
+  const scope = new Set(input.scopeIds)
+  const omitted = input.sources.filter((s) =>
+    scope.has(s.id) && carriesTopic(s, words) && !mentionsTitle(input.text, s.title)
+  )
+  if (omitted.length === 0) return unchanged
+  const citations = [...input.citations]
+  let next = citations.reduce((m, c) => Math.max(m, c.index), 0) + 1
+  const lines = omitted.map((s) => {
+    let citation = citations.find((c) => c.resourceId === s.id)
+    if (!citation) {
+      citation = {
+        index: next++,
+        resourceId: s.id,
+        title: s.title,
+        ...(s.matchedPassage ? { passage: s.matchedPassage } : {}),
+      }
+      citations.push(citation)
+    }
+    const meta = [s.year, s.kind ? input.kindLabel(s.kind) : undefined].filter(Boolean).join(', ')
+    return `- *${s.title}*${meta ? ` (${meta})` : ''} [${citation.index}]`
+  })
+  const heading = `Also by ${input.surname} in this collection on ${input.topic}:`
+  return {
+    text: `${input.text.trimEnd()}\n\n${heading}\n\n${lines.join('\n')}`,
+    citations,
+    added: omitted.length,
+  }
 }

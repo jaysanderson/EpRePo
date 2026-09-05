@@ -21,6 +21,61 @@ function foldApostrophes(value: string): string {
   return value.replace(/[’‘`]/g, "'")
 }
 
+/**
+ * The comparison key for a name: diacritics and apostrophes removed, lower
+ * case, so "D'Souza", "D’Souza" and "DSouza" are one person (D3-04).
+ */
+function nameKey(value: string): string {
+  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[’‘`']/g, '')
+    .toLowerCase()
+}
+
+/** One to three initials, with or without stops: "W", "WJ", "W.", "W.J.". */
+function isInitials(token: string): boolean {
+  return /^(?:[A-Z]\.?){1,3}$/.test(token)
+}
+
+/**
+ * A query that is a person's name: "Wendyl D'Souza", "W D'Souza", "W. J.
+ * D'Souza", "D'Souza WJ", "Wendyl J D'Souza". Two or three tokens, every
+ * one a capitalised word or initials; the surname is the word beside the
+ * initials, or the last word. Null for anything else - a two-word topic is
+ * not a name, and a lower-case pair never reads as one.
+ */
+export function parsePersonQuery(
+  query: string,
+): { surname: string; initial?: string; display: string } | null {
+  const tokens = query.trim().split(/\s+/)
+  if (tokens.length < 2 || tokens.length > 3) return null
+  if (!tokens.every((t) => /^[A-Z][A-Za-z'’.-]*$/.test(t))) return null
+  const first = tokens[0]!
+  const last = tokens[tokens.length - 1]!
+  const words = tokens.filter((t) => !isInitials(t))
+  const initials = tokens.filter((t) => isInitials(t))
+  if (words.length === 0) return null
+  let surname: string
+  let initial: string | undefined
+  if (isInitials(last) && !isInitials(first)) {
+    // "D'Souza WJ"
+    surname = words.join(' ')
+    initial = last[0]!.toLowerCase()
+  } else if (isInitials(first)) {
+    // "W D'Souza", "W. J. D'Souza"
+    surname = words[words.length - 1]!
+    initial = first[0]!.toLowerCase()
+  } else if (initials.length === 0) {
+    // "Wendyl D'Souza", "Wendyl John D'Souza"
+    surname = last
+    initial = first[0]!.toLowerCase()
+  } else {
+    // "Wendyl J D'Souza"
+    surname = last
+    initial = first[0]!.toLowerCase()
+  }
+  if (nameKey(surname).length < 3 || /[.]/.test(surname)) return null
+  return { surname, initial, display: query.trim() }
+}
+
 function pmcidOf(resource: ResourceSummary): string | undefined {
   if (resource.pmcid) return resource.pmcid.toUpperCase()
   const fromUrl = /\/(PMC\d{4,9})\/?$/i.exec(resource.originUrl ?? '')?.[1]
@@ -29,9 +84,8 @@ function pmcidOf(resource: ResourceSummary): string | undefined {
 
 /** Supplements and media files share their article's identifiers; the article comes first. */
 function isAttachment(resource: ResourceSummary): boolean {
-  return /^(?:supplementary|supplement\b|video|movie|media|additional file|appendix)/i.test(
-    resource.title,
-  ) || resource.type === 'video'
+  return /^(?:supplementary|supplement\b|supplemental|peer review|video|movie|media|additional file|appendix)/i
+    .test(resource.title) || resource.type === 'video'
 }
 
 /** Articles before their attachments, newest first, then by title - a total order. */
@@ -96,13 +150,42 @@ export function resolveAuthor(
   if (!m?.[1]) return null
   const surname = m[1]
   const year = m[2]
-  const wanted = foldApostrophes(surname).toLowerCase()
+  const wanted = nameKey(surname)
   const matches = resources.filter((r) =>
-    (r.authors ?? []).some((a) => surnameOf(a).toLowerCase() === wanted) &&
+    (r.authors ?? []).some((a) => nameKey(surnameOf(a)) === wanted) &&
     (!year || r.year === year || (r.published ?? '').startsWith(year))
   )
   if (matches.length === 0) return null
   return { surname, ...(year ? { year } : {}), matches: articleFirst(matches) }
+}
+
+/**
+ * A person's name as a query ("Wendyl D'Souza", "W D'Souza", "DSouza WJ"):
+ * the papers of the catalogue author with that surname and a compatible
+ * first initial. Null when the query is not name-shaped or nobody in the
+ * catalogue has the surname; an EMPTY match list when the surname is an
+ * author's but the initial is not - a person's name the collection does
+ * not hold, which the surface lists honestly and never answers (D3-04).
+ */
+export function resolvePersonName(
+  resources: readonly ResourceSummary[],
+  query: string,
+): { surname: string; matches: ResourceSummary[] } | null {
+  const person = parsePersonQuery(query)
+  if (!person) return null
+  const wanted = nameKey(person.surname)
+  const bySurname = resources.filter((r) =>
+    (r.authors ?? []).some((a) => personKey(a)?.surname === wanted)
+  )
+  if (bySurname.length === 0) return null
+  const matches = bySurname.filter((r) =>
+    (r.authors ?? []).some((a) => {
+      const have = personKey(a)
+      return have?.surname === wanted &&
+        (!have.initial || !person.initial || have.initial === person.initial)
+    })
+  )
+  return { surname: person.display, matches: articleFirst(matches) }
 }
 
 /** Shape a metadata match as a search result, with the record as its passage. */
@@ -150,16 +233,16 @@ function personKey(name: string): { surname: string; initial?: string } | null {
   const last = parts[parts.length - 1]!
   // "D'Souza WJ": the all-caps tail is the initials.
   if (parts.length > 1 && /^[A-Z]{1,3}$/.test(last)) {
-    return { surname: parts.slice(0, -1).join(' ').toLowerCase(), initial: last[0]!.toLowerCase() }
+    return { surname: nameKey(parts.slice(0, -1).join(' ')), initial: last[0]!.toLowerCase() }
   }
   // "WJ D'Souza" / "W. D'Souza".
   if (parts.length > 1 && /^[A-Z]{1,3}$/.test(first)) {
-    return { surname: parts.slice(1).join(' ').toLowerCase(), initial: first[0]!.toLowerCase() }
+    return { surname: nameKey(parts.slice(1).join(' ')), initial: first[0]!.toLowerCase() }
   }
-  if (parts.length === 1) return { surname: last.toLowerCase() }
+  if (parts.length === 1) return { surname: nameKey(last) }
   // "Wendyl D'Souza" / "Wendyl John D'Souza" - every token a capitalised word.
   if (!parts.every((p) => /^[A-Z][A-Za-z'-]*$/.test(p))) return null
-  return { surname: last.toLowerCase(), initial: first[0]!.toLowerCase() }
+  return { surname: nameKey(last), initial: first[0]!.toLowerCase() }
 }
 
 /** Whether an entity name names someone on the catalogue's author lists. */

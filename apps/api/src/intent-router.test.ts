@@ -161,6 +161,24 @@ describe('routeByRules', () => {
   it('returns null when nothing fires and marks the default configuration name', () => {
     expect(routeByRules('How does the ketogenic diet work?', ctx)).toBeNull()
   })
+  it("routes a named person's papers to the review intent by rule (D3-11)", () => {
+    const askCtx = { ...ctx, surface: 'ask' as const }
+    const d = routeByRules(
+      "Which of D'Souza's papers report on sub-scalp EEG, and what did each find?",
+      askCtx,
+    )
+    expect(d?.rule).toBe('author-papers')
+    expect(d?.intent).toBe('review')
+    expect(routeByRules('List the papers by Broadley on encephalitis', askCtx)?.rule).toBe(
+      'author-papers',
+    )
+    expect(routeByRules('What did Kwan et al. report on drug resistance?', askCtx)?.rule).toBe(
+      'author-papers',
+    )
+    expect(routeByRules('Which papers report on sub-scalp EEG?', askCtx)?.rule).not.toBe(
+      'author-papers',
+    )
+  })
 })
 
 describe('fillPrequeries', () => {
