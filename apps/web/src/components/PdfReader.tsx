@@ -591,7 +591,7 @@ export function PdfReader(
                 <button
                   type='button'
                   onClick={() => setScanRequested(true)}
-                  className='rp-focus rounded-[var(--rp-radius-btn)] font-medium underline decoration-dotted underline-offset-2'
+                  className='rp-focus inline-flex min-h-6 items-center rounded-[var(--rp-radius-btn)] font-medium underline decoration-dotted underline-offset-2'
                 >
                   Find it in the document
                 </button>

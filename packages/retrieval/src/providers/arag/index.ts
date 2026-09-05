@@ -194,6 +194,46 @@ export function looksLikeReferenceChunk(text: string): boolean {
 }
 
 /**
+ * A declarations block - conflicts of interest, funding, ethics approval,
+ * author contributions, data availability - is not evidence: it is never
+ * the passage quoted under a result nor the paragraph an evidence card
+ * offers, and a hit made of nothing else is treated like a reference-list
+ * hit (D3-04). Heading words are counted with the disclosure phrases that
+ * follow them, so a Methods paragraph that mentions its funding once is
+ * still a Methods paragraph.
+ */
+export function looksLikeDeclarationsChunk(text: string): boolean {
+  const sample = text.slice(0, 800)
+  const headings = (sample.match(
+    /\b(?:declarations?|conflicts? of interest|competing interests?|disclosures?|funding|acknowledge?ments?|author(?:s'|s’)? contributions?|ethics approval|ethical approval|data availability|code availability|consent (?:to|for) (?:publication|participate)|informed consent|supplementary information)\b/gi,
+  ) ?? []).length
+  const disclosures = (sample.match(
+    /\b(?:honoraria|honorarium|speaker(?:'s|’s)? fees?|consultancy|consulting fees?|advisory boards?|research (?:grants?|funds?|funding|support) from|(?:has|have) received|equity interest|no (?:competing|conflicts?)|nothing to disclose|declares? no|declared no|not applicable|study concept or design|analysis or interpretation of data|acquisition of data|drafting(?:\/revision)? of the manuscript|critical revision|medical writing for content|major role in|we (?:acknowledge|thank)|the authors (?:acknowledge|thank))\b/gi,
+  ) ?? []).length
+  // "We thank" and "we acknowledge" open an acknowledgements block on their own.
+  const acknowledgement = /\b(?:we|the authors) (?:acknowledge|thank|are grateful to)\b/i.test(
+    sample,
+  )
+  // A CRediT author-contribution block is a list of roles; a conflicts
+  // statement is a list of companies.
+  const credit = (sample.match(
+    /\b(?:conceptuali[sz]ation|methodology|formal analysis|funding acquisition|writing (?:-|–|—) (?:review|original)|supervision|data curation|project administration|visuali[sz]ation|resources|validation)\b/gi,
+  ) ?? []).length
+  const companies = new Set(
+    (sample.match(
+      /\b(?:UCB|Eisai|Novartis|Roche|Janssen|Genzyme|Pfizer|GSK|GlaxoSmithKline|Sanofi|Biogen|Bial|Angelini|Arvelle|Esteve|GW Pharma|LivaNova|Medtronic|Zogenix|Jazz|SK Life|Lundbeck|Merck|Takeda|AbbVie|Sunovion|Xenon|Marinus|Neurelis|Ovid|Stoke|Praxis|Epiminder|Seer Medical|Supernus|Cerebral Therapeutics|Longboard|Bayer|Boehringer)\b/g,
+    ) ?? []).map((c) => c.toLowerCase()),
+  ).size
+  return acknowledgement || credit >= 3 || companies >= 3 || headings >= 2 ||
+    (headings >= 1 && disclosures >= 1) || disclosures >= 3
+}
+
+/** A paragraph that is not evidence: a bibliography or a declarations block. */
+function isNonEvidenceChunk(text: string): boolean {
+  return looksLikeReferenceChunk(text) || looksLikeDeclarationsChunk(text)
+}
+
+/**
  * Raw platform id/hash rather than a human title - the shape a resource's
  * internal identifier takes when title extraction failed and the id leaked
  * through as the display title (e.g. a bare 32-char hex uuid). Requires both
@@ -427,6 +467,12 @@ function bestParagraphMatch(raw: {
   let best = 0
   let passage: string | undefined
   let page: number | undefined
+  // The best paragraph that is evidence: a bibliography or a declarations
+  // block never becomes the quote under a result while a body paragraph
+  // matched too (D3-04).
+  let bodyBest = -1
+  let bodyPassage: string | undefined
+  let bodyPage: number | undefined
   for (const field of Object.values(raw.fields ?? {})) {
     for (const paragraph of Object.values(field.paragraphs ?? {})) {
       const score = paragraph.score ?? 0
@@ -435,9 +481,17 @@ function bestParagraphMatch(raw: {
         passage = paragraph.text ?? passage
         page = paragraph.position?.page_number
       }
+      if (paragraph.text && score >= bodyBest && !isNonEvidenceChunk(paragraph.text)) {
+        bodyBest = score
+        bodyPassage = paragraph.text
+        bodyPage = paragraph.position?.page_number
+      }
     }
   }
-  const reference = passage ? looksLikeReferenceChunk(passage) : false
+  if (passage !== undefined && bodyPassage !== undefined && isNonEvidenceChunk(passage)) {
+    return { best: bodyBest, passage: bodyPassage, page: bodyPage, reference: false }
+  }
+  const reference = passage ? isNonEvidenceChunk(passage) : false
   return { best: reference ? best * 0.4 : best, passage, page, reference }
 }
 
@@ -1498,7 +1552,9 @@ export class AragProvider implements RetrievalProvider {
         const choice = chooseSnippet(
           paragraphs,
           MIN_SCORE,
-          (text) => looksLikeReferenceChunk(text) || isCitationNoise(text),
+          (text) =>
+            looksLikeReferenceChunk(text) || isCitationNoise(text) ||
+            looksLikeDeclarationsChunk(text),
         )
         const passage = choice.passage?.text || undefined
         const summaryDoi = byId.get(id)?.doi
@@ -3502,7 +3558,10 @@ export class AragProvider implements RetrievalProvider {
             const paragraphPage = displayPage(
               (paragraph as { position?: { page_number?: number } }).position?.page_number,
             )
-            if (paragraph.text && !isGeneratedField(fieldKey)) {
+            if (
+              paragraph.text && !isGeneratedField(fieldKey) &&
+              !looksLikeDeclarationsChunk(paragraph.text)
+            ) {
               paged.push({
                 score: paragraph.score ?? 0,
                 text: paragraph.text.slice(0, 2000),
@@ -3516,7 +3575,7 @@ export class AragProvider implements RetrievalProvider {
               page = (paragraph as { position?: { page_number?: number } }).position?.page_number
               matchedField = isGeneratedField(fieldKey) ? 'summary' : 'body'
             }
-            if (paragraph.text && score >= bodyBest && !looksLikeReferenceChunk(paragraph.text)) {
+            if (paragraph.text && score >= bodyBest && !isNonEvidenceChunk(paragraph.text)) {
               bodyBest = score
               bodyPassage = paragraph.text
               bodyPage = (paragraph as { position?: { page_number?: number } }).position
@@ -3526,15 +3585,13 @@ export class AragProvider implements RetrievalProvider {
           }
         }
         let swapped = false
-        if (
-          passage !== undefined && bodyPassage !== undefined && looksLikeReferenceChunk(passage)
-        ) {
+        if (passage !== undefined && bodyPassage !== undefined && isNonEvidenceChunk(passage)) {
           passage = bodyPassage
           page = bodyPage
           matchedField = bodyField
           swapped = true
         }
-        const reference = passage ? looksLikeReferenceChunk(passage) : false
+        const reference = passage ? isNonEvidenceChunk(passage) : false
         const shown = reference ? best * 0.4 : swapped ? bodyBest : best
         const passages = paged
           .sort((a, b) => b.score - a.score)
@@ -3703,7 +3760,8 @@ export class AragProvider implements RetrievalProvider {
         // true out-of-corpus question (nothing this relevant retrieved)
         // refuses exactly as before.
         if (
-          isGuardrailRefusal(fullAnswer) && !refusalRetried && attempt < MAX_ATTEMPTS &&
+          isGuardrailRefusal(fullAnswer) && !refusalRetried && !opts.noRefusalRetry &&
+          attempt < MAX_ATTEMPTS &&
           sources.some((s) => s.relevance >= MIN_REFUSAL_OVERRIDE_RELEVANCE)
         ) {
           refusalRetried = true

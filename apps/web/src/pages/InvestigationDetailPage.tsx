@@ -476,7 +476,7 @@ function EvidenceCard(
           <button
             type='button'
             onClick={() => setExpanded((e) => !e)}
-            className='mt-1 text-xs font-medium text-ink-3 hover:text-ink'
+            className='rp-focus mt-1 inline-flex min-h-6 items-center rounded-[var(--rp-radius-btn)] text-xs font-medium text-ink-3 hover:text-ink'
           >
             {expanded ? 'Show less' : 'Show more'}
           </button>
@@ -519,7 +519,7 @@ function EvidenceCard(
               type='button'
               onClick={() => removeTag(tag)}
               aria-label={`Remove tag ${tag}`}
-              className='text-ink-3 hover:text-ink'
+              className='rp-focus -my-1 inline-flex min-h-6 min-w-6 items-center justify-center rounded-[var(--rp-radius-btn)] text-ink-3 hover:text-ink'
             >
               &times;
             </button>

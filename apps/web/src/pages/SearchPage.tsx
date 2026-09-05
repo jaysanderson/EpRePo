@@ -626,9 +626,14 @@ export function SearchPage() {
   // and generates nothing: an author search is a bibliography, not a
   // question, and a generated paragraph about a name reads as a profile
   // nobody asked for.
+  // A person's name the collection does not hold is still a name: nothing
+  // is generated about it either (D3-04).
   const lookupOnly =
     (routedIntent !== undefined && !routedIntent.answer.surfaces.includes('ask')) ||
-    results?.lookup?.matched === true
+    results?.lookup?.matched === true ||
+    results?.lookup?.kind === 'author'
+  const unmatchedAuthor = results?.lookup?.kind === 'author' && !results.lookup.matched &&
+    results.resources.length > 0
   const answerMode = answerModeParamValue && !lookupOnly
 
   // Match strength is not a server filter - the search API only accepts topicIds - so
@@ -953,6 +958,14 @@ export function SearchPage() {
               )
               : null}
           </div>
+        )
+        : null}
+      {unmatchedAuthor && results
+        ? (
+          <p className='mt-4 text-sm text-ink-2' role='status'>
+            No author named {results.lookup?.value}{' '}
+            is on this collection's papers. These are the resources retrieval found for the name.
+          </p>
         )
         : null}
       {

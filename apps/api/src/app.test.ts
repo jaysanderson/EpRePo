@@ -1951,6 +1951,45 @@ describe('POST /api/t/:slug/ask refusals and sentinels', () => {
     expect(dones[0] && dones[0].type === 'done' ? dones[0].refused : true).toBe(false)
   })
 
+  it('accepts a refusal on the default configuration after one ask, with the provider retry off (D3-05)', async () => {
+    let asks = 0
+    const flags: (boolean | undefined)[] = []
+    class RefusingProvider extends StubProvider {
+      override async *ask(
+        _tenant: TenantConfig,
+        _query: string,
+        opts?: { noRefusalRetry?: boolean },
+      ): AsyncIterable<AskEvent> {
+        asks++
+        flags.push(opts?.noRefusalRetry)
+        yield { type: 'sources', resources: [{ ...resourceOne, relevance: 0.96, citedCount: 0 }] }
+        yield {
+          type: 'delta',
+          text: "This portal's content does not hold enough relevant material.",
+        }
+        yield { type: 'sources', resources: [] }
+        yield { type: 'done', refused: true }
+      }
+    }
+    const app = buildApp({ provider: new RefusingProvider(), tenants: freshTenants() })
+    const response = await app.request('/api/t/eprepo/ask', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        query: 'What proportion of adults developed drug resistance in the prediction study?',
+        route: 'auto',
+      }),
+    })
+    const events = await sseEvents(response)
+    // A strong match on the default configuration with nothing narrower to
+    // drop is a refusal to accept, not a chain of four platform asks.
+    expect(asks).toBe(1)
+    expect(flags).toEqual([true])
+    const dones = events.filter((e) => e.type === 'done')
+    expect(dones.length).toBe(1)
+    expect(dones[0] && dones[0].type === 'done' ? dones[0].refused : false).toBe(true)
+  })
+
   it('uses the document-scope decline for a per-document ask', async () => {
     class RefusingProvider extends StubProvider {
       override async *ask(): AsyncIterable<AskEvent> {

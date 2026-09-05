@@ -95,13 +95,41 @@ export function useAnswerPhase(hasText: boolean, active: boolean): Phase {
 }
 
 export function StageTimeline(
-  { statuses, exiting = false }: { statuses: StageStatuses; exiting?: boolean },
+  { statuses, exiting = false, reading = [] }: {
+    statuses: StageStatuses
+    exiting?: boolean
+    /**
+     * The papers retrieval has already found, named while the platform
+     * reads them: the shortlist arrives a second or two into a question
+     * that takes ten to answer, and a reader who can see what is being
+     * read is not staring at a spinner (D3-05).
+     */
+    reading?: string[]
+  },
 ) {
   const activeLabel = STAGE_STEPS.find((s) => statuses[s.key] === 'active')?.label
+  const shortlist = reading.filter((t) => t.trim().length > 0).slice(0, 3)
 
   return (
     <div className='py-1'>
       <p className='sr-only' role='status'>{activeLabel ?? 'Working'}</p>
+      {shortlist.length > 0
+        ? (
+          <p
+            className={`rp-stage-reading mb-2 text-xs leading-relaxed text-ink-3 ${
+              exiting ? 'rp-stage-row-exit' : ''
+            }`}
+          >
+            <span className='font-medium text-ink-2'>Reading</span>{' '}
+            {shortlist.map((title, index) => (
+              <span key={title}>
+                {index > 0 ? <span aria-hidden='true' className='mx-1'>&middot;</span> : null}
+                <span className='italic'>{title}</span>
+              </span>
+            ))}
+          </p>
+        )
+        : null}
       <ol className='space-y-0'>
         {STAGE_STEPS.map((step, index) => {
           const state = statuses[step.key] ?? 'pending'

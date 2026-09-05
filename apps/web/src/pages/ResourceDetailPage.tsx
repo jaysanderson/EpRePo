@@ -178,7 +178,10 @@ function DocBlockView(
       backgroundColor: 'color-mix(in srgb, var(--rp-accent) 14%, var(--rp-surface))',
     }
     : undefined
-  const base = `doc-block scroll-mt-24 transition-colors duration-700 ${emphasisClass}`
+  // A bare URL or DOI in the extracted text has no break opportunity and
+  // used to push the page 100 px wider than a phone (D3-14).
+  const base =
+    `doc-block scroll-mt-24 [overflow-wrap:anywhere] transition-colors duration-700 ${emphasisClass}`
   const id = `doc-block-${block.index}`
 
   switch (block.kind) {
@@ -936,7 +939,7 @@ function ResourceHeader(
           <Link
             key={topic.id}
             to={`/t/${slug}/library?topics=${encodeURIComponent(topic.id)}`}
-            className='rp-focus rp-badge rp-badge-quiet transition-colors duration-150 hover:text-ink'
+            className='rp-focus rp-badge rp-badge-quiet min-h-6 transition-colors duration-150 hover:text-ink'
           >
             {topic.label}
           </Link>

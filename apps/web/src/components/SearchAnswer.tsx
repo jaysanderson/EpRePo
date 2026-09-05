@@ -71,7 +71,7 @@ function renderCitationMarkers(
         <sup key={`${keyPrefix}-${index}`}>
           <Link
             to={citationHref(slug, citation.resourceId, matchedPassage)}
-            className='font-semibold no-underline'
+            className='rp-focus inline-flex min-h-6 min-w-6 items-center justify-center px-0.5 font-semibold no-underline'
             style={{ color: 'var(--rp-accent-fg)' }}
             title={`Source ${citationIndex} - ${citation.title}`}
           >
@@ -367,7 +367,7 @@ export function SearchAnswer({ slug, query, onResult }: SearchAnswerProps) {
           onClick={() => setCollapsed((prev) => !prev)}
           aria-expanded={!collapsed}
           aria-controls='search-answer-body'
-          className='rp-focus shrink-0 rounded-[var(--rp-radius)] px-1 text-xs font-medium text-[var(--rp-ink-3)] transition-colors duration-150 hover:text-[var(--rp-ink)]'
+          className='rp-focus inline-flex min-h-6 shrink-0 items-center rounded-[var(--rp-radius)] px-1.5 text-xs font-medium text-[var(--rp-ink-3)] transition-colors duration-150 hover:text-[var(--rp-ink)]'
         >
           {collapsed ? 'Show' : 'Hide'}
         </button>

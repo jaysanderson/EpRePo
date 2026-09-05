@@ -4,9 +4,11 @@ import type { ResourceSummary } from '@research-portal/core'
 import {
   authorLine,
   isCatalogueAuthor,
+  parsePersonQuery,
   researcherLabel,
   resolveAuthor,
   resolveIdentifier,
+  resolvePersonName,
   retypeResearchers,
 } from './catalog-lookup.ts'
 
@@ -84,6 +86,41 @@ describe('resolveAuthor', () => {
   })
   it('writes an author line with the journal and year', () => {
     expect(authorLine(resources[0]!)).toBe('Vajda FJE, O’Brien TJ, Lander CM - Epilepsia, 2025')
+  })
+  it('matches a surname typed without its apostrophe (D3-04)', () => {
+    expect(resolveAuthor(resources, 'OBrien')?.matches.map((r) => r.id)).toEqual(['a'])
+    expect(resolveAuthor(resources, 'O’Brien')?.matches.map((r) => r.id)).toEqual(['a'])
+  })
+})
+
+describe("a person's name as a query (D3-04)", () => {
+  const papers: ResourceSummary[] = [
+    { ...base, id: 'sudep', title: 'Risk of SUDEP', authors: ["D'Souza WJ", 'Kwan P'] },
+    { ...base, id: 'other', title: 'Another', authors: ['Smith JA', 'Kwan P'] },
+  ]
+  it('reads "first last", "initial last", "last initials" and apostrophe-less forms', () => {
+    expect(parsePersonQuery("Wendyl D'Souza")).toMatchObject({ surname: "D'Souza", initial: 'w' })
+    expect(parsePersonQuery("W D'Souza")).toMatchObject({ surname: "D'Souza", initial: 'w' })
+    expect(parsePersonQuery("W. J. D'Souza")).toMatchObject({ surname: "D'Souza", initial: 'w' })
+    expect(parsePersonQuery("D'Souza WJ")).toMatchObject({ surname: "D'Souza", initial: 'w' })
+    expect(parsePersonQuery('Wendyl J DSouza')).toMatchObject({ surname: 'DSouza', initial: 'w' })
+    expect(parsePersonQuery('seizure cycles')).toBeNull()
+    expect(parsePersonQuery('SUDEP lamotrigine')).toBeNull()
+    expect(parsePersonQuery("D'Souza")).toBeNull()
+  })
+  it('lists the author under every form of the name', () => {
+    for (const q of ["Wendyl D'Souza", "W D'Souza", 'Wendyl DSouza', "D'Souza WJ", 'DSouza W']) {
+      expect(resolvePersonName(papers, q)?.matches.map((r) => r.id)).toEqual(['sudep'])
+    }
+    expect(resolvePersonName(papers, 'Patrick Kwan')?.matches.map((r) => r.id).sort()).toEqual([
+      'other',
+      'sudep',
+    ])
+  })
+  it('is an empty lookup for a known surname with the wrong initial, null for an unknown name', () => {
+    expect(resolvePersonName(papers, "John D'Souza")?.matches).toEqual([])
+    expect(resolvePersonName(papers, 'Sodium Selenate')).toBeNull()
+    expect(resolvePersonName(papers, 'Dravet Syndrome')).toBeNull()
   })
 })
 

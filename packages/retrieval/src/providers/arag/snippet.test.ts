@@ -11,6 +11,7 @@ import {
   matchesDoi,
   REFERENCE_DISCOUNT,
 } from './snippet.ts'
+import { looksLikeDeclarationsChunk } from './index.ts'
 
 // Verbatim shapes from the persona reports (P1-16, P5-14, P6-21, P8-17,
 // P9-10, P10-22, P3-18).
@@ -162,5 +163,50 @@ describe('isExactTermMatch', () => {
 
   it('treats a query with no usable term as matching', () => {
     expect(isExactTermMatch('a', { texts: [] })).toBe(true)
+  })
+})
+
+describe('looksLikeDeclarationsChunk (D3-04)', () => {
+  it('recognises a declarations block and leaves results and methods alone', () => {
+    expect(
+      looksLikeDeclarationsChunk(
+        "Code availability Not applicable. Declarations Conflicts of interest Vicente Villanueva has received honoraria and/ or research funds from UCB Pharma, Eisai and Novartis. Wendyl D'Souza has received honoraria from UCB.",
+      ),
+    ).toBe(true)
+    expect(
+      looksLikeDeclarationsChunk(
+        'Funding This work was supported by the NHMRC. Competing interests The authors declare no competing interests.',
+      ),
+    ).toBe(true)
+    expect(
+      looksLikeDeclarationsChunk(
+        "study concept or design; analysis or interpretation of data. W.J. D'Souza: drafting/revision of the manuscript for content, including medical writing for content; major role in the acquisition of data.",
+      ),
+    ).toBe(true)
+    expect(
+      looksLikeDeclarationsChunk(
+        "We acknowledge the doctors who referred some of the patients - Dr Simon Harvey (Royal Children's Hospital Melbourne) and A/Prof Wendyl D'Souza (St Vincent's Hospital Melbourne).",
+      ),
+    ).toBe(true)
+    expect(
+      looksLikeDeclarationsChunk(
+        'Benjamin H. Brinkmann: Writing - review & editing, Funding acquisition, Conceptualization. Philippa J. Karoly: Writing - original draft, Methodology, Formal analysis.',
+      ),
+    ).toBe(true)
+    expect(
+      looksLikeDeclarationsChunk(
+        'Journal of Neurology (2025) 272:665 Page 13 of 15. Roche, Janssen, Genzyme, Novartis, Biogen and UCB, outside the submitted work.',
+      ),
+    ).toBe(true)
+    expect(
+      looksLikeDeclarationsChunk(
+        'Results Rituximab, adjusted for concomitant use of other immunotherapies, was associated with increased time to first relapse (hazard ratio 0.10; 95% CI 0.001-0.85; p = 0.03).',
+      ),
+    ).toBe(false)
+    expect(
+      looksLikeDeclarationsChunk(
+        'Methods The study was approved by the ethics committee and funding for the registry came from the hospital foundation; 1,805 adults were followed.',
+      ),
+    ).toBe(false)
   })
 })

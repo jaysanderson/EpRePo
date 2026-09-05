@@ -177,6 +177,35 @@ describe('rankClosest', () => {
     )
     expect(ranked.map((x) => x.id)).toEqual(['proj', 'ptr'])
   })
+  it('ranks by overlap with the question before the semantic score (D3-19)', () => {
+    const ranked = rankClosest(
+      [
+        r(
+          'ptr',
+          'Management of post-traumatic epilepsy: An evidence review over the last 5 years',
+          0.79,
+          'narrative-review',
+          'This review synthesises evidence on managing post-traumatic epilepsy (PTE) after traumatic brain injury.',
+        ),
+        r(
+          'seeg',
+          'Stereoelectroencephalography for Epilepsy Presurgical Assessment: A Nationwide Survey',
+          0.76,
+          'survey',
+          'A survey of SEEG use in Australian adult epilepsy centres, with disparities in Indigenous access.',
+        ),
+        r(
+          'proj',
+          'Ten-year projection of adult epilepsy burden in Australia',
+          0.73,
+          'cohort-study',
+          'Projects the burden of epilepsy in Australian adults from 2024 to 2033.',
+        ),
+      ],
+      'What is the incidence of epilepsy in Aboriginal and Torres Strait Islander Australians?',
+    )
+    expect(ranked.map((x) => x.id)).toEqual(['proj', 'seeg', 'ptr'])
+  })
   it('keeps a preclinical paper for a question about a model', () => {
     const ranked = rankClosest(
       [r('rat', 'Epilepsy phenotype after traumatic brain injury in rats', 0.95, 'preclinical')],

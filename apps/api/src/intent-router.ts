@@ -310,6 +310,10 @@ function listingIntent(ctx: RouteContext): Intent | undefined {
   return eligibleIntents(ctx).find((i) => i.answer.strategy === 'none')
 }
 
+/** A named person's papers: the possessive, "papers by", or "et al." after a capitalised name. */
+const AUTHOR_PAPERS =
+  /\b[A-Z][\w'’-]+['’]s\s+(?:papers?|publications?|articles?|studies|work)\b|\b(?:papers?|publications?|articles?|studies|work)\s+(?:by|from)\s+[A-Z][\w'’-]+\b|\b[A-Z][\w'’-]+\s+et\s+al\b/
+
 /** First intent whose rule matches; null when no rule fires. */
 export function routeByRules(query: string, ctx: RouteContext): RouteDecision | null {
   const q = query.trim()
@@ -346,6 +350,26 @@ export function routeByRules(query: string, ctx: RouteContext): RouteDecision | 
         configuration: configurationFor(target.id, ctx.defaultIntent),
         entities,
         rule: 'author-year',
+      }
+    }
+  }
+  // "X's papers", "papers by X", "X et al.": a question about a named
+  // person's work is a review of it, settled here rather than by the
+  // classifier (five seconds, and it chose the wrong scope) (D3-11).
+  if (AUTHOR_PAPERS.test(q)) {
+    const eligible = eligibleIntents(ctx)
+    const target = eligible.find((i) => i.answer.promptVariant === 'synthesis') ??
+      eligible.find((i) => /review/i.test(i.id)) ??
+      eligible.find((i) => i.id === ctx.defaultIntent)
+    if (target) {
+      return {
+        intent: target.id,
+        confidence: 1,
+        stage: 'rule',
+        rationale: `${target.label}: papers by a named author`,
+        configuration: configurationFor(target.id, ctx.defaultIntent),
+        entities,
+        rule: 'author-papers',
       }
     }
   }

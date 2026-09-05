@@ -117,8 +117,9 @@ describe('SentinelStream', () => {
   it('streams whole sentences as soon as the next one has started', () => {
     const stream = new SentinelStream()
     expect(stream.push('First sentence. Second')).toBe('First sentence. ')
-    expect(stream.push(' sentence.')).toBe('')
-    expect(stream.flush()).toBe('Second sentence.')
+    // The second sentence goes out as soon as its stop arrives (D3-05).
+    expect(stream.push(' sentence.')).toBe('Second sentence.')
+    expect(stream.flush()).toBe('')
   })
 })
 
@@ -220,6 +221,29 @@ describe('SentinelStream across line breaks', () => {
     const stream = new SentinelStream()
     expect(stream.push('First sentence. Second')).toBe('First sentence. ')
     expect(stream.flush()).toBe('Second')
+  })
+
+  it('releases a sentence the moment it ends, without waiting for the next one (D3-05)', () => {
+    const stream = new SentinelStream()
+    expect(stream.push('The 12-month retention was 71.1% (n = 1644).')).toBe(
+      'The 12-month retention was 71.1% (n = 1644).',
+    )
+    expect(stream.push(' The second')).toBe('')
+    expect(stream.flush()).toBe(' The second')
+  })
+
+  it('holds a stop after a digit until the chunk that shows it was not a decimal point', () => {
+    const stream = new SentinelStream()
+    expect(stream.push('Retention was 71.')).toBe('')
+    expect(stream.push('1% at 12 months.')).toBe('Retention was 71.1% at 12 months.')
+    expect(stream.push('Enrolment ran to 2023.')).toBe('')
+    expect(stream.flush()).toBe('Enrolment ran to 2023.')
+  })
+
+  it('still removes a template sentence that ends the buffer', () => {
+    const stream = new SentinelStream()
+    expect(stream.push('Not enough data to answer this.')).toBe('')
+    expect(stream.push(' Rates were 5%.')).toBe(' Rates were 5%.')
   })
 })
 
