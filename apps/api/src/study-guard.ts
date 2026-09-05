@@ -136,6 +136,16 @@ export function matchStudies(
     if (matches.length === 0 || matches.length > MAX_ARTICLES_PER_NAME) continue
     for (const match of matches) add(match, fragment, 'title')
   }
+  // A cohort the question describes outranks a drug or syndrome it merely
+  // names: "the LGI1 encephalitis cohort ... rituximab" pins the LGI1
+  // papers before the rituximab papers.
+  for (const designator of cohortDesignators(query)) {
+    const articles = catalogue
+      .filter((r) => !isAttachmentTitle(r.title) && carriesDesignator(r, designator.words))
+      .sort(newestFirst)
+    if (articles.length === 0 || articles.length > MAX_ARTICLES_PER_NAME) continue
+    for (const article of articles) add(article, designator.phrase, 'cohort')
+  }
   for (const term of distinctiveTerms(query, lexicon)) {
     const word = new RegExp(`(?:^|[^a-z0-9])${escape(term.toLowerCase())}(?=$|[^a-z0-9])`)
     const articles = catalogue
@@ -152,13 +162,6 @@ export function matchStudies(
     // paper, not the fenfluramine trials).
     const best = bestTitleMatch(query, term, articles)
     if (best) add(best, term, 'term')
-  }
-  for (const designator of cohortDesignators(query)) {
-    const articles = catalogue
-      .filter((r) => !isAttachmentTitle(r.title) && carriesDesignator(r, designator.words))
-      .sort(newestFirst)
-    if (articles.length === 0 || articles.length > MAX_ARTICLES_PER_NAME) continue
-    for (const article of articles) add(article, designator.phrase, 'cohort')
   }
   return out
 }

@@ -220,6 +220,51 @@ describe('bindAndAudit over the loop 4 cases', () => {
     expect(result.audit.sentencesRemoved).toBe(0)
   })
 
+  it('never lets a drug pin stand in for the designated cohort (D3-01 replay)', async () => {
+    const NMDAR =
+      'Rituximab Use for Relapse Prevention in Anti-NMDAR Antibody-Mediated Encephalitis.\n\n' +
+      'Abstract\n\nResults: A single course of rituximab was associated with longer time to first ' +
+      'relapse (hazard ratio [HR] 0.11, 95% CI 0.02-0.70, p = 0.02).\n\nIntroduction\n\nAnti-NMDAR ' +
+      'encephalitis is common.\n\nResults\n\nRituximab reduced relapse (HR 0.11, 95% CI 0.02-0.70, ' +
+      'p = 0.02, n = 51).\n\nDiscussion\n\nRituximab works.'
+    const LGI1 = 'Acute and Long-Term Immune-Treatment Strategies in Anti-LGI1 Antibody-Mediated ' +
+      'Encephalitis.\n\nAbstract\n\nResults: Rituximab, adjusted for concomitant use of other ' +
+      'immunotherapies, was associated with increased time to first relapse (hazard ratio 0.10; ' +
+      '95% CI 0.001-0.85; p = 0.03).\n\nIntroduction\n\nLGI1 encephalitis relapses.\n\nResults\n\n' +
+      'Rituximab was administered in 26 (49%) and cyclophosphamide in 3 (6%) patients.\n\n' +
+      'Discussion\n\nRituximab prevents relapse.'
+    const result = await bindAndAudit({
+      management: management({ nmdar: NMDAR, lgi1: LGI1 }),
+      config,
+      query:
+        'In the LGI1 encephalitis cohort, how many patients received rituximab, and what was the hazard ratio for time to first relapse with rituximab?',
+      text:
+        'The hazard ratio for time to first relapse with rituximab was 0.11 (95% CI 0.02-0.70, p = 0.02, n = 51).[1]',
+      citations: [{ index: 1, resourceId: 'nmdar', title: 'Rituximab Use for Relapse Prevention' }],
+      sources: [
+        resource(
+          'nmdar',
+          'Rituximab Use for Relapse Prevention in Anti-NMDAR Encephalitis',
+          'Rituximab in anti-NMDAR encephalitis; LGI1 is discussed.',
+        ),
+        resource(
+          'lgi1',
+          'Acute and Long-Term Immune-Treatment Strategies in Anti-LGI1 Encephalitis',
+          'The LGI1 encephalitis cohort.',
+        ),
+      ],
+      lexicon: ['rituximab'],
+      variant: undefined,
+      floor: 0.3,
+      pinnedTerms: ['rituximab'],
+      pinnedResourceIds: ['lgi1', 'nmdar'],
+      cohortResourceIds: ['lgi1'],
+    })
+    expect(result.text).not.toContain('0.11')
+    expect(result.audit.sentencesReplaced).toBe(0)
+    expect(result.emptied).toBe(true)
+  })
+
   it("corrects a denominator to the passage's own pairing and says so (D4-05)", async () => {
     const result = await bindAndAudit({
       management: management({ permit: PERMIT }),

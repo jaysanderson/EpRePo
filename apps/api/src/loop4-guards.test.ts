@@ -18,6 +18,7 @@ import {
 import { isDemographicQuestion } from './ask-entities.ts'
 import { bindSentences } from './citation-binding.ts'
 import { inTableOrLegend } from './secondhand.ts'
+import { extractNumbers, timepointsInMonths, verifyFigures } from './answer-audit.ts'
 
 const paper = (id: string, title: string, summary: string): ResourceSummary => ({
   id,
@@ -191,6 +192,20 @@ describe('list items inherit the paragraph marker (D4-20)', () => {
     expect(bound.text).toContain('- Week 4[1]')
   })
 
+  it('inherits from the nearest marked list item when the lead line has no marker (TD2 replay)', () => {
+    const bound = bindSentences({
+      text:
+        'The protocol specifies:\n1. **Primary**:\n- Seizure remission measured at Week 12.[1]\n2. **Time points**:\n- Baseline\n- Week 24',
+      citations: [{ index: 1, resourceId: 'breaths', title: 'BREATHS protocol' }],
+      texts: new Map([[
+        1,
+        'Seizure remission is measured at week 12; assessments are at baseline, week 4, week 12 and week 24.',
+      ]]),
+    })
+    expect(bound.sentences.find((s) => s.text === 'Baseline')?.bound).toEqual([1])
+    expect(bound.sentences.find((s) => s.text === 'Week 24')?.bound).toEqual([1])
+  })
+
   it('leaves an item the text does not carry uncited', () => {
     const bound = bindSentences({
       text: 'The protocol specifies:[1]\n- Week 4\n- Quarterly MRI',
@@ -199,6 +214,74 @@ describe('list items inherit the paragraph marker (D4-20)', () => {
     })
     expect(bound.sentences.find((s) => s.text === 'Week 4')?.bound).toEqual([1])
     expect(bound.sentences.find((s) => s.text === 'Quarterly MRI')?.bound).toEqual([])
+  })
+})
+
+describe('a designated cohort outranks a drug pin (D3-01 replay)', () => {
+  it('pins the cohort papers before the rituximab paper', () => {
+    const catalogue = [
+      paper(
+        'nmdar',
+        'Rituximab Use for Relapse Prevention in Anti-NMDAR Antibody-Mediated Encephalitis',
+        'Rituximab in anti-NMDAR encephalitis.',
+      ),
+      paper(
+        'lgi1',
+        'Acute and Long-Term Immune-Treatment Strategies in Anti-LGI1 Antibody-Mediated Encephalitis',
+        'The LGI1 encephalitis cohort; rituximab reduced relapse.',
+      ),
+    ]
+    const pins = matchStudies(
+      'In the LGI1 encephalitis cohort, how many patients received rituximab, and what was the hazard ratio for time to first relapse with rituximab?',
+      catalogue,
+      ['rituximab'],
+    )
+    expect(pins.map((p) => [p.id, p.kind])).toEqual([['lgi1', 'cohort'], ['nmdar', 'term']])
+  })
+})
+
+describe('durations, number words and demographic words (K5, HC replays)', () => {
+  it('does not read a median time to relapse as a follow-up time point', () => {
+    expect(timepointsInMonths('16 (30%) relapsed at a median of 414 (IQR 256, 967) days')).toEqual(
+      [],
+    )
+    expect(timepointsInMonths('the mean retention time was 18.7 months; retention at 12 months'))
+      .toEqual([12])
+  })
+  it('finds "Thirteen participants were women" in a table row "Female, n (%) 13 (50%)"', () => {
+    const row =
+      'T A B L E 2 Cohort summary (N = 26).\n\nCharacteristic Value\n\nFemale, n (%) 13 (50%)\n\nAge at enrollment, years, mean (range) 45 (23–71)'
+    const checks = verifyFigures(
+      [{ text: 'Thirteen participants were women, which is 50% of the cohort.', texts: [row] }],
+      [row],
+    )
+    expect(checks.map((c) => [c.figure, c.supported])).toEqual([['13', true], ['50%', true]])
+  })
+  it('reads an age range with its unit as two bare figures (HC replay)', () => {
+    expect(extractNumbers('a mean age of 45 years (range 23-71 years)')).toEqual([
+      '45',
+      '23',
+      '71',
+    ])
+    const row = 'Age at enrollment, years, mean (range) 45 (23–71)'
+    const checks = verifyFigures(
+      [{ text: 'The mean age at enrolment was 45 years (range 23-71 years).', texts: [row] }],
+      [row],
+    )
+    expect(checks.every((c) => c.supported)).toBe(true)
+  })
+  it('reads a blank line before a lower-case continuation as one sentence (Q6 replay)', () => {
+    const text =
+      'In contrast, F2 is 0.37, suggesting that in Group 2 just \n\n over a third of discharges occur during the sleep period.'
+    const checks = verifyFigures(
+      [{
+        text:
+          'This group displayed greater variation, with about 37% of discharges occurring during sleep.',
+        texts: [text],
+      }],
+      [text],
+    )
+    expect(checks.map((c) => [c.figure, c.supported])).toEqual([['37%', true]])
   })
 })
 

@@ -101,6 +101,9 @@ export const PARAGRAPH_MARK = '¶'
  */
 export function normaliseSource(text: string): string {
   return numberWordsToDigits(normaliseFigures(text))
+    // A blank line the extraction put mid-sentence ("just \n\n over a
+    // third") is not a paragraph break: the next line opens in lower case.
+    .replace(/\n\s*\n(?=[ \t]*[a-z])/g, ' ')
     .replace(/\n\s*\n/g, ` ${PARAGRAPH_MARK} `)
     .replace(/\s+/g, ' ')
     // A word broken across a PDF line ("pri- mary", "com- mercial") is one
@@ -119,11 +122,20 @@ export function normaliseSource(text: string): string {
 
 /** Numbers worth checking: percentages, decimals, doses; not citation markers, list numbers, years, labels or clock times. */
 export function extractNumbers(answer: string): string[] {
-  const cleaned = normaliseFigures(answer)
+  const cleaned = normaliseFigures(numberWordsToDigits(answer))
     // Both ends of a range carry the range's unit: "21-45%" states 21% and 45%.
     .replace(
       /(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)(\s?(?:%|mg(?:\/kg)?(?:\/day)?))/g,
       '$1$3 and $2$3',
+    )
+    // An age in years is a bare figure: a paper's table writes "45 (23–71)"
+    // under a "years" column heading.
+    .replace(/\b(aged?|years old)\b([^.]{0,40}?)(\d+(?:\.\d+)?)\s?years\b/gi, '$1$2$3')
+    // A range of ages or durations ("range 23-71 years") is two bare
+    // figures: a paper's table writes "45 (23–71)" without the unit.
+    .replace(
+      /(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)\s?(?:years?|months?|weeks?|days?|hours?)\b/g,
+      '$1 and $2',
     )
     .replace(/\[\d+(?:\s*,\s*\d+)*\]/g, ' ') // citation markers
     .replace(/^\s*\d+\.\s+/gm, ' ') // ordered-list numbers
@@ -247,7 +259,12 @@ function proportionForm(percent: string): string | undefined {
   if (!Number.isFinite(n) || n >= 100 || n <= 0) return undefined
   const fraction = (n / 100).toFixed(4).replace(/^0\./, '').replace(/0+$/, '')
   if (!fraction) return undefined
-  return `(?<![\\d.])0?\\.${fraction}0*(?![\\d%])(?!\\s?(?:mg|mmol|ml|mm|ms|h\\b|hours?|hrs?|years?|months?|weeks?|days?))`
+  // The decimal stands for a share only beside a fraction cue: "F2 is
+  // 0.37", "the proportion was 0.37", "0.37 of discharges"; a kappa of
+  // 0.80 or a hazard ratio of 0.37 is not 80% or 37% of anything.
+  const tail =
+    `0?\\.${fraction}0*(?![\\d%])(?!\\s?(?:mg|mmol|ml|mm|ms|h\\b|hours?|hrs?|years?|months?|weeks?|days?))`
+  return `(?:(?<=\\b(?:proportion|fraction|share|f\\d)\\b[^.¶]{0,40})(?<![\\d.])${tail}|(?<![\\d.])${tail}(?=[^.¶]{0,60}\\bof\\b))`
 }
 
 /** The short forms a paper writes a time unit in: "48 h", "6 mo", "2 yr", "4 wk", "30 d". */
@@ -556,6 +573,9 @@ export function termForms(
   pairs: readonly { phrase: string; abbr: string }[],
 ): RegExp[] {
   const forms: RegExp[] = [new RegExp(escapeRegExp(term).replace(/-/g, '-?\\s?'))]
+  // A paper's table writes "Female" where the answer says "women".
+  if (term === 'women' || term === 'woman') forms.push(/\bfemales?\b/)
+  if (term === 'men' || term === 'man') forms.push(/(?<!fe)\bmales?\b/)
   for (const { phrase, abbr } of pairs) {
     if (phrase === term || phrase.endsWith(` ${term}`) || phrase.split(' ')[0] === term) {
       forms.push(new RegExp(`\\b${escapeRegExp(abbr)}s?\\b`))
@@ -611,7 +631,17 @@ const TIMEPOINT =
 /** Follow-up timepoints in a text, in months: "12 months", "1-year", "52 weeks", "700 days" (23). */
 export function timepointsInMonths(text: string): number[] {
   const out: number[] = []
-  for (const m of text.toLowerCase().matchAll(TIMEPOINT)) {
+  const lower = text.toLowerCase()
+  for (const m of lower.matchAll(TIMEPOINT)) {
+    // A median or mean duration ("a median of 414 days", "mean retention
+    // time 18.7 months") is a result, not the follow-up it was measured at.
+    const before = lower.slice(Math.max(0, (m.index ?? 0) - 60), m.index ?? 0)
+    if (
+      /\b(?:median|mean|average)\b(?:\s+(?!at\b|follow)[a-z-]+){0,3}\s*(?:[\d.,]+\s*(?:\([^)]{0,30}\))?\s*)?$/
+        .test(before)
+    ) {
+      continue
+    }
     const value = Number(m[1])
     const unit = m[2]!
     const months = /^mo/.test(unit)
@@ -788,7 +818,10 @@ export function claimFeatures(
   lexicon: readonly string[],
   questionEntities: readonly string[] = [],
 ): ClaimFeatures {
-  const { anchors, words, content } = claimTerms(sentence, lexicon)
+  // "Thirteen participants" reads "13 participants" on the answer's side
+  // too, so the count is checked and the word is not a claim term.
+  const digits = numberWordsToDigits(sentence)
+  const { anchors, words, content } = claimTerms(digits, lexicon)
   const question = new Set(questionEntities.map((e) => e.toLowerCase()))
   return {
     anchors,
@@ -796,9 +829,9 @@ export function claimFeatures(
     content,
     mandatory: anchors.filter((a) => question.has(a)),
     outcomes: outcomeFamilies(sentence),
-    timepoints: timepointsInMonths(normaliseFigures(sentence)),
+    timepoints: timepointsInMonths(normaliseFigures(digits)),
     figures: extractNumbers(sentence),
-    normalised: normaliseFigures(sentence).toLowerCase(),
+    normalised: normaliseFigures(digits).toLowerCase(),
   }
 }
 
@@ -914,6 +947,13 @@ export function figureSupportedBy(
       // "n = 1644") - never by a bare table cell "38 (79)", which counts
       // something else; the sentence's other figures still have to match.
       beside = true
+    }
+    // And the other way round: a sample size the claim states is never
+    // placed by a bare number in a range or a score ("[6-231]") whatever
+    // names sit beside it; the text's own sentence must count with it.
+    if (beside && sampleSize && !isSampleSizeFigure(figure, ownSentence)) {
+      if (reason === 'absent') reason = 'terms'
+      continue
     }
     if (!beside) {
       if (reason === 'absent') reason = 'terms'

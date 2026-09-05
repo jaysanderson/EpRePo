@@ -16,6 +16,7 @@ import {
   isSampleSizeFigure,
   normaliseFigures,
   outcomeFamilies,
+  populationQualifier,
   type PreparedSource,
   qualifierForFigure,
   stripUnsupportedContraindications,
@@ -358,6 +359,16 @@ const GENERIC_SENTENCE_WORDS = new Set([
   'scores',
   'specific',
   'another',
+  'during',
+  'median',
+  'range',
+  'follow-up',
+  'number',
+  'total',
+  'overall',
+  'compared',
+  'significantly',
+  'approximately',
 ])
 
 /** How many cited resources' texts are fetched for binding and audit. */
@@ -456,7 +467,16 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
   // The names a cited text must carry: the study the question names by
   // acronym, or any of the cohorts it designates (a question across two
   // studies binds to a paper that carries either).
-  const terms = cohortTerms(query, input.pinnedTerms ?? [], lexicon)
+  // The cohort the question designates (an acronym, a described cohort, a
+  // pinned paper's own term) outranks the drugs it names: under "the LGI1
+  // encephalitis cohort ... rituximab", the rituximab papers are not the
+  // cohort (D3-01). Drugs define the cohort only when nothing else does.
+  const designatedTerms = cohortTerms(
+    query,
+    (input.pinnedTerms ?? []).filter((t) => !isMedicationTerm(t.toLowerCase())),
+  )
+  const designated = designatedTerms.length > 0 || (input.cohortResourceIds ?? []).length > 0
+  const terms = designated ? designatedTerms : cohortTerms(query, input.pinnedTerms ?? [], lexicon)
   const requiredNames = [...new Set([...(study ? [study.split(' ')[0]!] : []), ...terms])]
   // The generator's scaffolding goes before any sentence is judged (D4-14).
   const bound = bindSentences({
@@ -539,8 +559,13 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
       title: c.title,
     })),
   ]
-  const cohort = cohortPapers(terms, knownResources)
-  for (const id of input.cohortResourceIds ?? []) cohort.add(id)
+  // A cohort the study guard matched from the catalogue is exactly its
+  // papers: a paper whose summary merely mentions the cohort's name is not
+  // one of them (the loop 4 C4 replay: the anti-NMDAR rituximab paper
+  // discusses LGI1).
+  const cohort = (input.cohortResourceIds ?? []).length > 0
+    ? new Set(input.cohortResourceIds)
+    : cohortPapers(terms, knownResources)
   const namedCohort = cohort.size > 0
   const planning = isPlanningQuestion(query)
   const cohortFailed = new Set<string>()
@@ -663,6 +688,19 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
       failing.delete(sentence.text)
     }
   }
+  // A sentence the rescue bound to a retrieved paper is judged for
+  // second-hand figures in that paper the same way (N06 in loop 4 replay:
+  // a consortium figure found in another paper's introduction).
+  for (const sentence of bound.sentences) {
+    if (
+      sentence.bound.length === 0 || failing.has(sentence.text) || declines.has(sentence.text) ||
+      secondhandBySentence.has(sentence.text) || !statesResultFigure(sentence.text) ||
+      !rescued.some((r) => resourceOfIndex.get(sentence.bound[0]!) === r.resourceId)
+    ) continue
+    const flagged = secondhandFigures([{ text: sentence.text, bound: sentence.bound }], texts)
+    const figures = [...new Set(flagged.map((f) => f.figure))]
+    if (figures.length > 0) secondhandBySentence.set(sentence.text, figures)
+  }
   // The first-hand rescue for second-hand figures (D4-15): the cited
   // texts the sentence is not bound to, then the retrieved papers, in the
   // cohort first; a paper that carries every figure of the sentence
@@ -722,6 +760,8 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
   const replaced: { from: string; resourceId: string }[] = []
   const replacementPapers = [...cohort]
   for (const id of input.pinnedResourceIds ?? []) {
+    // Under a designated cohort only its papers may stand in.
+    if (designated && !cohort.has(id)) continue
     if (!replacementPapers.includes(id)) replacementPapers.push(id)
   }
   const questionOutcomes = outcomeFamilies(query)
@@ -846,17 +886,20 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
       !isSampleSizeFigure(c.figure, normalised) && !/(?:month|week|year|day|hour)s$/.test(c.figure)
     )
     for (const check of own) {
-      // Every occurrence of the figure in the bound texts must open with
-      // the same frame, or the figure is not that population's alone.
+      // The passage that carried the figure beside the claim frames it
+      // (D3-07: "In patients with psychiatric comorbidity who switched
+      // ... seizure freedom was 13.9%"); failing that, every occurrence
+      // of the figure in the bound texts must open with the same frame.
       const boundTexts = sentence.bound.map((n) => texts.get(n)).filter((t): t is string =>
         t !== undefined
       )
       const qualifiers = boundTexts.map((t) =>
         qualifierForFigure(check.figure, prepareIfNeeded(t, prepared))
       )
-      const qualifier = qualifiers.length > 0 && qualifiers.every((q) => q === qualifiers[0])
-        ? qualifiers[0]
-        : undefined
+      const qualifier = populationQualifier(check.passage!) ??
+        (qualifiers.length > 0 && qualifiers.every((q) => q === qualifiers[0])
+          ? qualifiers[0]
+          : undefined)
       if (!qualifier) continue
       if (carriesQualifier(sentence.text, qualifier) || carriesQualifier(query, qualifier)) continue
       const before = sentence.text
@@ -866,17 +909,19 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
       break
     }
   }
-  const gated = allTexts.length > 0 || rescued.length > 0
-    ? gateFigures(bound, checks, markerOfText, candidates)
-    : {
-      text: bound.text,
-      sentences: bound.sentences,
-      citations: bound.citations,
-      renumber: new Map<number, number>(),
-      removed: [],
-      inherited: 0,
-    }
-  const figuresUnsupported = allTexts.length > 0 || rescued.length > 0
+  // The gate runs whenever a cited text was read: a paper that never names
+  // the question's cohort is judged like any other, never left to a
+  // footnote (the loop 4 C4 replay: every cited text failed the name check).
+  const gateRan = texts.size > 0 || rescued.length > 0
+  const gated = gateRan ? gateFigures(bound, checks, markerOfText, candidates) : {
+    text: bound.text,
+    sentences: bound.sentences,
+    citations: bound.citations,
+    renumber: new Map<number, number>(),
+    removed: [],
+    inherited: 0,
+  }
+  const figuresUnsupported = gateRan
     ? []
     : [...new Set(checks.filter((c) => !c.supported).map((c) => c.figure))]
   const figuresRemoved = [...new Set(gated.removed.flatMap((r) => r.figures))]

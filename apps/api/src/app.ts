@@ -3605,8 +3605,19 @@ export function buildApp(opts: BuildAppOptions): Hono {
       // and leads the sources, whatever retrieval ranks first.
       // A follow-up that names a study ("in the PERMIT pooled analysis",
       // "different cohort now: the first-seizure study") pins it too (D4-22).
+      // The catalogue as merchandised: a cohort described by the question
+      // is matched on the papers' generated summaries, which the raw
+      // listing lacks (D4-01).
       const pinned = !documentScope
-        ? matchStudies(query, await provider.listResources(config).catch(() => []), lexicon)
+        ? matchStudies(
+          query,
+          merchandiseSummaries(
+            enrichments,
+            config.slug,
+            await provider.listResources(config).catch(() => []),
+          ),
+          lexicon,
+        )
         : []
       // The papers a cohort designator matched: the cohort's own papers for
       // the question-level guard, whatever their titles carry (D4-01).
@@ -3744,7 +3755,11 @@ export function buildApp(opts: BuildAppOptions): Hono {
       // about that author's papers: retrieval is scoped to them, and the
       // audit later forbids "X and colleagues" over a paper X did not write
       // (ask-author.ts). The catalogue read is cached by the provider.
-      const catalogue = documentScope ? [] : await provider.listResources(config).catch(() => [])
+      const catalogue = documentScope ? [] : merchandiseSummaries(
+        enrichments,
+        config.slug,
+        await provider.listResources(config).catch(() => []),
+      )
       // An author's papers are their articles: a supplement or a peer-review
       // file is neither counted nor retrieved as "authored by" (D2-23).
       const titleOf = new Map(catalogue.map((r) => [r.id, r.title]))
@@ -4246,10 +4261,13 @@ export function buildApp(opts: BuildAppOptions): Hono {
       // One extra ask at most, whatever the reason (D3-05, ask-retry.ts).
       let extraAttemptUsed = false
       let current = attempts[0]!
+      // A cohort the question describes is read before a drug or syndrome
+      // paper it merely names (D3-01, D4-01).
+      const retryPins = cohortIds.length > 0 ? cohortIds : pinnedIds
       const retryContext = () => ({
         documentScope,
         extraAttemptUsed,
-        pinnedIds,
+        pinnedIds: retryPins,
         citedIds: heldCitations.map((c) => c.resourceId),
         supplementsOnly,
         currentIntent: current.intent,
@@ -4436,7 +4454,7 @@ export function buildApp(opts: BuildAppOptions): Hono {
             unpinPrior: true,
           })
         } else if (retry === 'pinned') {
-          attempts.push({ intent: undefined, prequeries: undefined, resourceId: pinnedIds[0] })
+          attempts.push({ intent: undefined, prequeries: undefined, resourceId: retryPins[0] })
           await fallbackEvent(
             'The question names a paper this collection holds; asking it directly.',
           )

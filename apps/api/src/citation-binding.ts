@@ -623,7 +623,10 @@ export function bindSentences(input: BindInput): BindResult {
     const tailMarkers = markersIn(/((?:\s*\[\d{1,3}\])+)\s*$/.exec(last)?.[1] ?? '')
     const lineMarkers = markersIn(body)
     const inherited = prefix && lineMarkers.length === 0 ? paragraphMarkers : []
-    if (!prefix) paragraphMarkers = lineMarkers.length > 0 ? [...new Set(lineMarkers)] : []
+    // The nearest marked line above, a list item included, is what an
+    // unmarked item may inherit from; an unmarked paragraph ends the reach.
+    if (lineMarkers.length > 0) paragraphMarkers = [...new Set(lineMarkers)]
+    else if (!prefix) paragraphMarkers = []
     const outSentences: number[] = []
     for (let i = 0; i < sentences.length; i++) {
       const sentence = sentences[i]!
