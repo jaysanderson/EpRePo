@@ -265,6 +265,38 @@ describe('bindAndAudit over the loop 4 cases', () => {
     expect(result.emptied).toBe(true)
   })
 
+  it('keeps the markers of a pinned paper below the display floor, and list items inherit them (TD2 replay)', async () => {
+    const BREATHS =
+      'Breathing control training as a treatment for functional seizures: the BREATHS ' +
+      'protocol.\n\nAbstract\n\nThe primary outcome is seizure remission at week 12.\n\nMethods\n\n' +
+      'Assessments are at baseline, week 4, week 12 (the primary outcome time point) and week 24, ' +
+      'with optional follow-up at weeks 52, 78 and 104. Hyperventilation is measured by the ' +
+      'Nijmegen scale at baseline, week 4, week 12 and week 24.'
+    const result = await bindAndAudit({
+      management: management({ breaths: BREATHS }),
+      config,
+      query: 'What assessment time points does the BREATHS protocol specify?',
+      text:
+        'The BREATHS protocol specifies these time points:\n- Seizure remission measured at Week 12.[1]\n- Baseline\n- Week 4\n- Week 24',
+      citations: [{ index: 1, resourceId: 'breaths', title: 'BREATHS protocol' }],
+      sources: [
+        resource(
+          'breaths',
+          'Breathing control training: the BREATHS protocol',
+          'The BREATHS trial.',
+          0.1,
+        ),
+      ],
+      lexicon: [],
+      variant: undefined,
+      floor: 0.3,
+      pinnedResourceIds: ['breaths'],
+      pinnedTerms: ['BREATHS'],
+    })
+    expect(result.audit.sentencesCited).toBe(result.audit.sentencesChecked)
+    expect(result.text).toContain('- Week 24[1]')
+  })
+
   it("corrects a denominator to the passage's own pairing and says so (D4-05)", async () => {
     const result = await bindAndAudit({
       management: management({ permit: PERMIT }),

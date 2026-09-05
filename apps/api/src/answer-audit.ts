@@ -575,6 +575,8 @@ export function termForms(
   const forms: RegExp[] = [new RegExp(escapeRegExp(term).replace(/-/g, '-?\\s?'))]
   // A paper's table writes "Female" where the answer says "women".
   if (term === 'women' || term === 'woman') forms.push(/\bfemales?\b/)
+  // "147 died" is the paper's "147 deceased" or "147 deaths".
+  if (term === 'died') forms.push(/\bdeceased\b|\bdeaths?\b|\bdie\b/)
   if (term === 'men' || term === 'man') forms.push(/(?<!fe)\bmales?\b/)
   for (const { phrase, abbr } of pairs) {
     if (phrase === term || phrase.endsWith(` ${term}`) || phrase.split(' ')[0] === term) {

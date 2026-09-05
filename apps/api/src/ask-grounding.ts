@@ -454,9 +454,18 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
   )
   const byId = new Map(input.sources.map((s) => [s.id, s]))
   const catalogueById = new Map((input.catalogue ?? []).map((r) => [r.id, r]))
+  // A paper the question names is pinned whatever its retrieval score:
+  // the display floor never strips its markers (TD2 in the loop 4 replay,
+  // the BREATHS protocol at 10%).
+  const pinnedSet = new Set([
+    ...(input.pinnedResourceIds ?? []),
+    ...(input.cohortResourceIds ?? []),
+  ])
   const belowFloor = new Set(
     input.citations
-      .filter((c) => (byId.get(c.resourceId)?.relevance ?? 1) < input.floor)
+      .filter((c) =>
+        !pinnedSet.has(c.resourceId) && (byId.get(c.resourceId)?.relevance ?? 1) < input.floor
+      )
       .map((c) => c.index),
   )
   // The names the question uses (a cohort, a drug, a study) bind a sentence
