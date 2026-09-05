@@ -261,3 +261,26 @@ describe('withheldDecline', () => {
     )
   })
 })
+
+describe('table and list answers (D4-06)', () => {
+  const table = [
+    '| Drug | Study | Responder rate |',
+    '|---|---|---|',
+    '| Brivaracetam | EXPERIENCE | 36.9% (n = 822) |',
+    '| Lacosamide | RCT | 68.1% (n = 119) |[1]',
+  ].join('\n')
+  it('treats a table whose last row closes with a pipe as complete', () => {
+    expect(endsMidSentence(table)).toBe(false)
+    expect(trimTruncatedTail(table)).toEqual({ text: table, truncated: false })
+  })
+  it('treats a row cut before its closing pipe as truncated and drops only that row', () => {
+    const cut = table + '\n| Perampanel | PERMIT | 58.3% (n ='
+    expect(endsMidSentence(cut)).toBe(true)
+    expect(trimTruncatedTail(cut)).toEqual({ text: table, truncated: true })
+  })
+  it('treats a list item ending on a figure or a bracket as complete', () => {
+    expect(endsMidSentence('- Retention: 71.1% (n = 1644)')).toBe(false)
+    expect(endsMidSentence('- Responder rate 58.3%')).toBe(false)
+    expect(endsMidSentence('- Responder rate was')).toBe(true)
+  })
+})

@@ -649,6 +649,8 @@ export const PINNED_TOP_K = 20
 export const PINNED_CLAUSE_TOP_K = 10
 /** Paragraph budget of a scoped topic pass (an author's articles). */
 export const SCOPED_TOP_K = 30
+/** Paragraph budget of an earlier turn's cited paper on a follow-up. */
+export const PRIOR_TOP_K = 10
 
 /**
  * The extra retrieval passes that join an ask's grounding set, in priority
@@ -669,6 +671,10 @@ export function groundingPrequeries(
     scopedQueries?: readonly { query: string; resourceIds: readonly string[] }[]
     prefer?: readonly LabelRef[]
     prequeries?: readonly string[]
+    /** Earlier turns' cited papers: a lighter pass each, after the pinned papers. */
+    priorResourceIds?: readonly string[]
+    /** A filter every caller prequery carries (the documentation-only filter under docScope). */
+    filterExpression?: Record<string, unknown>
   },
 ): Record<string, unknown>[] {
   const features = ['keyword', 'semantic']
@@ -701,6 +707,13 @@ export function groundingPrequeries(
       })
     }
   }
+  for (const id of (opts.priorResourceIds ?? []).filter((id) => !pinned.includes(id)).slice(0, 4)) {
+    if (out.length >= MAX_PREQUERIES - 1) break
+    out.push({
+      request: { query, features, resource_filters: [id], top_k: PRIOR_TOP_K },
+      weight: 1,
+    })
+  }
   const prefer = opts.prefer ?? []
   if (prefer.length > 0) {
     out.push({
@@ -714,7 +727,14 @@ export function groundingPrequeries(
   }
   for (const q of opts.prequeries ?? []) {
     if (out.length >= MAX_PREQUERIES) break
-    out.push({ request: { query: q, features }, weight: 1 })
+    out.push({
+      request: {
+        query: q,
+        features,
+        ...(opts.filterExpression ? { filter_expression: opts.filterExpression } : {}),
+      },
+      weight: 1,
+    })
   }
   return out.slice(0, MAX_PREQUERIES)
 }
@@ -3497,12 +3517,19 @@ export class AragProvider implements RetrievalProvider {
       scopedQueries: opts.scopedQueries,
       prefer: intent?.retrieval.prefer,
       prequeries: opts.prequeries,
+      priorResourceIds: opts.priorResourceIds,
+      // A Help prequery is a full find request of its own: it carries the
+      // documentation-only filter, or it would read the research corpus.
+      ...(opts.docScope ? { filterExpression: docOnlyFilterExpression() } : {}),
     })
     if (prequeries.length > 0) strategies.push({ name: 'prequeries', queries: prequeries })
     body.rag_strategies = strategies
     if (opts.images) {
       body.rag_images_strategies = [{ name: 'page_image' }, { name: 'tables' }]
     }
+    // A table over three studies needs more than the default generation
+    // budget, or its last row is cut (D4-06).
+    if (opts.maxTokens && opts.maxTokens > 0) body.max_tokens = Math.min(opts.maxTokens, 4096)
 
     let sources: ScoredResource[] = []
     const contextTexts: string[] = []
