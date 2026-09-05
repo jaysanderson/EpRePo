@@ -301,7 +301,16 @@ function EvidenceRow({
               </span>
             )
             : null}
-          {isWeak ? <span className='rp-badge rp-badge-warn'>weak match</span> : null}
+          {isWeak
+            ? (
+              <span
+                className='rp-badge rp-badge-warn'
+                title={`Retrieval scored this source ${scorePct}% for the question: it was retrieved but matches only weakly, so it is unlikely to carry the answer.`}
+              >
+                weak match
+              </span>
+            )
+            : null}
           {judging
             ? (
               <span

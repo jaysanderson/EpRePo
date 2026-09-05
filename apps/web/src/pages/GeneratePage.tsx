@@ -96,6 +96,49 @@ type BriefingObject = {
   references?: BriefingReference[]
   /** Headings the server withheld because no retrieved source supported them. */
   omitted_sections?: string[]
+  /** The figure audit the server ran over the sections and takeaways (D3-03). */
+  audit?: {
+    figuresChecked: number
+    figuresRemoved: string[]
+    sentencesRemoved: number
+    takeawaysRemoved: number
+  }
+}
+
+/** "12months" reads as "12 months" in the badge. */
+function figureLabel(token: string): string {
+  return token.replace(/(\d)((?:month|week|year|day|hour)s)$/, '$1 $2')
+}
+
+/** The badge that says what the briefing's figure audit checked and removed. */
+function BriefingAuditBadge({ audit }: { audit: NonNullable<BriefingObject['audit']> }) {
+  const removed = audit.sentencesRemoved + audit.takeawaysRemoved
+  if (audit.figuresChecked === 0 && removed === 0) return null
+  const checked = audit.figuresChecked === 1
+    ? '1 figure checked'
+    : `${audit.figuresChecked} figures checked`
+  const label = removed > 0
+    ? `${checked} · ${removed === 1 ? '1 sentence' : `${removed} sentences`} removed`
+    : checked
+  const figures = audit.figuresRemoved.map(figureLabel).join(', ')
+  const title = removed > 0
+    ? `${
+      removed === 1 ? 'One sentence was' : `${removed} sentences were`
+    } removed because no source of ${
+      removed === 1 ? 'its' : 'their'
+    } section carries the figures beside the claim, at its outcome and for its population${
+      figures ? ` (${figures})` : ''
+    }. Every figure still in the briefing was found beside its claim.`
+    : 'Every figure in this briefing was found beside its claim, at its outcome and for its population, in a source of its section.'
+  return (
+    <span
+      className={`rp-badge ${removed > 0 ? 'rp-badge-warn' : 'rp-badge-ok'}`}
+      title={title}
+      data-testid='briefing-audit-badge'
+    >
+      {label}
+    </span>
+  )
 }
 
 /** "Broadley et al., Neurol Neuroimmunol Neuroinflamm, 2025" - the record's own citation line. */
@@ -332,7 +375,10 @@ function BriefingDoc({ data, slug }: { data: BriefingObject; slug: string }) {
     .length
   return (
     <div className='rounded-[calc(var(--rp-radius)+4px)] border border-line bg-surface p-6 shadow-sm sm:p-8'>
-      <h2 className='text-xl font-semibold tracking-tight text-ink'>{data.title}</h2>
+      <div className='flex flex-wrap items-start justify-between gap-x-4 gap-y-2'>
+        <h2 className='min-w-0 text-xl font-semibold tracking-tight text-ink'>{data.title}</h2>
+        {data.audit ? <BriefingAuditBadge audit={data.audit} /> : null}
+      </div>
       <p className='mt-3 text-sm leading-relaxed text-ink-2'>{data.executive_summary}</p>
 
       {data.key_takeaways.length > 0 && (
