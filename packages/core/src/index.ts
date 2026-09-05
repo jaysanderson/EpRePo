@@ -1028,6 +1028,18 @@ export const AskEventSchema = z.discriminatedUnion('type', [
   }),
   z.object({ type: z.literal('sources'), resources: ScoredResourceSchema.array() }),
   z.object({ type: z.literal('delta'), text: z.string() }),
+  /**
+   * The answer's first sentence, checked while the rest still streams:
+   * every figure it states was found beside its claim in the named paper's
+   * text, one of the papers retrieval found before generation began. Sent
+   * before the audit; the gated `done` text still replaces the stream.
+   */
+  z.object({
+    type: z.literal('verified'),
+    sentence: z.string(),
+    resourceId: z.string(),
+    title: z.string(),
+  }),
   z.object({ type: z.literal('citation'), citation: CitationSchema }),
   z.object({
     /** Platform learning id for this answer - target for feedback. */
