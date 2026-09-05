@@ -121,6 +121,12 @@ export function inTableOrLegend(text: string, offset: number): boolean {
   if (/^\|.*\|$/.test(line)) return true
   if (/^[A-Za-z][^.!?|]{1,80}?\s\d[\d,]*\s\(\d{1,3}(?:\.\d+)?\)[a-z]?\s*$/.test(line)) return true
   if (/^(?:table|figure|fig\.?)\s+S?\d+/i.test(line)) return true
+  // A line of nothing but statistics ("221 3.25 <0.001") is a table row
+  // whose label the extraction put on the line before (D4-18): prose never
+  // writes a line of bare numbers.
+  if (
+    /^[\d.,<>=≤≥±%()\s/–-]+$/.test(line) && (line.match(/\d+(?:\.\d+)?/g) ?? []).length >= 2
+  ) return true
   const before = text.slice(Math.max(0, lineStart - 600), lineStart)
   const caption = /(?:^|\n)[ \t]*(?:table|figure|fig\.?)\s+S?\d+\b[^\n]*$/i
   const lines = before.split('\n').slice(-6).join('\n')

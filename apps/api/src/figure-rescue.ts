@@ -24,16 +24,19 @@ import type { Citation, ScoredResource } from '@research-portal/core'
 import {
   abbreviationPairs,
   claimFeatures,
+  claimWindow,
   extractNumbers,
   type FigureCheck,
   figurePattern,
   figureSupportedBy,
   isSampleSizeFigure,
   normaliseFigures,
+  normaliseGlyphs,
   outcomeFamilies,
   type PreparedSource,
   prepareSource,
   termForms,
+  timepointsInMonths,
 } from './answer-audit.ts'
 import type { BoundSentence } from './citation-binding.ts'
 import { hasBodyHeadings, sectionAt, sectionSpans } from './secondhand.ts'
@@ -46,17 +49,35 @@ import { isMedicationTerm } from './ask-prequeries.ts'
 
 /** Words after which a name is a cohort, study or analysis designator. */
 const DESIGNATOR =
-  /(?:\b(?:[Ii]n|[Ff]rom|[Oo]f|[Ff]or|[Aa]cross|[Ww]ithin)\s+)?\b[Tt]he\s+((?:[A-Z][\w-]*|anti-[A-Z]\w*)(?:\s+[\w-]+){0,3}?)\s+(?:cohort|trial|study|analysis|analyses|register|registry|consortium|series|subgroup|programme|program|survey)\b/g
+  /(?:\b(?:[Ii]n|[Ff]rom|[Oo]f|[Ff]or|[Aa]cross|[Ww]ithin)\s+)?\b[Tt]he\s+((?:[A-Z][\w-]*|anti-[A-Z]\w*|[a-z]+-[A-Z][A-Z0-9]+[\w-]*)(?:\s+[\w-]+){0,3}?)\s+(?:cohort|trial|study|analysis|analyses|register|registry|consortium|series|subgroup|programme|program|survey)\b/g
 
 /**
  * The names a question uses to designate a cohort or study: "the LGI1
  * encephalitis cohort", "the PERMIT pooled analysis", "the BREATHS trial",
- * plus the terms that pinned a paper. An acronym or a gene-like symbol
- * inside the designator is the key ("LGI1"); otherwise the capitalised
+ * "the video-EEG monitoring mortality cohort", plus the terms that pinned
+ * a paper and every medication the question names from the lexicon (a
+ * drug's figure may only come from a paper about that drug, and a
+ * comparison of two drugs admits both drugs' papers). An acronym or a
+ * gene-like symbol inside the designator is the key ("LGI1"); a token that
+ * carries one keeps its whole form ("video-eeg"); otherwise the capitalised
  * word that opens it ("Melbourne"). Lower-cased, deduplicated.
  */
-export function cohortTerms(query: string, pinnedTerms: readonly string[] = []): string[] {
+export function cohortTerms(
+  query: string,
+  pinnedTerms: readonly string[] = [],
+  lexicon: readonly string[] = [],
+): string[] {
   const out: string[] = []
+  const add = (term: string) => {
+    const t = term.toLowerCase().replace(/^anti-/, '')
+    if (t.length < 3 || NOT_A_COHORT.has(t)) return
+    if (!out.includes(t)) out.push(t)
+  }
+  const lower = query.toLowerCase()
+  const drugs = lexicon.filter((t) =>
+    isMedicationTerm(t.toLowerCase()) && t.length >= 5 &&
+    new RegExp(`(?:^|[^a-z0-9])${escape(t.toLowerCase())}(?=$|[^a-z0-9])`).test(lower)
+  )
   // A question that sets two studies side by side ("compare the SUDEP
   // case-control study with the psychiatric comorbidity and mortality
   // study") designates no single cohort: each sentence may cite either.
@@ -64,25 +85,46 @@ export function cohortTerms(query: string, pinnedTerms: readonly string[] = []):
     /\b(?:the|a)\s+[\w-]+(?:\s+[\w-]+){0,4}?\s+(?:study|trial|cohort|analysis|analyses|register|registry)\b/gi,
   ) ?? []
   if (designators.length >= 2) {
-    for (const term of pinnedTerms) {
-      const t = term.toLowerCase()
-      if (!out.includes(t) && !NOT_A_COHORT.has(t)) out.push(t)
-    }
+    for (const term of [...pinnedTerms, ...drugs]) add(term)
     return out
-  }
-  const add = (term: string) => {
-    const t = term.toLowerCase().replace(/^anti-/, '')
-    if (t.length < 3 || NOT_A_COHORT.has(t)) return
-    if (!out.includes(t)) out.push(t)
   }
   for (const m of query.matchAll(DESIGNATOR)) {
     const phrase = m[1]!
+    const token = phrase.match(/\b[a-z]+-[A-Z][A-Z0-9]+\b/)
     const symbol = phrase.match(/\b(?:anti-)?[A-Z][A-Z0-9-]{2,}\b/)
-    if (symbol) add(symbol[0])
+    if (token) add(token[0])
+    else if (symbol) add(symbol[0])
     else add(phrase.split(/\s+/)[0]!)
   }
-  for (const term of pinnedTerms) add(term)
+  for (const term of [...pinnedTerms, ...drugs]) add(term)
   return out
+}
+
+/**
+ * A question that asks what to assume, plan for or expect: "what 12-month
+ * retention rate should I assume", "what placebo responder rate should I
+ * plan for". Its lead figure must be a paper's own result, never a ceiling
+ * the paper quotes from other studies (D4-12).
+ */
+export function isPlanningQuestion(query: string): boolean {
+  return /\b(?:should (?:i|we)\s+(?:\w+\s+){0,6}?(?:assume|plan|expect|use|budget)|plan for|to assume|to expect|sample size)\b/i
+    .test(query)
+}
+
+/**
+ * The generator's own scaffolding, removed before a sentence is judged
+ * (D4-14): a trailing "Cited sources from the provided context." line and
+ * the "; no denominator stated" clause the denominator instruction
+ * provoked inside a bracket. The "(inference)" mark stays: the surface
+ * renders it as a flag.
+ */
+export function stripTemplateLeaks(text: string): string {
+  return text
+    .replace(/\s*\bCited sources(?: from| in) the provided context\.?(?=\s|$)/gi, '')
+    .replace(/\s*[;,]\s*no denominator (?:is |was )?(?:stated|given|reported|provided)(?=\))/gi, '')
+    .replace(/\s*\((?:no denominator (?:is |was )?(?:stated|given|reported|provided))\)/gi, '')
+    .replace(/[ \t]+\n/g, '\n')
+    .trim()
 }
 
 /** Designators that describe every paper rather than one, and acronyms that are methods, not cohorts. */
@@ -609,8 +651,47 @@ export function replacementCue(
 }
 
 /** The replacement sentence as it reads in the answer: the paper's words, less a heading the extraction glued on. */
+/**
+ * Whether a candidate quote answers what a removed sentence tried to, on
+ * the removed sentence's own terms (docs/persona-reports/dsouza-loop4.md
+ * D4-03): every result figure the sentence stated (a share, a decimal, a
+ * ratio, a count of three digits or more) must sit in the quote beside the
+ * claim under the same check the sentence itself would have needed, and a
+ * follow-up the sentence named must be one the quote names too. A quote
+ * that carries a different figure, or the same outcome at a different
+ * time point, is not a substitute.
+ */
+export function quoteCarriesClaim(
+  quote: string,
+  sentence: string,
+  lexicon: readonly string[],
+  questionEntities: readonly string[],
+  /** The abbreviations the quote's paper defines ("perampanel (PER)"), from its full text. */
+  pairs: readonly { phrase: string; abbr: string }[] = [],
+): boolean {
+  const claim = claimFeatures(sentence, lexicon, questionEntities)
+  const own = prepareSource(quote)
+  const prepared = { ...own, pairs: [...own.pairs, ...pairs] }
+  const results = extractNumbers(sentence).filter((f) =>
+    !/(?:month|week|year|day|hour)s$/.test(f) && !isSampleSizeFigure(f, claim.normalised) &&
+    (/%|\./.test(f) || /^\d{3,}$/.test(f))
+  )
+  if (results.length === 0) return false
+  for (const figure of results) {
+    if (!figureSupportedBy(figure, claim, prepared).supported) return false
+  }
+  if (claim.timepoints.length > 0) {
+    const found = timepointsInMonths(normaliseFigures(quote))
+    if (found.length === 0) return false
+    if (!claim.timepoints.some((s) => found.some((w) => Math.abs(s - w) <= 0.5 + 0.08 * s))) {
+      return false
+    }
+  }
+  return true
+}
+
 export function quoteSentence(quote: string): string {
-  const trimmed = quote.replace(/\s+/g, ' ').trim()
+  const trimmed = normaliseGlyphs(quote).replace(/\s+/g, ' ').trim()
     .replace(
       /^(?:Results|Conclusions?|Methods|Background|Objectives?|Interpretation|Findings)\s+(?=[A-Z])/,
       '',
@@ -681,12 +762,23 @@ export function isDeclineSentence(sentence: string): boolean {
 export function figuresFoundIn(
   figures: readonly string[],
   pool: readonly { title: string; text: PreparedSource }[],
+  /** The removed sentences' words: a paper is named only where one of them sits beside the figure (D4-19). */
+  words: readonly string[] = [],
 ): string[] {
   const out: string[] = []
+  const terms = words.map((w) => w.toLowerCase()).filter((w) => w.length >= 5)
   for (const { title, text } of pool) {
-    if (figures.some((f) => figurePattern(f).test(text.lower)) && !out.includes(title)) {
-      out.push(title)
-    }
+    const carries = figures.some((f) => {
+      const re = figurePattern(f, 'g')
+      let m: RegExpExecArray | null
+      while ((m = re.exec(text.lower)) !== null) {
+        if (terms.length === 0) return true
+        const window = claimWindow(text.lower, m.index)
+        if (terms.some((t) => window.includes(t))) return true
+      }
+      return false
+    })
+    if (carries && !out.includes(title)) out.push(title)
   }
   return out
 }

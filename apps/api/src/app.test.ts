@@ -1788,11 +1788,14 @@ describe('POST /api/t/:slug/ask sentence-level binding and audit', () => {
     // must carry every figure a sentence states), the gate removes it, and
     // the answer says what went (D2-02: a gate on the text, not a footnote).
     expect(text).not.toContain('9.9% below 1400 mg')
-    // The register's own sentence stands in for it, quoted and cited (D3-10).
+    // The register's 6.42% is a different figure: it is not a substitute
+    // for a 9.9% the model invented, so the sentence is removed and the
+    // removal is stated (D4-03: a quote stands in only for the same figure
+    // at the same time point).
+    expect(text).not.toContain('The paper itself reports')
     expect(text).toContain(
-      'The paper itself reports: "In the register, the malformation rate was 6.42% below 1400 mg per day."[1]',
+      'One sentence was removed from this answer: its figures (9.9%) could not be verified',
     )
-    expect(text).toContain("was replaced by the paper's own words, quoted and cited")
     // The auditing stage bracketed the check, with the count of figures.
     const auditing = events.filter((e) => e.type === 'stage' && e.stage === 'auditing')
     expect(auditing.map((e) => e.type === 'stage' ? [e.status, e.figures] : null)).toEqual([
@@ -1801,15 +1804,13 @@ describe('POST /api/t/:slug/ask sentence-level binding and audit', () => {
     ])
     const audit = events.find((e) => e.type === 'audit')
     expect(audit && audit.type === 'audit' ? audit : null).toMatchObject({
-      // The 9.9% sentence was replaced by the register's own sentence, whose
-      // two figures are checked in its place.
-      figuresChecked: 6,
+      figuresChecked: 4,
       figuresUnsupported: [],
       yearsUnsupported: [],
       contraindicationsUnsupported: [],
-      sentencesRemoved: 0,
-      figuresRemoved: [],
-      sentencesReplaced: 1,
+      sentencesRemoved: 1,
+      figuresRemoved: ['9.9%'],
+      sentencesReplaced: 0,
     })
     // Every citation event precedes done; the quality judge's event follows it.
     const order = events.map((e) => e.type)

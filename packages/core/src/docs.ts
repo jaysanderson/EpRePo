@@ -191,8 +191,9 @@ export const DOC_PAGES: DocPage[] = [
           'passages that match the question, by meaning and by exact term, and ranks them. A ' +
           'study named in the question is pinned into the sources so it cannot be crowded out.\n' +
           '3. **The answer is written only from those passages.** Nothing is drawn from general ' +
-          'knowledge or from the internet. Every sentence carries a citation to the passage it ' +
-          'came from, and opening the citation shows that passage in the paper.',
+          'knowledge or from the internet. Every sentence that states a finding carries a ' +
+          'citation to the passage it came from (an item in a list takes the citation of the ' +
+          'paragraph it belongs to), and opening the citation shows that passage in the paper.',
       },
       {
         heading: 'How the answer is checked before you see it',
@@ -203,11 +204,16 @@ export const DOC_PAGES: DocPage[] = [
           'carry is looked for in the full text of the retrieved papers, and if one of them ' +
           'carries it the sentence is cited to that paper instead. A figure found nowhere means ' +
           'the sentence is removed, and the answer says that it was.\n' +
-          '- **Populations.** A sentence about a named cohort, trial or study may only cite ' +
-          'papers about that cohort, so a figure from a different population cannot be passed ' +
-          'off as the one you asked about.\n' +
-          '- **Named studies.** A removed sentence about a named paper is replaced by that ' +
-          "paper's own sentence, quoted verbatim and cited.\n" +
+          '- **Populations.** When the question names a cohort, trial or study, every sentence ' +
+          'with a figure must cite a paper about that cohort, and a figure the cited paper only ' +
+          'quotes from other studies is removed rather than annotated, so a figure from a ' +
+          'different population cannot be passed off as the one you asked about.\n' +
+          '- **Named studies.** A sentence cited to the wrong paper is replaced by the named ' +
+          "paper's own sentence only when that sentence carries the same figure at the same " +
+          'time point, quoted verbatim and cited; otherwise the sentence is removed, and a named ' +
+          'paper the answer never cited is read directly before anything is declined. A ' +
+          'denominator the answer pairs with a figure differently from the paper is corrected ' +
+          "to the paper's own pairing, and the correction is stated.\n" +
           '- **Years and contraindications.** A year must come from a cited resource. A ' +
           'medication the answer calls contraindicated must be called that by a cited passage, ' +
           'and a medication the cited sources flag is never dropped silently.\n\n' +

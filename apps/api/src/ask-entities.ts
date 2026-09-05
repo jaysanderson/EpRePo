@@ -270,6 +270,17 @@ function outcomeFamilyOf(word: string): string | null {
 const CLOSEST_STOP = new Set(['which', 'there', 'their', 'about', 'these', 'those', 'where'])
 
 /**
+ * A question about who was in a study rather than what it found: its
+ * participants' age or sex, how many were enrolled, implanted or
+ * followed, its baseline characteristics (D4-09). Answered from the named
+ * paper alone when one is pinned.
+ */
+export function isDemographicQuestion(query: string): boolean {
+  return /\b(?:median|mean|average)\s+age\b|\bhow many\s+(?:\w+\s+){0,3}?(?:women|men|female|male|females|males|participants|patients|subjects|adults|children|were\s+(?:enrolled|implanted|recruited|included|randomi[sz]ed))\b|\b(?:proportion|percentage|number)\s+of\s+(?:women|men|females|males)\b|\b(?:sex|gender)\s+(?:distribution|ratio|breakdown)\b|\bbaseline characteristics\b|\b(?:were|was)\s+enrolled\b/i
+    .test(query)
+}
+
+/**
  * The prompt addendum for an ask with pinned papers: answer from them,
  * name a figure or table when the text holds the sample but not the
  * outcome, and never declare absent what the supplied passages contain.

@@ -346,8 +346,12 @@ export function supportScore(
   // sentence (no figure, no name) needs its word pairs found too - "visual
   // field loss" as a phrase, not "visual" and "loss" somewhere in 40 pages.
   let ok = false
-  if (words.length < 3) ok = anchored
-  else if (anchored) ok = wordRate >= 0.45 || bigramRate >= 0.2
+  // A short item of a list ("Week 4", "Baseline", "Nijmegen scale at
+  // week 12") states no figure and no name: it is carried when the text
+  // has every one of its words (D4-20).
+  if (words.length < 3) {
+    ok = anchored || (numbers.length === 0 && words.length > 0 && wordRate === 1)
+  } else if (anchored) ok = wordRate >= 0.45 || bigramRate >= 0.2
   else if (wordRate >= 0.5 && bigramRate >= 0.25) ok = true
   else if (wordRate >= 0.85 && words.length >= 5 && bigramRate >= 0.1) ok = true
   // A claim without a figure is placed by its key phrase: a text that has
@@ -522,6 +526,8 @@ export interface BindInput {
    * is dropped, so a tau-pathology paper never carries a SANAD sentence.
    */
   requiredName?: string | readonly string[]
+  /** Citation indices that pass the name check whatever their text carries (a paper pinned for the cohort). */
+  alwaysNamed?: ReadonlySet<number>
   /**
    * Keep the provider's citation numbers rather than renumbering by first
    * appearance, for a caller that renumbers once more after its own pass
@@ -564,7 +570,7 @@ export function bindSentences(input: BindInput): BindResult {
       n,
     ) => n.toLowerCase()).filter((n) => n.length > 0)
   const carriesName = (index: number): boolean => {
-    if (required.length === 0) return true
+    if (required.length === 0 || input.alwaysNamed?.has(index)) return true
     const text = prepared.get(index)
     const title = input.citations.find((c) => c.index === index)?.title ?? ''
     return required.some((name) => {
@@ -586,6 +592,12 @@ export function bindSentences(input: BindInput): BindResult {
   }[] = []
   const lines = input.text.split('\n')
   const layout: BoundLine[] = []
+  // The markers of the paragraph a list hangs from: a list item with no
+  // marker of its own may inherit them when the cited text carries the
+  // item (D4-20). A heading or a blank line ends the paragraph's reach
+  // only when a new marked paragraph follows; the list's own lead line
+  // ("The protocol specifies: [1]") is the usual source.
+  let paragraphMarkers: number[] = []
 
   for (const line of lines) {
     if (!line.trim()) {
@@ -609,6 +621,12 @@ export function bindSentences(input: BindInput): BindResult {
     // spray: candidates for every sentence in the block, owned by none.
     const last = sentences[sentences.length - 1]!
     const tailMarkers = markersIn(/((?:\s*\[\d{1,3}\])+)\s*$/.exec(last)?.[1] ?? '')
+    const lineMarkers = markersIn(body)
+    const inherited = prefix && lineMarkers.length === 0 ? paragraphMarkers : []
+    // The nearest marked line above, a list item included, is what an
+    // unmarked item may inherit from; an unmarked paragraph ends the reach.
+    if (lineMarkers.length > 0) paragraphMarkers = [...new Set(lineMarkers)]
+    else if (!prefix) paragraphMarkers = []
     const outSentences: number[] = []
     for (let i = 0; i < sentences.length; i++) {
       const sentence = sentences[i]!
@@ -622,7 +640,8 @@ export function bindSentences(input: BindInput): BindResult {
       const rare = rareWords(features.words, allPrepared)
       const candidates = BOILERPLATE.test(plain)
         ? []
-        : [...new Set([...own, ...(sentences.length > 1 ? tailMarkers : [])])].filter(usable)
+        : [...new Set([...own, ...(sentences.length > 1 ? tailMarkers : []), ...inherited])]
+          .filter(usable)
       const score = (index: number): number => {
         const text = prepared.get(index)
         // A citation whose text could not be fetched is unverifiable: it

@@ -6,6 +6,7 @@ import { AnswerJourney } from './AnswerJourney.tsx'
 import { AnswerMarkdown } from './AnswerMarkdown.tsx'
 import { CurrencyNote } from './CurrencyNote.tsx'
 import { type QualityScores, TrustSignals } from './QualityGauge.tsx'
+import { type AnswerAudit, auditBadge } from '../lib/answer-marks.ts'
 import { StageTimeline, statusesFor, useAnswerPhase } from './StageTimeline.tsx'
 
 type Status = 'idle' | 'streaming' | 'done' | 'error'
@@ -174,6 +175,27 @@ export function EvidenceDisclosure({
       <div id={regionId} hidden={!open} className='mt-3'>
         {open ? children : null}
       </div>
+    </div>
+  )
+}
+
+/**
+ * The figure-check badge under a document-scoped answer: the same check
+ * the Ask page badges, run against the open document (D4-21). Nothing is
+ * shown when the answer stated no figure.
+ */
+function ScopedAuditBadge({ audit }: { audit: AnswerAudit | null }) {
+  const badge = auditBadge(audit ?? undefined)
+  if (!badge) return null
+  return (
+    <div className='mt-3 flex flex-wrap items-center gap-2'>
+      <span
+        className={`rp-badge ${badge.tone === 'ok' ? 'rp-badge-ok' : 'rp-badge-warn'}`}
+        title={badge.title}
+      >
+        {badge.label}
+      </span>
+      <span className='text-xs text-ink-3'>Checked against this document's text</span>
     </div>
   )
 }
@@ -374,6 +396,8 @@ export function AnswerStream(
   const [citations, setCitations] = useState<Citation[]>([])
   const [usage, setUsage] = useState<UsageEvent | null>(null)
   const [quality, setQuality] = useState<QualityScores | null>(null)
+  /** What the figure check found, for the badge under a document-scoped answer (D4-21). */
+  const [audit, setAudit] = useState<AnswerAudit | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   /** The corpus (or, scoped, this document) could not answer; guidance was shown instead. */
   const [refused, setRefused] = useState(false)
@@ -412,6 +436,7 @@ export function AnswerStream(
       setCitations([])
       setUsage(null)
       setQuality(null)
+      setAudit(null)
       setErrorMessage(null)
       setRefused(false)
       return
@@ -425,6 +450,7 @@ export function AnswerStream(
     setCitations([])
     setUsage(null)
     setQuality(null)
+    setAudit(null)
     setErrorMessage(null)
     setRefused(false)
 
@@ -448,6 +474,9 @@ export function AnswerStream(
             groundedness: event.groundedness,
             contextRelevance: event.contextRelevance,
           })
+          break
+        case 'audit':
+          setAudit(event)
           break
         case 'done':
           // The deterministically citation-bound text replaces the streamed
@@ -601,6 +630,9 @@ export function AnswerStream(
           )
           : null}
       </div>
+      {scopedToResource && status === 'done' && !refused
+        ? <ScopedAuditBadge audit={audit} />
+        : null}
 
       {citations.length > 0 && !scopedToResource
         ? (
