@@ -1237,7 +1237,13 @@ function AnswerCard({
         : null}
 
       {phase !== 'answer' && message.pending
-        ? <StageTimeline statuses={stageStatuses ?? {}} exiting={phase === 'handoff'} />
+        ? (
+          <StageTimeline
+            statuses={stageStatuses ?? {}}
+            exiting={phase === 'handoff'}
+            reading={message.sources.map((source) => source.title)}
+          />
+        )
         : message.text.length > 0
         ? (
           <div className='rp-answer-in'>

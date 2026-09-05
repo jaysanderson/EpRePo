@@ -368,7 +368,7 @@ function EvidenceRow({
             aria-label={`${
               openLabel(source.type, source.matchedPage, summaryMatch)
             }: ${source.title}`}
-            className='rp-focus inline-flex items-center gap-1 rounded-[var(--rp-radius)] text-xs font-medium text-[var(--rp-accent-fg)] hover:underline'
+            className='rp-focus inline-flex min-h-6 items-center gap-1 rounded-[var(--rp-radius)] text-xs font-medium text-[var(--rp-accent-fg)] hover:underline'
           >
             {openLabel(source.type, source.matchedPage, summaryMatch)}
             <svg
@@ -394,7 +394,7 @@ function EvidenceRow({
                 aria-label={expanded
                   ? `Show less of the passage from ${source.title}`
                   : `Show more of the passage from ${source.title}`}
-                className='rp-focus rounded-[var(--rp-radius)] text-xs font-medium text-[var(--rp-accent-fg)] hover:underline'
+                className='rp-focus inline-flex min-h-6 items-center rounded-[var(--rp-radius)] text-xs font-medium text-[var(--rp-accent-fg)] hover:underline'
               >
                 {expanded ? 'Show less' : 'Show more'}
               </button>
