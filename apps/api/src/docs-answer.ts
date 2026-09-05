@@ -75,3 +75,54 @@ function rewriteChunk(chunk: string): string {
   if (!core) return trailing.includes('\n') ? trailing : ''
   return leading + core + trailing
 }
+
+// ---------------------------------------------------------------------------
+// Two-part questions (D4-17)
+// ---------------------------------------------------------------------------
+
+/**
+ * The parts of a two-part Help question ("Does the portal look anything up
+ * on the internet, and which AI model writes the answers?"): split at a
+ * conjunction that opens a new question, at a semicolon, or at a question
+ * mark. Each part is searched for on its own, so the documentation page
+ * that answers one part is retrieved even when the other part's words
+ * dominate the question. One part comes back as no split.
+ */
+export function helpQuestionParts(query: string): string[] {
+  const parts = query
+    .split(
+      /\s*(?:[;?]|,?\s+(?:and|or|plus|also)\s+(?=(?:what|how|which|whether|when|where|why|did|does|do|is|was|were|are|can|could|should|who|will)\b))\s*/i,
+    )
+    .map((p) => p.trim().replace(/[?.]+$/, '').trim())
+    .filter((p) => p.split(/\s+/).length >= 3)
+  return parts.length >= 2 ? parts.slice(0, 3) : []
+}
+
+/** The instruction for a two-part question: answer what the documentation holds, bound the rest. */
+export function helpPartsAddendum(parts: readonly string[]): string {
+  return `The question has ${parts.length} parts: ${
+    parts.map((p, i) => `(${i + 1}) ${p}`).join('; ')
+  }. Answer each part the documentation covers, citing it. For a part the documentation ` +
+    'does not describe, say so in one plain sentence and move on; never decline the whole ' +
+    'question because one part is not covered.'
+}
+
+/** The boundary sentence for a part the documentation does not cover. */
+export function helpBoundary(part: string): string {
+  const plain = part.trim().replace(/[?.]+$/, '')
+  return `The Help pages do not cover this part of the question: "${plain}".`
+}
+
+/**
+ * The composed answer when the parts were asked separately: each answered
+ * part's text in order, a boundary sentence for each part that was
+ * declined. Empty when nothing was answered.
+ */
+export function composeHelpParts(
+  answered: readonly { part: string; text: string | null }[],
+): string {
+  if (!answered.some((a) => a.text && a.text.trim())) return ''
+  return answered
+    .map((a) => (a.text && a.text.trim() ? a.text.trim() : helpBoundary(a.part)))
+    .join('\n\n')
+}
