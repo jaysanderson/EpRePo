@@ -351,7 +351,12 @@ export function ownFigureSentence(
         ? 3
         : 0
       const specific = figures.filter((f) => /%|\./.test(f) || /^\d{2,}$/.test(f)).length
-      const preferred = (cue.preferred ?? []).some((o) => outcomes.includes(o)) ? 2 : 0
+      // The question's outcome is preferred for a rate or a ratio; a count
+      // ("how many received rituximab") is about the count.
+      const countOnly = cue.kinds ? cue.kinds.count && !cue.kinds.share && !cue.kinds.ratio : false
+      const preferred = !countOnly && (cue.preferred ?? []).some((o) => outcomes.includes(o))
+        ? 2
+        : 0
       const shares = figures.some((f) => f.endsWith('%'))
       const ratios = /\b(?:a?HR|a?OR|RR|IRR|hazard ratio|odds ratio|risk ratio)\b/.test(sentence)
       let kind = 0
@@ -372,8 +377,12 @@ export function ownFigureSentence(
       // The shortest sentence that says it: a long sentence with the same
       // hits carries other things beside the answer.
       const length = Math.floor(Math.max(0, sentence.length - 120) / 60)
+      // A sentence listing many figures is a table in prose, rarely the
+      // one fact asked for.
+      const crowd = Math.max(0, figures.length - 4)
       const score = anchorHits * 3 + wordHits + Math.min(specific, 4) + preferred + kind + leads +
-        countWithShare + (section === 'results' ? 2 : section === 'abstract' ? 1 : 0) - length
+        countWithShare + (section === 'results' ? 2 : section === 'abstract' ? 1 : 0) - length -
+        crowd
       if (!best || score > best.score) best = { sentence, score }
     }
   }
