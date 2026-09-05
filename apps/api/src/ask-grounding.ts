@@ -14,8 +14,8 @@ import {
   isSampleSizeFigure,
   normaliseFigures,
   outcomeFamilies,
-  populationQualifier,
   type PreparedSource,
+  qualifierForFigure,
   stripUnsupportedContraindications,
   studyDesignOf,
   verifyFigures,
@@ -574,6 +574,8 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
     if (!replacementPapers.includes(id)) replacementPapers.push(id)
   }
   const questionOutcomes = outcomeFamilies(query)
+  const quoted = new Set<string>()
+  const MAX_REPLACEMENTS = 3
   if (failing.size > 0) {
     // What the answer already states: a quote that repeats it adds nothing.
     const stated = [
@@ -602,19 +604,26 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
         exclude: stated,
       }
       let best: { quote: string; score: number; index: number; resourceId: string } | undefined
+      if (replaced.length >= MAX_REPLACEMENTS) break
       for (const papers of [replacementPapers, own, block]) {
+        // A paper the question did not name has to answer the sentence
+        // clearly: the quote must carry the claim's names or two of its
+        // words, and no quote is used twice in one answer.
+        const bar = papers === replacementPapers ? 0 : 9
         for (const id of papers) {
           const index = candidates.find((c) => c.resourceId === id)?.index
           const raw = index === undefined ? undefined : texts.get(index)
           if (index === undefined || !raw) continue
-          const found = ownFigureSentence(raw, cue)
-          if (found && (!best || found.score > best.score)) {
+          const found = ownFigureSentence(raw, { ...cue, exclude: [...stated, ...quoted] })
+          if (!found || found.score < bar || quoted.has(found.sentence)) continue
+          if (!best || found.score > best.score) {
             best = { quote: found.sentence, score: found.score, index, resourceId: id }
           }
         }
         if (best) break
       }
       if (!best) continue
+      quoted.add(best.quote)
       replaced.push({ from: sentence.text, resourceId: best.resourceId })
       sentence.text = quoteSentence(best.quote)
       sentence.bound = [best.index]
@@ -693,7 +702,17 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
       !isSampleSizeFigure(c.figure, normalised) && !/(?:month|week|year|day|hour)s$/.test(c.figure)
     )
     for (const check of own) {
-      const qualifier = populationQualifier(check.passage!)
+      // Every occurrence of the figure in the bound texts must open with
+      // the same frame, or the figure is not that population's alone.
+      const boundTexts = sentence.bound.map((n) => texts.get(n)).filter((t): t is string =>
+        t !== undefined
+      )
+      const qualifiers = boundTexts.map((t) =>
+        qualifierForFigure(check.figure, prepareIfNeeded(t, prepared))
+      )
+      const qualifier = qualifiers.length > 0 && qualifiers.every((q) => q === qualifiers[0])
+        ? qualifiers[0]
+        : undefined
       if (!qualifier) continue
       if (carriesQualifier(sentence.text, qualifier) || carriesQualifier(query, qualifier)) continue
       const before = sentence.text

@@ -651,6 +651,27 @@ export function populationQualifier(passage: string): string | undefined {
   return qualifier
 }
 
+/**
+ * The population a text states a figure for, when every occurrence of the
+ * figure in the text opens with the same frame: a "71.1%" the paper gives
+ * once for the whole cohort and once for a subgroup qualifies nothing,
+ * while a "13.9%" it gives only "in patients with psychiatric
+ * comorbidity" is that subgroup's figure (D3-07).
+ */
+export function qualifierForFigure(figure: string, text: PreparedSource): string | undefined {
+  const re = figurePattern(figure, 'g')
+  let qualifier: string | undefined
+  let m: RegExpExecArray | null
+  while ((m = re.exec(text.lower)) !== null) {
+    const whole = ownSentenceBounds(text.original, m.index, false)
+    const found = populationQualifier(text.original.slice(whole.start, whole.end))
+    if (!found) return undefined
+    if (qualifier !== undefined && found !== qualifier) return undefined
+    qualifier = found
+  }
+  return qualifier
+}
+
 /** The sentence a position falls in, within its paragraph, in the normalised text. */
 export function ownSentenceBounds(
   text: string,
