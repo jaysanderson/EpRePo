@@ -644,8 +644,11 @@ export function HowItWorksPage() {
             <ul className='space-y-2 pl-1'>
               <Bullet>
                 <strong className='font-semibold text-ink'>Figures.</strong>{' '}
-                Every number, percentage, dose and range in a sentence must appear in the cited
-                passage beside the claim's own terms. A figure the cited passage does not carry is
+                Every number, percentage, dose and range in a sentence is first located in the cited
+                paper, and the sentence or table row that carries it there must share the claim's
+                own quantity - its outcome, the noun the figure measures or the name the question
+                asked about - about the same outcome, at the same follow-up, with the same responder
+                threshold and the same denominator. A figure the cited passage does not carry is
                 looked for in the full text of the retrieved papers, and if one of them carries it
                 the sentence is cited to that paper instead. A figure found nowhere means the
                 sentence is removed, and the answer says that it was.
@@ -663,8 +666,12 @@ export function HowItWorksPage() {
                 only when that sentence carries the same figure at the same time point, quoted
                 verbatim and cited; otherwise the sentence is removed, and a named paper the answer
                 never cited is read directly before anything is declined. A denominator the answer
-                pairs with a figure differently from the paper is corrected to the paper's own
-                pairing, and the correction is stated.
+                pairs with a figure is checked as part of the figure: a pairing the paper
+                contradicts is removed and said so, never rewritten, and a denominator is only ever
+                added from the figure's own bracket or table cell. When the papers that answer one
+                question describe different populations, each sentence says which paper it comes
+                from; a protocol's planned recruitment is named as such beside the results paper's
+                enrolment.
               </Bullet>
               <Bullet>
                 <strong className='font-semibold text-ink'>Years and contraindications.</strong>

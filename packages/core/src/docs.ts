@@ -199,11 +199,14 @@ export const DOC_PAGES: DocPage[] = [
         heading: 'How the answer is checked before you see it',
         body: 'Before an answer is shown, the portal checks it against the cited text, sentence ' +
           'by sentence:\n\n' +
-          '- **Figures.** Every number, percentage, dose and range in a sentence must appear in ' +
-          "the cited passage beside the claim's own terms. A figure the cited passage does not " +
-          'carry is looked for in the full text of the retrieved papers, and if one of them ' +
-          'carries it the sentence is cited to that paper instead. A figure found nowhere means ' +
-          'the sentence is removed, and the answer says that it was.\n' +
+          '- **Figures.** Every number, percentage, dose and range in a sentence is first ' +
+          'located in the cited paper, and the sentence or table row that carries it there ' +
+          "must share the claim's own quantity - its outcome, the noun the figure measures or " +
+          'the name the question asked about - about the same outcome, at the same follow-up, ' +
+          'with the same responder threshold and the same denominator. A figure the cited ' +
+          'passage does not carry is looked for in the full text of the retrieved papers, and ' +
+          'if one of them carries it the sentence is cited to that paper instead. A figure ' +
+          'found nowhere means the sentence is removed, and the answer says that it was.\n' +
           '- **Populations.** When the question names a cohort, trial or study, every sentence ' +
           'with a figure must cite a paper about that cohort, and a figure the cited paper only ' +
           'quotes from other studies is removed rather than annotated, so a figure from a ' +
@@ -212,8 +215,12 @@ export const DOC_PAGES: DocPage[] = [
           "paper's own sentence only when that sentence carries the same figure at the same " +
           'time point, quoted verbatim and cited; otherwise the sentence is removed, and a named ' +
           'paper the answer never cited is read directly before anything is declined. A ' +
-          'denominator the answer pairs with a figure differently from the paper is corrected ' +
-          "to the paper's own pairing, and the correction is stated.\n" +
+          'denominator the answer pairs with a figure is checked as part of the figure: a ' +
+          'pairing the paper contradicts is removed and said so, never rewritten, and a ' +
+          "denominator is only ever added from the figure's own bracket or table cell. When " +
+          'the papers that answer one question describe different populations, each sentence ' +
+          "says which paper it comes from; a protocol's planned recruitment is named as such " +
+          "beside the results paper's enrolment.\n" +
           '- **Years and contraindications.** A year must come from a cited resource. A ' +
           'medication the answer calls contraindicated must be called that by a cited passage, ' +
           'and a medication the cited sources flag is never dropped silently.\n\n' +
@@ -431,9 +438,11 @@ export const DOC_PAGES: DocPage[] = [
         heading: 'Every figure is checked before you see it',
         body:
           'Where an answer quotes figures, Ask checks them against the cited passages before the ' +
-          'answer is complete. Every number, percentage, dose and range must appear in the cited ' +
-          "passage beside the claim's own terms, about the same outcome and at the same " +
-          'follow-up. A figure the cited passage does not carry is looked for in the full text ' +
+          'answer is complete. Every number, percentage, dose and range is located in the cited ' +
+          "paper, and the sentence or table row that carries it must share the claim's own " +
+          'quantity, about the same outcome, at the same follow-up, with the same responder ' +
+          'threshold and the same denominator. A figure the cited passage does not carry is ' +
+          'looked for in the full text ' +
           'of the papers retrieval found, and if one carries it the sentence is cited to that ' +
           'paper instead. When the question names a cohort, trial or study, a figure sentence ' +
           'must cite a paper about that cohort, and a figure the cited paper only quotes from ' +
@@ -442,8 +451,9 @@ export const DOC_PAGES: DocPage[] = [
           'so in a note beneath it, naming the figures. A sentence cited to the wrong paper is ' +
           "replaced by the named paper's own sentence only when that sentence carries the same " +
           'figure at the same time point, quoted verbatim and cited; a decline is never replaced. ' +
-          'A denominator the answer paired with a figure differently from the paper is corrected ' +
-          "to the paper's own pairing, and the correction is stated. A year must come from a " +
+          'A denominator the answer paired with a figure is part of the figure: a pairing the ' +
+          'paper contradicts is removed and said so, never rewritten, and a denominator is only ' +
+          "ever added from the figure's own bracket or table cell. A year must come from a " +
           'cited resource, and a medication called contraindicated must be called that by a ' +
           'cited passage.\n\n' +
           'While the answer streams, its text is shown as unchecked, in muted ink with an ' +

@@ -277,3 +277,20 @@ Closed: R7, R9 (remainder), R14 (app parts), R10 (outside the ask handler): P1-1
 P2-08, P2-09, P2-10, P2-11, P2-12, P2-13, P2-14, P3-08, P3-18, P3-24, P4-07, P4-19, P5-09,
 P5-17, P5-18, P6-13, P6-16, P6-17, P7-12, P7-17, P7-20, P7-25, P7-27, P8-13, P8-15, P8-16,
 P8-19, P9-09, P9-10, P9-21, P10-04, P10-14, P10-17, P10-23.
+
+## PR #20 - Locate first: the figure check reads the sentence the figure lives in (loop 5)
+Every figure in an answer is located in the cited paper and judged against the sentence or table
+row that carries it (a cell with its row label and column headings); the claim passes when that
+sentence shares its quantity words, every outcome the quantity names or the question's routing
+entity, and must agree on responder threshold and denominator pairing. Glyph, spelling, bracket
+and table-row normalisation gaps closed (dot operator, enrolment/enrollment, "(FAS; n = 1111)",
+"Follow-up duration, y"). The cohort guard never fires against a paper the question names or
+describes and looks a failed sentence up in the cited cohort papers. The denominator correction in
+the body is gone: a contradicted pairing fails the figure, and the helper only adds an n from the
+located bracket or cell. Two populations under one question are named per sentence; the paper's
+own figure for the question's outcome is offered after a removal; a protocol's planned recruitment
+is named as such; second-hand judgement reads the located passage (Markdown headings, graphical
+abstracts); assessment keys and briefing takeaways never rest on a second-hand figure; an uncited
+figure answer on a named paper binds to the pinned paper. Closed: D5-01, D5-02, D5-03, D5-04
+(DCC, XB, TFA, TDE), D5-10, D5-11, D5-12, D5-13, D5-14, D5-15; regressions D3-02, D3-07 (mechanism),
+D4-09. Left: PD (the abstract's own wording), EB's "overall" label, D4-22 (a follow-up turn, PR #19).
