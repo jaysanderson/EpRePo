@@ -68,6 +68,7 @@ import {
 import {
   classifierIntents,
   decideFromClassifier,
+  decomposable,
   defaultDecision,
   extractEntities,
   isResultsQuestion,
@@ -86,7 +87,8 @@ import {
 } from './ask-entities.ts'
 import { secondhandFigures } from './secondhand.ts'
 import { auditBriefing } from './briefing-audit.ts'
-import { exposureOutcomePair, isWholeDecline, pairCarried } from './figure-rescue.ts'
+import { cohortTerms, exposureOutcomePair, isWholeDecline, pairCarried } from './figure-rescue.ts'
+import { namedEntities } from './citation-binding.ts'
 import { briefingGrounding, groundingParagraphs } from './briefing-grounding.ts'
 import { passageDenominators, unusedReferences } from './synthesis-check.ts'
 import {
@@ -114,6 +116,17 @@ import {
 } from './answer-shape.ts'
 import { nextRetry, RETRY_DIRECTIVE, type RetryKind } from './ask-retry.ts'
 import { applicablePrequeries } from './ask-prequeries.ts'
+import {
+  isReformatFollowUp,
+  priorAnswerContext,
+  priorPassageContext,
+  priorQuestions,
+  priorResourceIds,
+  refersToPriorTurns,
+  reformatAddendum,
+} from './ask-session.ts'
+import { StreamVerifier, type WarmText } from './ask-stream-verify.ts'
+import { composeHelpParts, helpPartsAddendum, helpQuestionParts } from './docs-answer.ts'
 import { DOCS_DECLINE, DocsSentinelStream, rewriteDocsSentinels } from './docs-answer.ts'
 import {
   appendOmittedPapers,
@@ -378,6 +391,8 @@ const askBodySchema = z.object({
       text: z.string(),
       /** The resources an earlier answer cited: a figure carried forward is checked against them (D3-06). */
       resourceIds: z.string().array().max(12).optional(),
+      /** The passages those citations quoted: context for a follow-up that leans on them (D4-06, D4-07). */
+      passages: z.string().max(2000).array().max(12).optional(),
     })
     .array()
     .max(24)
@@ -1134,11 +1149,17 @@ export function buildApp(opts: BuildAppOptions): Hono {
         kindIds,
         ...(intent ? { intent } : {}),
       })
-    let results = await searchWith(searchIntent)
+    const authorMatched = byAuthor !== null && byAuthor.matches.length > 0
+    let results = authorMatched
+      ? { query: parsed.data.q, resources: [], relatedQuestions: [] }
+      : await searchWith(searchIntent)
     // An intent narrower than the default that finds nothing is not an
     // answer for a listing: the default configuration lists what the
     // corpus holds. An exact lookup keeps its honest empty result.
-    if (searchIntent && searchIntent !== listing?.id && results.resources.length === 0) {
+    if (
+      !authorMatched && searchIntent && searchIntent !== listing?.id &&
+      results.resources.length === 0
+    ) {
       results = await searchWith(undefined)
       route = undefined
     }
@@ -1150,10 +1171,10 @@ export function buildApp(opts: BuildAppOptions): Hono {
       }))
     }
     if (byAuthor) {
-      const already = new Set(results.resources.map((r) => r.id))
-      const authored = byAuthor.matches
-        .filter((r) => !already.has(r.id))
-        .map((r) => metadataHit(r, authorLine(r)))
+      // The author's papers are the catalogue's author-metadata matches and
+      // nothing else: the same set for every form of the name, never a
+      // paper that merely cites the author in its reference list (D4-16).
+      const authored = byAuthor.matches.map((r) => metadataHit(r, authorLine(r)))
       // The author's papers are a catalogue lookup, decided without the
       // box: the chip says so, and the surface lists rather than answers.
       const authorRoute: RouteDecision | undefined = listing
@@ -1168,8 +1189,9 @@ export function buildApp(opts: BuildAppOptions): Hono {
         }
         : undefined
       return c.json(merchandiseSearchResults(enrichments, config.slug, {
-        ...results,
-        resources: [...authored, ...results.resources],
+        query: parsed.data.q,
+        resources: authored,
+        relatedQuestions: [],
         lookup: lookupOf('author', byAuthor.surname, true),
         ...(authorRoute ? { route: authorRoute } : {}),
       }))
@@ -3512,10 +3534,45 @@ export function buildApp(opts: BuildAppOptions): Hono {
       // The papers the session's earlier turns cited: retrieved again for
       // a follow-up, and the texts a figure carried forward is checked
       // against (D3-06).
-      const priorIds = [
-        ...new Set((askOpts.context ?? []).flatMap((turn) => turn.resourceIds ?? [])),
-      ].slice(0, 6)
+      const priorIds = priorResourceIds(askOpts.context ?? [])
       const send = (event: unknown) => stream.writeSSE({ data: JSON.stringify(event) })
+      // A follow-up that asks for the earlier answers in another shape
+      // ("put the three drugs in a table") is answered from the papers and
+      // passages those answers cited, with no new topic searched and no
+      // retrieval floor to refuse on (D4-06); one that leans on the earlier
+      // turns ("that cohort") re-reads their papers (D4-07). A caller that
+      // sent the turns without their cited papers (an API client) gets
+      // them back from the earlier questions.
+      const reformat = !firstTurn && isReformatFollowUp(query)
+      const leansOnPrior = !firstTurn && (reformat || refersToPriorTurns(query))
+      if (leansOnPrior && priorIds.length === 0) {
+        const found = await Promise.all(
+          priorQuestions(askOpts.context ?? [], 2).map((q) =>
+            provider.search(config, q, { pageSize: 3 }).then(
+              (r) => r.resources.filter((x) => x.relevance >= 0.3).slice(0, 2).map((x) => x.id),
+              () => [] as string[],
+            )
+          ),
+        )
+        for (const id of found.flat()) if (!priorIds.includes(id)) priorIds.push(id)
+        priorIds.splice(6)
+      }
+      // The texts of the papers retrieval finds before generation starts,
+      // fetched while the platform retrieves and generates, so the first
+      // sentence can be checked the moment it lands and the audit's own
+      // fetches are already cached (D4-08).
+      const warm = new Map<string, WarmText>()
+      const warmTexts = (candidates: readonly { id: string; title: string }[]) => {
+        if (!opts.management) return
+        for (const c of candidates.slice(0, 5)) {
+          if (warm.has(c.id)) continue
+          const title = c.title
+          extractionText(opts.management, config, c.id).then(
+            (text) => warm.set(c.id, { resourceId: c.id, title, text }),
+            () => {},
+          )
+        }
+      }
       // Automatic routing (docs/INTENT-ROUTING.md). The rule stage is
       // synchronous and answers at once; when no rule fires the classifier
       // runs in parallel with the retrieval probe and the decomposition
@@ -3590,7 +3647,7 @@ export function buildApp(opts: BuildAppOptions): Hono {
           .test(query)
       const decompositionPending =
         evidenceSeeking && !isResultsQuestion(query) && !askOpts.prequeries?.length && firstTurn &&
-          opts.management
+          decomposable(query) && opts.management
           ? Promise.race([
             opts.management.askStructured(
               config,
@@ -3655,7 +3712,7 @@ export function buildApp(opts: BuildAppOptions): Hono {
       // the ones that fit: a drug-safety probe fires for medication entities
       // on a treatment question, never for an antigen, a journal or a
       // retention question (ask-prequeries.ts).
-      if (intentDef && intentDef.answer.prequeries.length > 0) {
+      if (intentDef && intentDef.answer.prequeries.length > 0 && decomposable(query)) {
         const entities = extractEntities(query, lexicon)
         const mandatory = applicablePrequeries(intentDef.answer.prequeries, query, entities)
         const combined = [...mandatory, ...(askOpts.prequeries ?? [])].slice(0, 8)
@@ -3852,6 +3909,7 @@ export function buildApp(opts: BuildAppOptions): Hono {
           // tokens, and a reader watching an empty panel for ten seconds
           // cannot tell progress from a hang. The grounded set replaces it.
           if (nearest.length > 0) await send({ type: 'sources', resources: nearest })
+          warmTexts([...pinnedFound, ...nearest])
         } catch {
           // The gate is best-effort: a failed probe streams the plain ask,
           // which keeps the in-stream floor below as its fallback.
@@ -3869,6 +3927,22 @@ export function buildApp(opts: BuildAppOptions): Hono {
       // their n, a figure or table named when the text holds the sample but
       // not the outcome, and nothing declared absent that the paper holds.
       if (!documentScope && pinnedIds.length > 0) promptAddendum = pinnedAddendum(pinnedTitles)
+      // The earlier answers' cited passages ride beside retrieval on a
+      // follow-up; a reformatting turn also gets the answers themselves
+      // and the instruction to reshape, never add (D4-06, D4-07).
+      if (leansOnPrior) {
+        const prior = [
+          ...priorPassageContext(askOpts.context ?? []),
+          ...(reformat ? priorAnswerContext(askOpts.context ?? []) : []),
+        ]
+        if (prior.length > 0) extraContext = [...(extraContext ?? []), ...prior]
+        if (priorIds.length > 0 && opts.management) {
+          warmTexts(priorIds.map((id) => ({ id, title: titleOf.get(id) ?? '' })))
+        }
+      }
+      if (reformat) {
+        promptAddendum = [promptAddendum, reformatAddendum(query)].filter(Boolean).join('\n\n')
+      }
       // "Which of X's papers report on Y": every source paper on the topic is
       // to be named; the ones the generator still omits are listed after
       // the answer from the same sources (D3-11, ask-author.ts).
@@ -3910,6 +3984,7 @@ export function buildApp(opts: BuildAppOptions): Hono {
       let answerText = ''
       let forwardedLength = 0
       let sentinels = new SentinelStream()
+      let verifier: StreamVerifier | null = null
       let heldCitations: Citation[] = []
       let heldDecline = false
       let lastSources: ScoredResource[] = []
@@ -3942,6 +4017,11 @@ export function buildApp(opts: BuildAppOptions): Hono {
         finished = true
         const tail = sentinels.flush()
         if (tail) await send({ type: 'delta', text: tail })
+        // A single-sentence answer is judged now, before the audit runs.
+        if (verifier) {
+          const verified = tail ? verifier.push(tail) ?? verifier.flush() : verifier.flush()
+          if (verified) await send({ type: 'verified', ...verified })
+        }
         // The model's own reference lines go (a "References" block, an
         // author-year entry, a cited title written out), then the sentinel
         // phrases, then a generation that stopped mid-sentence is cut back
@@ -4122,6 +4202,8 @@ export function buildApp(opts: BuildAppOptions): Hono {
         prequeries: string[] | undefined
         /** A document-scoped retry on the pinned paper (D2-08). */
         resourceId?: string
+        /** A follow-up asked again without the earlier turns' papers pinned (D4-07). */
+        unpinPrior?: boolean
       }[] = [{
         intent: intentForAsk,
         prequeries: askOpts.prequeries,
@@ -4141,6 +4223,7 @@ export function buildApp(opts: BuildAppOptions): Hono {
         prequeries: current.prequeries?.length ?? 0,
         bestRelevance,
         strongMatch: STRONG_MATCH,
+        priorPinned: leansOnPrior && priorIds.length > 0 && !current.unpinPrior,
       })
       for (let attempt = 0; attempt < attempts.length; attempt++) {
         current = attempts[attempt]!
@@ -4150,6 +4233,12 @@ export function buildApp(opts: BuildAppOptions): Hono {
         heldCitations = []
         heldDecline = false
         record.citations = 0
+        verifier = documentScope ? null : new StreamVerifier({
+          texts: () => [...warm.values()],
+          lexicon,
+          questionEntities: namedEntities(query, lexicon),
+          requiredNames: cohortTerms(query, pinned.map((p) => p.term)),
+        })
         // The document-scoped retry reads the pinned paper's own paragraphs
         // beside retrieval: the ones in its Abstract, Results, Methods and
         // Conclusion that carry the question's words or figures, from the
@@ -4181,15 +4270,17 @@ export function buildApp(opts: BuildAppOptions): Hono {
               ...(authorTopK ? { topK: authorTopK } : {}),
               ...(scopedQueries ? { scopedQueries } : {}),
               ...(current.resourceId ? { resourceId: current.resourceId } : {}),
+              // A reformatting turn reads only the earlier answers' papers,
+              // searched for the earlier questions, with room for a table.
+              ...(reformat && priorIds.length > 0 && !resourceIds
+                ? { resourceIds: priorIds, topK: 40 }
+                : {}),
               intent: current.intent,
-              prequeries: current.prequeries,
-              ...(pinnedIds.length > 0 || priorIds.length > 0
-                ? {
-                  pinnedResourceIds: [
-                    ...pinnedIds,
-                    ...priorIds.filter((id) => !pinnedIds.includes(id)),
-                  ],
-                }
+              prequeries: reformat ? priorQuestions(askOpts.context ?? [], 3) : current.prequeries,
+              ...(reformat ? { maxTokens: 1800 } : {}),
+              ...(pinnedIds.length > 0 ? { pinnedResourceIds: pinnedIds } : {}),
+              ...(leansOnPrior && priorIds.length > 0 && !current.unpinPrior
+                ? { priorResourceIds: priorIds }
                 : {}),
               ...(pinnedQueries.length > 0 ? { pinnedQueries } : {}),
               ...(settings.ask ? { systemPrompt: settings.ask } : {}),
@@ -4219,7 +4310,11 @@ export function buildApp(opts: BuildAppOptions): Hono {
               if (slice.text.length > 0) {
                 forwardedLength += slice.text.length
                 const out = sentinels.push(slice.text)
-                if (out) await send({ type: 'delta', text: out })
+                if (out) {
+                  await send({ type: 'delta', text: out })
+                  const verified = verifier?.push(out)
+                  if (verified) await send({ type: 'verified', ...verified })
+                }
               }
               continue
             }
@@ -4237,7 +4332,8 @@ export function buildApp(opts: BuildAppOptions): Hono {
               ))
               lastSources = shaped
               bestRelevance = shaped.reduce((m, r) => Math.max(m, r.relevance), 0)
-              if (!documentScope && !preflightRan && bestRelevance < GROUNDING_FLOOR) {
+              if (!documentScope) warmTexts(shaped)
+              if (!documentScope && !preflightRan && !reformat && bestRelevance < GROUNDING_FLOOR) {
                 // An empty retrieval is the provider's own refusal path; the
                 // guard covers the other failure, weak matches that would be
                 // answered over.
@@ -4299,6 +4395,12 @@ export function buildApp(opts: BuildAppOptions): Hono {
           // retrieved. Ask once more with neither the safety prequeries nor
           // the intent's narrower configuration crowding the grounding set.
           attempts.push({ intent: undefined, prequeries: undefined })
+        } else if (retry === 'unpinned') {
+          attempts.push({
+            intent: current.intent,
+            prequeries: current.prequeries,
+            unpinPrior: true,
+          })
         } else if (retry === 'pinned') {
           attempts.push({ intent: undefined, prequeries: undefined, resourceId: pinnedIds[0] })
           await fallbackEvent(
@@ -4343,9 +4445,43 @@ export function buildApp(opts: BuildAppOptions): Hono {
       // an answer that was nothing but the template becomes the decline.
       const sentinels = new DocsSentinelStream()
       const send = (event: unknown) => stream.writeSSE({ data: JSON.stringify(event) })
+      // A two-part question is searched part by part, so the page that
+      // answers one part is retrieved even when the other part's words
+      // dominate; the prompt answers what the documentation holds and
+      // bounds the rest. When the whole is still declined, each part is
+      // asked on its own and the answered parts are composed with a
+      // boundary sentence for the others (D4-17).
+      const parts = helpQuestionParts(query)
+      const answerParts = async (): Promise<string> => {
+        const answered: { part: string; text: string | null }[] = []
+        for (const part of parts) {
+          let text = ''
+          let refused = false
+          let sources: ScoredResource[] = []
+          for await (const event of provider.ask(config, part, { context, docScope: true })) {
+            if (event.type === 'done') {
+              refused = Boolean(event.refused)
+              text = rewriteDocsSentinels(event.text ?? text)
+            } else if (event.type === 'sources' && event.resources.length > 0) {
+              sources = event.resources
+            } else if (event.type === 'citation') await send(event)
+          }
+          if (!refused && text && sources.length > 0) {
+            await send({ type: 'sources', resources: sources })
+          }
+          answered.push({ part, text: refused ? null : text })
+        }
+        return composeHelpParts(answered)
+      }
       try {
         for await (
-          const event of provider.ask(config, query, { context, docScope: true })
+          const event of provider.ask(config, query, {
+            context,
+            docScope: true,
+            ...(parts.length > 0
+              ? { prequeries: parts, promptAddendum: helpPartsAddendum(parts) }
+              : {}),
+          })
         ) {
           if (event.type === 'delta') {
             const text = sentinels.push(event.text)
@@ -4356,6 +4492,12 @@ export function buildApp(opts: BuildAppOptions): Hono {
             const tail = sentinels.flush()
             if (tail) await send({ type: 'delta', text: tail })
             if (event.refused) {
+              const composed = parts.length > 0 ? await answerParts().catch(() => '') : ''
+              if (composed) {
+                await send({ type: 'delta', text: composed })
+                await send({ type: 'done', refused: false, text: composed })
+                continue
+              }
               await send(event)
               continue
             }
