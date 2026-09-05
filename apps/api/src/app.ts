@@ -14,6 +14,7 @@ import {
   GenerateKindSchema,
   PaletteChoiceSchema,
   ShapeIdSchema,
+  studyDesignLabel,
   TextScaleIdSchema,
   TypographyChoiceSchema,
 } from '@research-portal/core'
@@ -94,6 +95,7 @@ import {
   researcherLabel,
   resolveAuthor,
   resolveIdentifier,
+  resolvePersonName,
   retypeResearchers,
 } from './catalog-lookup.ts'
 import {
@@ -107,9 +109,16 @@ import {
   trimTruncatedTail,
   withheldDecline,
 } from './answer-shape.ts'
+import { nextRetry, RETRY_DIRECTIVE, type RetryKind } from './ask-retry.ts'
 import { applicablePrequeries } from './ask-prequeries.ts'
 import { DOCS_DECLINE, DocsSentinelStream, rewriteDocsSentinels } from './docs-answer.ts'
-import { authorsNamed, authorTopicQuery } from './ask-author.ts'
+import {
+  appendOmittedPapers,
+  authorsNamed,
+  authorTopicQuery,
+  isPaperListingQuestion,
+  paperListingAddendum,
+} from './ask-author.ts'
 import {
   type AuditEvent,
   bindAndAudit,
@@ -1103,7 +1112,12 @@ export function buildApp(opts: BuildAppOptions): Hono {
       }))
     }
     const catalogue = await provider.listResources(config).catch(() => [])
-    const byAuthor = resolveAuthor(catalogue, parsed.data.q)
+    // A surname, or a person's name in any of its forms ("Wendyl D'Souza",
+    // "W D'Souza", "DSouza WJ"): the author's papers from the catalogue. A
+    // name whose surname the catalogue knows under another initial is an
+    // empty lookup - listed as retrieval finds it, never answered (D3-04).
+    const byAuthor = resolveAuthor(catalogue, parsed.data.q) ??
+      resolvePersonName(catalogue, parsed.data.q)
     const searchIntent = intentParam ?? route?.intent
     const searchWith = (intent: string | undefined) =>
       provider.search(config, parsed.data.q, {
@@ -1119,6 +1133,13 @@ export function buildApp(opts: BuildAppOptions): Hono {
     if (searchIntent && searchIntent !== listing?.id && results.resources.length === 0) {
       results = await searchWith(undefined)
       route = undefined
+    }
+    if (byAuthor && byAuthor.matches.length === 0) {
+      return c.json(merchandiseSearchResults(enrichments, config.slug, {
+        ...results,
+        lookup: lookupOf('author', byAuthor.surname, false),
+        ...(route ? { route } : {}),
+      }))
     }
     if (byAuthor) {
       const already = new Set(results.resources.map((r) => r.id))
@@ -3686,7 +3707,7 @@ export function buildApp(opts: BuildAppOptions): Hono {
       // proceedings and attachments are dropped, and when nothing clears
       // the grounding gate on meaning the decline says "no close match"
       // rather than naming near misses.
-      const closestMatches = async (): Promise<
+      const findClosestMatches = async (): Promise<
         { resources: ScoredResource[]; noCloseMatch: boolean } | null
       > => {
         try {
@@ -3713,6 +3734,10 @@ export function buildApp(opts: BuildAppOptions): Hono {
           return null
         }
       }
+      // Memoised: the decline's search starts the moment a refusal is first
+      // seen and overlaps the one extra ask, rather than following it (D3-05).
+      let closestPending: ReturnType<typeof findClosestMatches> | null = null
+      const closestMatches = () => closestPending ??= findClosestMatches()
       const sendDecline = async (fallback: ScoredResource[], bestPct?: number) => {
         const near = await closestMatches()
         const shown = near ? (near.noCloseMatch ? [] : near.resources) : fallback
@@ -3795,6 +3820,16 @@ export function buildApp(opts: BuildAppOptions): Hono {
       // their n, a figure or table named when the text holds the sample but
       // not the outcome, and nothing declared absent that the paper holds.
       if (!documentScope && pinnedIds.length > 0) promptAddendum = pinnedAddendum(pinnedTitles)
+      // "Which of X's papers report on Y": every source paper on the topic is
+      // to be named; the ones the generator still omits are listed after
+      // the answer from the same sources (D3-11, ask-author.ts).
+      const listingAuthor = resourceIds && isPaperListingQuestion(query)
+        ? namedAuthors[0]
+        : undefined
+      if (listingAuthor) {
+        promptAddendum = [promptAddendum, paperListingAddendum(listingAuthor.surname, authorTopic)]
+          .filter(Boolean).join('\n\n')
+      }
       if (documentScope) {
         promptAddendum = DOCUMENT_CHAT_ADDENDUM
         if (opts.management) {
@@ -3973,15 +4008,31 @@ export function buildApp(opts: BuildAppOptions): Hono {
           return
         }
         if (!documentScope && citations.length === 0 && /\d/.test(text)) {
-          // A named paper is in the sources: one document-scoped retry on
-          // it before declining (D2-08), the same path as a generator refusal.
-          if (!retriedOnPinned && pinnedIds.length > 0) {
+          // A named paper is in the sources and the first pass never cited
+          // it: one document-scoped read of it before declining (D2-08),
+          // the same one extra ask a generator refusal gets (D3-05).
+          if (nextRetry(retryContext(), 'uncited') === 'pinned') {
             finished = false
             retry = 'pinned'
+            void closestMatches()
             return
           }
           await finishRefused()
           return
+        }
+        if (listingAuthor && resourceIds) {
+          const listed = appendOmittedPapers({
+            text,
+            query,
+            topic: authorTopic,
+            surname: listingAuthor.surname,
+            sources: lastSources,
+            scopeIds: resourceIds,
+            citations,
+            kindLabel: studyDesignLabel,
+          })
+          text = listed.text
+          citations = listed.citations
         }
         // Evidence cards never show a bibliography paragraph as a passage,
         // and an uncited reference-list hit is not evidence at all.
@@ -4012,11 +4063,24 @@ export function buildApp(opts: BuildAppOptions): Hono {
         intent: intentForAsk,
         prequeries: askOpts.prequeries,
       }]
-      let retry: 'supplements' | 'prequeries' | 'pinned' | null = null
-      let retriedWithoutPrequeries = false
-      let retriedOnPinned = false
+      let retry: RetryKind | null = null
+      // One extra ask at most, whatever the reason (D3-05, ask-retry.ts).
+      let extraAttemptUsed = false
+      let current = attempts[0]!
+      const retryContext = () => ({
+        documentScope,
+        extraAttemptUsed,
+        pinnedIds,
+        citedIds: heldCitations.map((c) => c.resourceId),
+        supplementsOnly,
+        currentIntent: current.intent,
+        defaultIntent: config.defaultIntent ?? intents[0]?.id,
+        prequeries: current.prequeries?.length ?? 0,
+        bestRelevance,
+        strongMatch: STRONG_MATCH,
+      })
       for (let attempt = 0; attempt < attempts.length; attempt++) {
-        const current = attempts[attempt]!
+        current = attempts[attempt]!
         answerText = ''
         forwardedLength = 0
         sentinels = new SentinelStream()
@@ -4041,6 +4105,11 @@ export function buildApp(opts: BuildAppOptions): Hono {
             // Retrieval alone grounds the retry.
           }
         }
+        // The one retry also carries the firmer directive the provider used
+        // to add on a retry of its own; the two never stack now.
+        const attemptAddendum = attempt > 0
+          ? [promptAddendum, RETRY_DIRECTIVE].filter(Boolean).join('\n\n')
+          : promptAddendum
         try {
           for await (
             const event of provider.ask(config, query, {
@@ -4056,7 +4125,9 @@ export function buildApp(opts: BuildAppOptions): Hono {
               ...(settings.ask ? { systemPrompt: settings.ask } : {}),
               ...(settings.images ? { images: true } : {}),
               ...(attemptContext ? { extraContext: attemptContext } : {}),
-              ...(promptAddendum ? { promptAddendum } : {}),
+              ...(attemptAddendum ? { promptAddendum: attemptAddendum } : {}),
+              // The application manages the retry (one at most).
+              ...(documentScope ? {} : { noRefusalRetry: true }),
             })
           ) {
             if (event.type === 'citation') {
@@ -4110,25 +4181,16 @@ export function buildApp(opts: BuildAppOptions): Hono {
             }
             if (event.type === 'done') {
               if (event.refused) {
-                if (
-                  current.intent && supplementsOnly && attempts.length === 1 && !documentScope
-                ) {
-                  retry = 'supplements'
-                  break
-                }
-                if (
-                  !documentScope && !retriedWithoutPrequeries && bestRelevance >= STRONG_MATCH &&
-                  ((current.prequeries?.length ?? 0) > 0 || current.intent)
-                ) {
-                  retry = 'prequeries'
-                  break
-                }
-                // The question names a paper the corpus holds and the
-                // generator still declined: ask once more within that paper
-                // alone, where a partial answer (the n from the text, the
-                // outcome in a figure) is the right answer (D2-08).
-                if (!documentScope && !retriedOnPinned && pinnedIds.length > 0) {
-                  retry = 'pinned'
+                // One extra ask, chosen for the reason this one failed: the
+                // general configuration when the data sheets held no answer,
+                // the named paper alone when the question names one (D2-08),
+                // the default configuration without the prequeries when a
+                // strong match was retrieved and the generator still
+                // declined. When nothing applies the refusal stands, with
+                // the decline's own search already running (D3-05).
+                retry = nextRetry(retryContext(), 'refused')
+                if (retry) {
+                  void closestMatches()
                   break
                 }
                 await finishRefused()
@@ -4155,6 +4217,7 @@ export function buildApp(opts: BuildAppOptions): Hono {
           record.failed = true
           await send({ type: 'error', message: publicErrorMessage(err) })
         }
+        if (retry) extraAttemptUsed = true
         if (retry === 'supplements') {
           attempts.push({ intent: undefined, prequeries: current.prequeries })
           intentForAsk = undefined
@@ -4165,10 +4228,8 @@ export function buildApp(opts: BuildAppOptions): Hono {
           // The generator, not the corpus, said no: a 90%-plus match was
           // retrieved. Ask once more with neither the safety prequeries nor
           // the intent's narrower configuration crowding the grounding set.
-          retriedWithoutPrequeries = true
           attempts.push({ intent: undefined, prequeries: undefined })
         } else if (retry === 'pinned') {
-          retriedOnPinned = true
           attempts.push({ intent: undefined, prequeries: undefined, resourceId: pinnedIds[0] })
           await fallbackEvent(
             'The question names a paper this collection holds; asking it directly.',
