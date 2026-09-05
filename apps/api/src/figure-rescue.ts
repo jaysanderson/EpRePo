@@ -57,6 +57,19 @@ const DESIGNATOR =
  */
 export function cohortTerms(query: string, pinnedTerms: readonly string[] = []): string[] {
   const out: string[] = []
+  // A question that sets two studies side by side ("compare the SUDEP
+  // case-control study with the psychiatric comorbidity and mortality
+  // study") designates no single cohort: each sentence may cite either.
+  const designators = query.match(
+    /\b(?:the|a)\s+[\w-]+(?:\s+[\w-]+){0,4}?\s+(?:study|trial|cohort|analysis|analyses|register|registry)\b/gi,
+  ) ?? []
+  if (designators.length >= 2) {
+    for (const term of pinnedTerms) {
+      const t = term.toLowerCase()
+      if (!out.includes(t) && !NOT_A_COHORT.has(t)) out.push(t)
+    }
+    return out
+  }
   const add = (term: string) => {
     const t = term.toLowerCase().replace(/^anti-/, '')
     if (t.length < 3 || NOT_A_COHORT.has(t)) return
@@ -74,6 +87,19 @@ export function cohortTerms(query: string, pinnedTerms: readonly string[] = []):
 
 /** Designators that describe every paper rather than one, and acronyms that are methods, not cohorts. */
 const NOT_A_COHORT = new Set([
+  // Topics that name a field, not a cohort: "the SUDEP case-control study".
+  'sudep',
+  'pnes',
+  'ige',
+  'jme',
+  'gge',
+  'dee',
+  'tle',
+  'mtle',
+  'gtcs',
+  'qol',
+  'covid',
+  'covid-19',
   'eeg',
   'mri',
   'pet',

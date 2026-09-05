@@ -51,6 +51,15 @@ describe('the cohort the question names (D3-01)', () => {
     )
   })
 
+  it('designates nothing for a comparison of two studies, or for a topic acronym', () => {
+    expect(cohortTerms(
+      'Compare the SUDEP case-control study with the psychiatric comorbidity and mortality study - cohort, design, effect size and n for each.',
+    )).toEqual([])
+    expect(cohortTerms('In the SUDEP case-control study, what was the hazard ratio?')).toEqual([])
+    expect(cohortTerms('Compare the PERMIT study with the EXPERIENCE analysis.', ['PERMIT']))
+      .toEqual(['permit'])
+  })
+
   it('adds the terms that pinned a paper', () => {
     expect(cohortTerms('What did UMPIRE report?', ['UMPIRE'])).toEqual(['umpire'])
   })

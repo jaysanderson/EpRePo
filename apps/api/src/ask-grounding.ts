@@ -312,6 +312,44 @@ export function figureCount(text: string): number {
   return extractNumbers(text.replace(/\s*\[\d{1,3}\]/g, '')).length
 }
 
+/** Words of a claim that say nothing about which paper it is about. */
+const GENERIC_SENTENCE_WORDS = new Set([
+  'patients',
+  'study',
+  'studies',
+  'analysis',
+  'cohort',
+  'epilepsy',
+  'months',
+  'years',
+  'their',
+  'these',
+  'those',
+  'which',
+  'there',
+  'about',
+  'other',
+  'papers',
+  'across',
+  'among',
+  'within',
+  'after',
+  'before',
+  'between',
+  'included',
+  'reported',
+  'achieved',
+  'proportion',
+  'rate',
+  'rates',
+  'outcome',
+  'outcomes',
+  'score',
+  'scores',
+  'specific',
+  'another',
+])
+
 /** How many cited resources' texts are fetched for binding and audit. */
 const MAX_CITED_TEXTS = 8
 /** How many further resources' texts the rescue may fetch. */
@@ -622,10 +660,28 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
       const figuresOfSentence = extractNumbers(sentence.text).filter((f) =>
         /%|\./.test(f) || /^\d{3,}$/.test(f)
       )
+      // A retrieved paper answers a claim it was never cited for only when
+      // its record reads as the claim's subject: two of the sentence's
+      // content words in its title or summary ("autoimmune encephalitis
+      // consortium"), not a SUDEP genomics paper that happens to carry an
+      // 88 somewhere.
+      const sentenceWords = new Set(
+        (sentence.text.toLowerCase().match(/[a-z][a-z-]{4,}/g) ?? []).filter((w) =>
+          !GENERIC_SENTENCE_WORDS.has(w)
+        ),
+      )
+      const aboutSentence = (id: string) => {
+        const source = input.sources.find((s) => s.id === id)
+        const record = `${source?.title ?? ''} ${source?.summary ?? ''}`.toLowerCase()
+        const have = new Set(record.match(/[a-z][a-z-]{4,}/g) ?? [])
+        let hits = 0
+        for (const w of sentenceWords) if (have.has(w)) hits++
+        return hits >= 2
+      }
       const carrying = poolEntries
         .filter((e) =>
           !named.includes(e.resourceId) && !own.includes(e.resourceId) &&
-          !block.includes(e.resourceId) &&
+          !block.includes(e.resourceId) && aboutSentence(e.resourceId) &&
           figuresOfSentence.some((f) => figurePattern(f).test(e.text.lower))
         )
         .map((e) => e.resourceId)
