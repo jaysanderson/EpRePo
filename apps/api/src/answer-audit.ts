@@ -576,7 +576,9 @@ export function termForms(
   // A paper's table writes "Female" where the answer says "women".
   if (term === 'women' || term === 'woman') forms.push(/\bfemales?\b/)
   // "147 died" is the paper's "147 deceased" or "147 deaths".
-  if (term === 'died') forms.push(/\bdeceased\b|\bdeaths?\b|\bdie\b/)
+  if (term === 'died' || term === 'death' || term === 'deaths') {
+    forms.push(/\bdeceased\b|\bdeaths?\b|\bdie\b/)
+  }
   if (term === 'men' || term === 'man') forms.push(/(?<!fe)\bmales?\b/)
   for (const { phrase, abbr } of pairs) {
     if (phrase === term || phrase.endsWith(` ${term}`) || phrase.split(' ')[0] === term) {
@@ -703,7 +705,7 @@ export function isSampleSizeFigure(figure: string, normalisedSentence: string): 
   if (/%|\.|mg|[a-z]/.test(figure)) return false
   const n = figure.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   return new RegExp(
-    `\\bn\\s*=\\s*${n}(?![\\d])|(?<![\\d.])${n}\\s+(?:[a-z-]+\\s+)?(?:patients|participants|subjects|adults|children|individuals|people|persons|cases|controls|women|men|pwe|episodes|records|respondents|eyes|samples)\\b|(?<![\\d.])${n}\\s*[)/]|/\\s*${n}(?![\\d])|(?<![\\d.])${n}\\s*\\(\\d{1,3}(?:\\.\\d+)?\\s?%\\)`,
+    `\\bn\\s*=\\s*${n}(?![\\d])|(?<![\\d.])${n}\\s+(?:[a-z-]+\\s+)?(?:patients|participants|subjects|adults|children|individuals|people|persons|cases|controls|women|men|pwe|episodes|records|respondents|eyes|samples)|(?<![\\d.])${n}\\s*[)/]|/\\s*${n}(?![\\d])|(?<![\\d.])${n}\\s*\\(\\d{1,3}(?:\\.\\d+)?\\s?%\\)`,
   ).test(normalisedSentence)
 }
 
@@ -712,7 +714,7 @@ export function isCountOfPeople(figure: string, normalisedSentence: string): boo
   if (/%|\.|mg|[a-z]/.test(figure)) return false
   const n = figure.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   return new RegExp(
-    `\\bn\\s*=\\s*${n}(?![\\d])|(?<![\\d.])${n}\\s+(?:[a-z-]+\\s+)?(?:patients|participants|subjects|adults|children|individuals|people|persons|cases|controls|women|men|pwe|episodes|records|respondents|eyes|samples)\\b`,
+    `\\bn\\s*=\\s*${n}(?![\\d])|(?<![\\d.])${n}\\s+(?:[a-z-]+\\s+)?(?:patients|participants|subjects|adults|children|individuals|people|persons|cases|controls|women|men|pwe|episodes|records|respondents|eyes|samples)`,
   ).test(normalisedSentence)
 }
 
@@ -880,12 +882,12 @@ export function figureSupportedBy(
   // A count of people is placed by any noun for people: "147 patients
   // died" is the paper's "147 deceased PWE".
   const PEOPLE =
-    /^(?:patient|participant|subject|adult|child|individual|people|person|pwe|case|control|women|men|deceased)/
+    /^(?:patient|participant|subject|adult|child|individual|people|person|pwe|case|control|women|men|deceased|death)/
   const nounRe = noun
     ? new RegExp(
       `${figurePattern(figure).source}${SMALL}\\s+${
         PEOPLE.test(noun)
-          ? '(?:patients?|participants?|subjects?|adults?|children|individuals?|people|persons?|pwe|cases?|controls?|women|men|deceased)'
+          ? '(?:patients?|participants?|subjects?|adults?|children|individuals?|people|persons?|pwe|cases?|controls?|women|men|deceased|deaths?|died)'
           : escapeRegExp(noun.slice(0, 5))
       }`,
     )

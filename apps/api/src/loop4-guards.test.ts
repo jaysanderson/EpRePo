@@ -278,6 +278,11 @@ describe('durations, number words and demographic words (K5, HC replays)', () =>
       [text],
     )
     expect(checks.map((c) => [c.figure, c.supported])).toEqual([['147', true]])
+    const deaths = verifyFigures(
+      [{ text: 'There were 147 deaths during follow-up.', texts: [text] }],
+      [text],
+    )
+    expect(deaths.map((c) => [c.figure, c.supported])).toEqual([['147', true]])
   })
   it('reads a blank line before a lower-case continuation as one sentence (Q6 replay)', () => {
     const text =
