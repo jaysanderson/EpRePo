@@ -210,3 +210,19 @@ Other timings:
 | Assessment (UI, typed topic, 5 Advanced) | 12.1 s to questions |
 | Entity API | 0.69 s cold, 1.7 ms warm |
 | Page loads (networkidle, desktop / 390 px) | Explore 2.83 (first) then 0.94-1.34 / 0.94-1.21 s; Library 0.76 / 0.59 s; Library with Kind 0.72 / 0.58 s; Search 0.55-0.64 / 0.55 s; Resource 0.72-0.76 / 0.71-0.79 s; Ask 0.57 / 0.56 s; Investigations 0.55 / 0.55 s; investigation detail (phone) 1.35 s; Generate 0.55 / 0.54 s; Assessment 0.56 / 0.56 s; Graph 0.56-1.06 / 0.60-1.06 s; Entity 0.57-0.75 / 0.56 s; Tools 0.55 / 0.55-0.68 s; Help 0.55 / 0.55 s; dark within 0.05 s of light |
+
+---
+
+## Loop 3 fixes (merged 5 September 2026, PRs #13 and #14 into `feat/eprepo-portal`)
+
+| Finding | Outcome |
+|---|---|
+| D3-02, D2-02, D2-04 | Before withholding a figure sentence the gate now looks the figure up in the full text of every retrieved paper and in the data-augmentation summary and key-takeaway fields, with number normalisation, and binds the marker to the paper that carries it; when a pinned paper holds the asked-for figure, the removed sentence is replaced by that paper's own sentence. C1, R1, TD1 and E2 show all twelve previously withheld figures; N01 and N06 now quote 16 (30%) and 154 (67%). |
+| D3-01, D3-07 | The cohort guard compares the cited paper to the study named in the question and carries the passage's population qualifier. C4 quotes the LGI1 paper's own "26 (49%)" and "hazard ratio 0.10". |
+| D3-03 | Briefing sections and key takeaways run the same figure, outcome and population audit with a "N figures checked · M removed" badge; the subgroup-as-overall and discontinuation mislabels are removed. |
+| D3-06, D3-08, D3-09, D3-10, D3-12, D3-13, D3-15, D3-16, D3-20, D3-21 | Prior-turn figures audited against the prior turns' cited passages; second-hand note only for Introduction and Discussion; sentence-level marker check for non-figure claims; effect-size addendum names its study; exposure and outcome pair refusal (R3 in 7 s); denominator helper skips CI bounds and relative changes; dangling connectives stripped; platform groundedness labelled as self-assessment; clock times count as figures; weak-match badge explained. |
+| D3-05, D1-09 | Sentences stream as each is verified; refusals capped at one extra platform ask chosen for the failure reason; the pinned read is skipped when the first pass already cited the paper. Refusals 17.5 to 12.5 s, 28.0 to 11.2 s, 37.1 to 8.9 s; first visible text on the phone 10.8 to 6.6 s; route chip at 0 s, sources at 0.8 to 1.7 s. |
+| D3-04, D3-11 | Full-name, initial and apostrophe-less person lookups; an unknown name lists but never answers; declarations, funding and conflict-of-interest paragraphs excluded from quotes and evidence; "X's papers" and "papers by X" route to an author-scoped list that names every on-topic paper with a marker (UMPIRE now appears). |
+| D3-14, D3-17, D3-18, D3-19 | Reader page fits 390 px (a bare DOI URL was the overflow), remaining sub-24 px controls padded, entity page renders its name immediately, genetics case-series and cohort rules, closest matches ranked by overlap with the question. |
+
+Left for loop 4: a briefing statement cannot carry a paragraph id (the audit locates the paragraph itself); a replacement quote can still come from a paper the model cited beside the point; the platform's own retrieval stage (5 to 9 s) is the remaining latency floor; the population qualifier applies only when every occurrence of the figure opens with the same frame.
