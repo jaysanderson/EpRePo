@@ -517,7 +517,8 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
   }
   const rescued: { figures: string[]; resourceId: string }[] = []
   const prepared = new Map<string, PreparedSource>()
-  let poolEntries: { index: number; text: PreparedSource; resourceId: string; title: string }[] = []
+  const poolEntries: { index: number; text: PreparedSource; resourceId: string; title: string }[] =
+    []
   const countDeclinePending = [...declines].some((d) =>
     /\b(?:number|how many|size|sizes|denominator|count)\b/i.test(d)
   )
