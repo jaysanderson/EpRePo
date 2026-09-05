@@ -47,6 +47,11 @@ export interface AskOptions {
   depth?: 'default' | 'deep'
   /** Sub-questions to research before the main query (deep-research mode). */
   prequeries?: string[]
+  /**
+   * Skip the provider's own firmer-prompt retry on a guardrail refusal: the
+   * caller manages retries itself and wants one extra ask at most (D3-05).
+   */
+  noRefusalRetry?: boolean
   /** Also ground on page/table images (needs visual content in the box). */
   images?: boolean
   /** Intent id from the tenant's `intents`: selects the stored configuration and the portal half. */
