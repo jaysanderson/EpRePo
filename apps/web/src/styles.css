@@ -1914,6 +1914,19 @@ label.rp-btn:has(input:focus-visible) {
   animation: rp-answer-in 420ms var(--rp-ease) backwards;
 }
 
+/* Streamed text the check has not passed yet: shown as unchecked, not as
+ * the answer, so a sentence the gate withdraws was never presented as fact
+ * (D5-08). Muted ink and a dashed rule; the gated text lands in full ink. */
+.rp-answer-checking {
+  color: var(--rp-ink-2);
+  border-left: 2px dashed var(--rp-line);
+  padding-left: 0.875rem;
+  transition: color 200ms var(--rp-ease);
+}
+.rp-answer-checking a {
+  opacity: 0.85;
+}
+
 @keyframes rp-answer-in {
   from {
     opacity: 0;

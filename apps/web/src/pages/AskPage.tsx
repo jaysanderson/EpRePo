@@ -800,17 +800,23 @@ const ICON_WATCH =
  * own place, with the number of figures under check. Replaced by the audit
  * badge on `done`.
  */
-function CheckingBadge({ figures }: { figures: number }) {
-  const label = figures === 0
-    ? 'Checking the answer'
+function CheckingBadge({ figures }: { figures?: number }) {
+  // Text on screen before the check has run is unchecked text, and the
+  // reader is told so from the first token, not only once the audit
+  // starts: streamed prose used to appear as the answer and then be
+  // withdrawn (D5-08).
+  const label = figures === undefined
+    ? 'Unchecked - still streaming, the check follows'
+    : figures === 0
+    ? 'Checking the answer against the cited papers'
     : figures === 1
-    ? 'Checking 1 figure'
-    : `Checking ${figures} figures`
+    ? 'Checking 1 figure against the cited papers'
+    : `Checking ${figures} figures against the cited papers`
   return (
     <div className='mt-3 flex items-center gap-2' role='status' aria-live='polite'>
       <span className='rp-badge rp-badge-quiet inline-flex items-center gap-1.5'>
         <span className='rp-stage-spin inline-block h-3 w-3 rounded-full border-[1.5px] border-current border-t-transparent opacity-70' />
-        {label} against the cited papers
+        {label}
       </span>
     </div>
   )
@@ -1252,13 +1258,16 @@ function AnswerCard({
         )
         : message.text.length > 0
         ? (
-          <div className='rp-answer-in'>
+          <div
+            className={message.pending ? 'rp-answer-in rp-answer-checking' : 'rp-answer-in'}
+            aria-busy={message.pending ? true : undefined}
+          >
             {renderMarkdown(message.text, message.citations, message.sources, slug, message.audit)}
           </div>
         )
         : null}
 
-      {message.pending && message.verified
+      {message.pending && message.verified && phase === 'answer' && message.text.length > 0
         ? (
           <p
             className='rp-answer-verified mt-2 text-xs leading-relaxed text-ink-3'
@@ -1271,7 +1280,7 @@ function AnswerCard({
           </p>
         )
         : null}
-      {message.pending && typeof message.checking === 'number'
+      {message.pending && phase === 'answer' && message.text.length > 0
         ? <CheckingBadge figures={message.checking} />
         : null}
 

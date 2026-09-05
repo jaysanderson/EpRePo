@@ -217,9 +217,16 @@ export const DOC_PAGES: DocPage[] = [
           '- **Years and contraindications.** A year must come from a cited resource. A ' +
           'medication the answer calls contraindicated must be called that by a cited passage, ' +
           'and a medication the cited sources flag is never dropped silently.\n\n' +
-          'While the answer is still streaming, its first complete sentence is checked against ' +
-          'the papers retrieval found and, when it passes, the paper that carries it is named ' +
-          'under the answer; the checked answer then replaces the streamed text.\n\n' +
+          'While the answer is still streaming, its text is shown as unchecked (muted, with a ' +
+          '"still streaming, the check follows" mark), its first complete sentence is checked ' +
+          'against the papers retrieval found and, when it passes, the paper that carries it is ' +
+          'named under the answer; the checked answer then replaces the streamed text. A ' +
+          "follow-up in the same conversation carries the earlier answers' cited papers with " +
+          'it: a question about "that study" is answered from those papers, with their own ' +
+          'paragraphs and tables in front of the generator, and a request to put the earlier ' +
+          'answers in a table keeps every row, with any cell the check could not verify marked ' +
+          '"not verified" rather than the row dropped. Chat with a document runs the same check ' +
+          "against that document's own text and shows the same badge.\n\n" +
           'These checks are plain text comparisons against the extracted text of the papers, ' +
           'with no language model in the loop, so the check cannot invent support. The ' +
           'confidence label under the answer is led by that check: an unverified figure, year ' +
@@ -238,7 +245,8 @@ export const DOC_PAGES: DocPage[] = [
           'the context, saved sessions and deep research for broad questions.\n' +
           '- **Library and the reader** browse the whole collection and open any paper at the ' +
           'cited passage.\n' +
-          '- **Chat with a document** asks questions of one paper alone.\n' +
+          '- **Chat with a document** asks questions of one paper alone; its answers are checked ' +
+          "against that document's own text and badged the same way.\n" +
           '- **Investigations** gather evidence around a research question over time and ' +
           'synthesise it.\n' +
           '- **Generate** writes a briefing, comparison, timeline or set of questions and ' +
@@ -438,10 +446,14 @@ export const DOC_PAGES: DocPage[] = [
           "to the paper's own pairing, and the correction is stated. A year must come from a " +
           'cited resource, and a medication called contraindicated must be called that by a ' +
           'cited passage.\n\n' +
-          'While the answer streams, its first complete sentence is checked against the papers ' +
-          'retrieval found and, when it passes, "First sentence verified against" the paper ' +
-          'appears under the answer; "Checking N figures" shows until the checked answer replaces ' +
-          'the streamed text. The badge beneath the finished answer then reads what happened: ' +
+          'While the answer streams, its text is shown as unchecked, in muted ink with an ' +
+          '"Unchecked - still streaming, the check follows" mark, so nothing on screen reads as ' +
+          'the answer before it has been checked. Its first complete sentence is checked against ' +
+          'the papers retrieval found and, when it passes, "First sentence verified against" the ' +
+          'paper appears under that sentence; "Checking N figures" shows until the checked answer ' +
+          'replaces the streamed text in full ink. Document chat answers carry the same check and ' +
+          "badge, against the open document's text. The badge beneath the finished answer then " +
+          'reads what happened: ' +
           '"N figures checked", with any sentence removed or replaced counted beside it and the ' +
           'figures named on hover. If nothing verifiable is left, the answer is withheld and the ' +
           'portal says which figures could not be verified rather than showing them.',

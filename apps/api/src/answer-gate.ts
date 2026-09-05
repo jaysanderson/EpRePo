@@ -36,6 +36,39 @@ export interface GateResult {
   removed: RemovedSentence[]
   /** Sentences that had no marker and gained the one text that carries all their figures. */
   inherited: number
+  /** Table rows kept with their failing cells blanked rather than dropped (D5-05). */
+  blanked: BlankedRow[]
+}
+
+export interface BlankedRow {
+  text: string
+  figures: string[]
+}
+
+/** What a blanked table cell reads. */
+export const BLANKED_CELL = 'not verified'
+
+/** A bound sentence that is a Markdown table row with a body (not a header or a rule). */
+export function isTableRow(text: string): boolean {
+  return /^\s*\|.*\|\s*$/.test(text) && !/^\s*\|[\s|:-]*\|\s*$/.test(text) && /\d/.test(text)
+}
+
+/**
+ * The row with every cell that carries one of the failing figures replaced
+ * by the blank mark, the other cells untouched. A figure matches a cell
+ * with thousands separators and spaces ignored.
+ */
+export function blankFailingCells(row: string, figures: readonly string[]): string {
+  const loose = (value: string) => value.replace(/[,\s\u00a0\u2009]/g, '').toLowerCase()
+  const wanted = figures.map(loose).filter((f) => f.length > 0)
+  const m = /^(\s*\|)(.*)(\|\s*)$/.exec(row)
+  if (!m) return row
+  const cells = m[2]!.split('|')
+  const blanked = cells.map((cell) => {
+    const bare = loose(cell)
+    return wanted.some((f) => bare.includes(f)) ? ` ${BLANKED_CELL} ` : cell
+  })
+  return `${m[1]}${blanked.join('|')}${m[3]}`
 }
 
 /**
@@ -54,6 +87,7 @@ export function gateFigures(
   candidates: readonly Citation[] = bound.citations,
 ): GateResult {
   const removed: RemovedSentence[] = []
+  const blanked: BlankedRow[] = []
   const removedIndices = new Set<number>()
   let inherited = 0
   const sentences = bound.sentences.map((sentence, i) => {
@@ -62,6 +96,17 @@ export function gateFigures(
     const failing = own.filter((c) => !c.supported)
     if (sentence.bound.length > 0) {
       if (failing.length === 0) return sentence
+      // A table row keeps its place with the failing cells blanked: a
+      // table that lost a row is a table about fewer studies than the
+      // reader asked for, and the verified cells still stand (D5-05).
+      if (isTableRow(sentence.text)) {
+        const figures = figuresToName(failing)
+        const text = blankFailingCells(sentence.text, figures)
+        if (text !== sentence.text) {
+          blanked.push({ text: sentence.text, figures })
+          return { ...sentence, text }
+        }
+      }
       removedIndices.add(i)
       removed.push({
         text: sentence.text,
@@ -69,6 +114,32 @@ export function gateFigures(
         reason: dominantReason(failing),
       })
       return sentence
+    }
+    // A table row with no marker keeps its place too: its failing cells
+    // blanked, and the one text that carries every passing figure lends
+    // its marker when there is one (D5-05).
+    if (isTableRow(sentence.text)) {
+      const figures = figuresToName(failing)
+      const text = failing.length > 0 ? blankFailingCells(sentence.text, figures) : sentence.text
+      if (failing.length === 0 || text !== sentence.text) {
+        if (failing.length > 0) blanked.push({ text: sentence.text, figures })
+        const passing = own.filter((c) => c.supported)
+        const common = passing.length > 0
+          ? passing
+            .map((c) => new Set(c.supportedBy))
+            .reduce<Set<number> | null>(
+              (acc, set) => acc === null ? set : new Set([...acc].filter((n) => set.has(n))),
+              null,
+            )
+          : null
+        const position = common ? [...common].sort((a, b) => a - b)[0] : undefined
+        const marker = position === undefined ? undefined : markerOfText[position]
+        if (marker !== undefined) {
+          inherited += 1
+          return { ...sentence, text, bound: [marker] }
+        }
+        return { ...sentence, text }
+      }
     }
     // No marker: the one text that carries every figure lends its marker.
     if (failing.length === 0) {
@@ -158,6 +229,7 @@ export function gateFigures(
     renumber,
     removed,
     inherited,
+    blanked,
   }
 }
 

@@ -8,6 +8,7 @@ import {
   correctAttributions,
   hasAuthor,
   isPaperListingQuestion,
+  namesAnAuthor,
   surnameOf,
 } from './ask-author.ts'
 
@@ -187,5 +188,30 @@ describe('appendOmittedPapers (D3-11)', () => {
     expect(isPaperListingQuestion('List the papers by Broadley on encephalitis')).toBe(true)
     expect(isPaperListingQuestion('What did the trial find?')).toBe(false)
     expect(isPaperListingQuestion('What did the sub-scalp EEG studies find?')).toBe(false)
+  })
+})
+
+describe('author constructions (D5-07)', () => {
+  const withGrant = [...catalogue, resource('exome', ['Grant R', 'Other A'])]
+  it('never scopes to a surname that is not used as an author', () => {
+    expect(
+      authorsNamed(
+        'Grant background: what did the group find on time to first relapse with rituximab?',
+        withGrant,
+      ),
+    ).toEqual([])
+    expect(namesAnAuthor('Grant background: what did the group find', 'Grant')).toBe(false)
+  })
+  it('recognises the author shapes the portal answers', () => {
+    expect(namesAnAuthor("Which of D'Souza's papers report on EEG?", "D'Souza")).toBe(true)
+    expect(namesAnAuthor('List the papers by Grant on exome sequencing', 'Grant')).toBe(true)
+    expect(namesAnAuthor('What did Grant et al. report?', 'Grant')).toBe(true)
+    expect(namesAnAuthor("What has D'Souza and colleagues published on cycles?", "D'Souza")).toBe(
+      true,
+    )
+    expect(namesAnAuthor('What did DSouza find about cycles?', 'DSouza')).toBe(true)
+    expect(authorsNamed('What did Grant et al. report on exome sequencing?', withGrant)).toEqual([
+      { surname: 'Grant', resourceIds: ['exome'] },
+    ])
   })
 })

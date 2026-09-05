@@ -318,6 +318,18 @@ export function unheldStudyNote(
 const DESIGN_WORD =
   /\b(?:randomi[sz]ed|trial|cohort|case-control|case series|case report|cross-sectional|survey|model(?:ling)?|simulation|simulated|review|meta-analysis|pooled analysis|protocol|first-in-human|observational|retrospective|prospective)\b/i
 
+/** The addendum line for table cells the gate blanked rather than dropping their rows (D5-05). */
+export function blankedNote(blanked: readonly { figures: string[] }[]): string | undefined {
+  if (blanked.length === 0) return undefined
+  const figures = [...new Set(blanked.flatMap((b) => b.figures))]
+  const cells = blanked.reduce((n, b) => n + b.figures.length, 0)
+  return `*${
+    cells === 1 ? 'One table cell was' : `${cells} table cells were`
+  } marked "not verified": ${figures.length === 1 ? 'its figure' : 'their figures'} (${
+    figures.join(', ')
+  }) could not be tied to the cited passage for that row.*`
+}
+
 /** How many figures an answer states: the "Checking N figures" count the surface shows while the audit runs. */
 export function figureCount(text: string): number {
   return extractNumbers(text.replace(/\s*\[\d{1,3}\]/g, '')).length
@@ -929,6 +941,7 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
     renumber: new Map<number, number>(),
     removed: [],
     inherited: 0,
+    blanked: [],
   }
   const figuresUnsupported = gateRan
     ? []
@@ -1139,7 +1152,11 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
 
   const scoped = input.authors && input.authors.length > 0
     ? `*Retrieval was limited to the ${
-      input.authors.map((a) => `${a.resourceIds.length} resources authored by ${a.surname}`).join(
+      input.authors.map((a) =>
+        `${a.resourceIds.length} ${
+          a.resourceIds.length === 1 ? 'resource' : 'resources'
+        } authored by ${a.surname}`
+      ).join(
         ' and ',
       )
     } in this collection.*`
@@ -1158,6 +1175,7 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
           foundIn,
           replaced: replaced.length,
         }),
+        blankedNote(gated.blanked),
         denominatorsCorrected.length > 0
           ? `*${
             denominatorsCorrected.length === 1

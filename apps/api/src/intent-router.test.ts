@@ -135,6 +135,13 @@ describe('routeByRules', () => {
     expect(d?.entities).toEqual(['PMC8371239'])
     expect(routeByRules('10.1111/epi.70015', ctx)?.rule).toBe('identifier:doi')
   })
+  it('treats two clinical entities as a question, not a lookup of the first (D5-17)', () => {
+    const lex = { ...ctx, lexicon: [...(ctx.lexicon ?? []), 'lamotrigine', 'SUDEP'] }
+    expect(routeByRules('lamotrigine SUDEP', lex)?.intent).not.toBe('lookup')
+    expect(routeByRules('lamotrigine', lex)?.intent).toBe('lookup')
+    expect(routeByRules('SCN8A epilepsy', lex)?.intent).toBe('lookup')
+  })
+
   it('never treats two arbitrary words or a hyphenated compound as a lookup', () => {
     expect(routeByRules('Okafor recurrence', ctx)).toBeNull()
     expect(routeByRules('EEG-fMRI', ctx)).toBeNull()

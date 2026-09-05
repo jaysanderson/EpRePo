@@ -424,7 +424,8 @@ function tools(slug: string): Tool[] {
     },
     {
       title: 'Chat with a document',
-      detail: 'Ask questions of one paper alone, from its page in the reader.',
+      detail:
+        "Ask questions of one paper alone, from its page in the reader. Its answers are checked against that document's own text and badged the same way.",
       path: `${base}/library`,
     },
     {
@@ -674,9 +675,16 @@ export function HowItWorksPage() {
               </Bullet>
             </ul>
             <P>
-              While the answer is still streaming, its first complete sentence is checked against
-              the papers retrieval found and, when it passes, the paper that carries it is named
-              under the answer; the checked answer then replaces the streamed text.
+              While the answer is still streaming, its text is shown as unchecked (muted, with a
+              "still streaming, the check follows" mark), its first complete sentence is checked
+              against the papers retrieval found and, when it passes, the paper that carries it is
+              named under the answer; the checked answer then replaces the streamed text. A
+              follow-up in the same conversation carries the earlier answers' cited papers with it:
+              a question about "that study" is answered from those papers, with their own paragraphs
+              and tables in front of the generator, and a request to put the earlier answers in a
+              table keeps every row, with any cell the check could not verify marked "not verified"
+              rather than the row dropped. Chat with a document runs the same check against that
+              document's own text and shows the same badge.
             </P>
             <P>
               These checks are plain text comparisons against the extracted text of the papers, with

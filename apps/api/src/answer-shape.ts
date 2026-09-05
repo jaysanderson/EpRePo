@@ -204,6 +204,92 @@ export function forwardableSlice(
 }
 
 // ---------------------------------------------------------------------------
+// Format leaks: code fences, empty headings, header-only tables (D5-16, D5-05)
+// ---------------------------------------------------------------------------
+
+/** A Markdown code-fence line, with or without a language tag. */
+const FENCE_LINE = /^[ \t]*`{3,}[\w-]*[ \t]*$/
+
+/**
+ * The text without its code fences: a generator asked for a table wrapped
+ * it in "```markdown", which the surface then rendered as a code block
+ * with no rows (D5-05). The fence lines go; what they enclosed stands as
+ * Markdown. A closing fence with content after it on the same line keeps
+ * that content.
+ */
+export function stripCodeFences(text: string): string {
+  if (!/`{3,}/.test(text)) return text
+  return text
+    .split('\n')
+    .filter((line) => !FENCE_LINE.test(line))
+    .map((line) =>
+      line.replace(/^[ \t]*`{3,}[\w-]*[ \t]+(?=\S)/, '').replace(/[ \t]*`{3,}[ \t]*$/, '')
+    )
+    .join('\n')
+}
+
+/** Streaming form: fence lines are dropped from a released chunk; a fence split across chunks is caught at `done`. */
+export function stripFenceLines(chunk: string): string {
+  if (!/`{3,}/.test(chunk)) return chunk
+  return chunk.split('\n').filter((line) => !FENCE_LINE.test(line)).join('\n')
+}
+
+/**
+ * Headings with nothing under them go: a "**Validation:**" or "### LGI1"
+ * whose section the gate emptied is a promise of content that is not there
+ * (D5-16). A heading is a Markdown heading line or a bold label on a line
+ * of its own; it is empty when the next non-blank line is another heading
+ * or the end of the text.
+ */
+export function dropEmptyHeadings(text: string): string {
+  const lines = text.split('\n')
+  const isHeading = (line: string) =>
+    /^\s*#{1,6}\s+\S/.test(line) || /^\s*\*\*[^*\n]{1,80}\*\*:?\s*$/.test(line)
+  const keep: string[] = []
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!
+    if (!isHeading(line)) {
+      keep.push(line)
+      continue
+    }
+    let next = i + 1
+    while (next < lines.length && lines[next]!.trim() === '') next++
+    const following = lines[next]
+    const empty = following === undefined || isHeading(following) ||
+      /^\s*\*[^*].*\*\s*$/.test(following) && next === lines.length - 1
+    if (empty) continue
+    keep.push(line)
+  }
+  return keep.join('\n').replace(/\n{3,}/g, '\n\n').trim()
+}
+
+/**
+ * A table reduced to its header and rule with no body row is no table:
+ * it is removed rather than shown as an empty grid (D5-05). The caller
+ * decides what an answer with nothing left means.
+ */
+export function dropHeaderOnlyTables(text: string): string {
+  const lines = text.split('\n')
+  const isRow = (line: string | undefined) => line !== undefined && /^\s*\|.*\|\s*$/.test(line)
+  const isRule = (line: string | undefined) =>
+    line !== undefined && /^\s*\|?[\s|:-]+\|?\s*$/.test(line) && /-/.test(line)
+  const out: string[] = []
+  for (let i = 0; i < lines.length; i++) {
+    if (isRow(lines[i]) && isRule(lines[i + 1]) && !isRow(lines[i + 2])) {
+      i += 1
+      continue
+    }
+    out.push(lines[i]!)
+  }
+  return out.join('\n').replace(/\n{3,}/g, '\n\n').trim()
+}
+
+/** Every format leak fixed at once, in the order the gate needs: fences first, then empty tables and headings. */
+export function cleanFormatLeaks(text: string): string {
+  return dropEmptyHeadings(dropHeaderOnlyTables(stripCodeFences(text)))
+}
+
+// ---------------------------------------------------------------------------
 // Sentinel phrases
 // ---------------------------------------------------------------------------
 
@@ -237,7 +323,11 @@ const THIRD_PERSON =
  * the portal's own decline.
  */
 export function rewriteSentinels(text: string): string {
-  let out = text.replace(/\[inference\]/gi, '(inference)')
+  // The prompt asks the model to mark its own inferences; the token leaked
+  // into answers as "(inference).[1]" and reads as a template (D5-16). The
+  // gate judges every figure regardless, so the mark carries nothing the
+  // reader needs.
+  let out = text.replace(/\s*[[(]inference[\])]/gi, '')
   out = out.replace(TEMPLATE_SENTENCE, '')
   out = out.replace(
     /\b(the|this|that|in the|from the|within the|per the|by the|of the)\s+(?:provided\s+|given\s+|available\s+|supplied\s+|retrieved\s+)?context\b(\s+)((?:does not|doesn't|has not|hasn't|isn't|does|is|has|was)\b|[a-z]+)?/gi,

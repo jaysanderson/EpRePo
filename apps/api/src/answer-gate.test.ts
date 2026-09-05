@@ -4,12 +4,14 @@ import { bindSentences, namedEntities } from './citation-binding.ts'
 import { verifyFigures } from './answer-audit.ts'
 import {
   asksForEffect,
+  blankFailingCells,
   designLead,
   effectSizeNote,
   effectSizesFor,
   effectSubject,
   gateFigures,
   isCovariateList,
+  isTableRow,
   nonClinicalDesign,
   removalNote,
   statesEffectSize,
@@ -366,5 +368,31 @@ describe('conclusions and connectives after a removal (D3-06, D3-15)', () => {
       ),
     )
       .toBe('rituximab was associated with increased time to first relapse')
+  })
+})
+
+describe('table rows keep their place with failing cells blanked (D5-05)', () => {
+  it('blanks the cells that carry the failing figures and nothing else', () => {
+    const row =
+      '| Brivaracetam | EXPERIENCE | Non-interventional | 1111 | 14.9% (full analysis set) | 33.6% (n = 1639) |'
+    expect(blankFailingCells(row, ['33.6%', '1639'])).toBe(
+      '| Brivaracetam | EXPERIENCE | Non-interventional | 1111 | 14.9% (full analysis set) | not verified |',
+    )
+    expect(blankFailingCells('| Perampanel | 4,201 | 17.6% |', ['4201'])).toBe(
+      '| Perampanel | not verified | 17.6% |',
+    )
+    expect(isTableRow('| A | B |')).toBe(false)
+    expect(isTableRow('|---|---|')).toBe(false)
+    expect(isTableRow('| Perampanel | 4201 |')).toBe(true)
+  })
+
+  it('keeps a table row whose figure fails, blanked, rather than dropping the row', () => {
+    const text =
+      '| Cohort | Relapse |\n|---|---|\n| LGI1 relapse | 16 (30%) [1] |\n| Other relapse | 55 (99%) [1] |'
+    const { gated } = gate(text, 'What proportion relapsed in the LGI1 cohort?', { 1: LGI1 })
+    expect(gated.text).toContain('| LGI1 relapse | 16 (30%) [1] |')
+    expect(gated.text).toContain('| Other relapse | not verified |')
+    expect(gated.removed).toEqual([])
+    expect(gated.blanked.map((b) => b.figures)).toEqual([['55', '99%']])
   })
 })

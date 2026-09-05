@@ -75,6 +75,8 @@ import {
   parseIdentifier,
   routeByRules,
   type RouteContext,
+  TERSE_MAX_WORDS,
+  wordCount,
 } from './intent-router.ts'
 import { isAttachmentTitle, matchStudies } from './study-guard.ts'
 import {
@@ -104,13 +106,17 @@ import {
   retypeResearchers,
 } from './catalog-lookup.ts'
 import {
+  cleanFormatLeaks,
   corpusDecline,
   documentDecline,
+  dropEmptyHeadings,
+  dropHeaderOnlyTables,
   forwardableSlice,
   looksLikeProviderDecline,
   pairDecline,
   rewriteSentinels,
   SentinelStream,
+  stripFenceLines,
   stripModelReferences,
   trimTruncatedTail,
   withheldDecline,
@@ -125,7 +131,10 @@ import {
   priorResourceIds,
   refersToPriorTurns,
   reformatAddendum,
+  reformatBudget,
+  staysWithinPriorTurns,
 } from './ask-session.ts'
+import { topicPin } from './ask-terse.ts'
 import { StreamVerifier, type WarmText } from './ask-stream-verify.ts'
 import { composeHelpParts, helpPartsAddendum, helpQuestionParts } from './docs-answer.ts'
 import { DOCS_DECLINE, DocsSentinelStream, rewriteDocsSentinels } from './docs-answer.ts'
@@ -3546,7 +3555,10 @@ export function buildApp(opts: BuildAppOptions): Hono {
       // them back from the earlier questions.
       const reformat = !firstTurn && isReformatFollowUp(query)
       const leansOnPrior = !firstTurn && (reformat || refersToPriorTurns(query))
-      if (leansOnPrior && priorIds.length === 0) {
+      // Every follow-up carries the earlier turns' papers (D5-06, D4-07):
+      // a caller that sent the turns without their cited papers (an API
+      // client) gets them back from the earlier questions.
+      if (!firstTurn && !documentScope && priorIds.length === 0) {
         const found = await Promise.all(
           priorQuestions(askOpts.context ?? [], 2).map((q) =>
             provider.search(config, q, { pageSize: 3 }).then(
@@ -3558,22 +3570,42 @@ export function buildApp(opts: BuildAppOptions): Hono {
         for (const id of found.flat()) if (!priorIds.includes(id)) priorIds.push(id)
         priorIds.splice(6)
       }
+      // A follow-up that stays inside the earlier turns' papers ("that
+      // study", "back to the JME cohort") is retrieved from them alone, on
+      // the platform's resource filter, so nothing else can crowd them out
+      // and "that study" cannot resolve to another paper (D5-06). A turn
+      // that names something new is pinned to them but not confined.
+      const priorScoped = !firstTurn && !documentScope && !reformat && priorIds.length > 0 &&
+        staysWithinPriorTurns(query, askOpts.context ?? [], lexicon)
+      // A terse clinic question ("perampanel PERMIT retention 12 months and n").
+      const terse = firstTurn && !documentScope && wordCount(query) <= TERSE_MAX_WORDS
       // The texts of the papers retrieval finds before generation starts,
       // fetched while the platform retrieves and generates, so the first
       // sentence can be checked the moment it lands and the audit's own
       // fetches are already cached (D4-08).
       const warm = new Map<string, WarmText>()
+      const warmPending = new Set<Promise<void>>()
       const warmTexts = (candidates: readonly { id: string; title: string }[]) => {
         if (!opts.management) return
         for (const c of candidates.slice(0, 5)) {
           if (warm.has(c.id)) continue
           const title = c.title
-          extractionText(opts.management, config, c.id).then(
-            (text) => warm.set(c.id, { resourceId: c.id, title, text }),
+          const pending: Promise<void> = extractionText(opts.management, config, c.id).then(
+            (text) => {
+              warm.set(c.id, { resourceId: c.id, title, text })
+            },
             () => {},
-          )
+          ).finally(() => warmPending.delete(pending))
+          warmPending.add(pending)
         }
       }
+      // The texts still landing, waited for briefly where a decision needs
+      // them (the topic pin judges the probe's texts): a second at most.
+      const warmSettled = () =>
+        Promise.race([
+          Promise.all([...warmPending]).then(() => {}),
+          new Promise<void>((resolve) => setTimeout(resolve, 1000)),
+        ])
       // Automatic routing (docs/INTENT-ROUTING.md). The rule stage is
       // synchronous and answers at once; when no rule fires the classifier
       // runs in parallel with the retrieval probe and the decomposition
@@ -3951,17 +3983,36 @@ export function buildApp(opts: BuildAppOptions): Hono {
       // their n, a figure or table named when the text holds the sample but
       // not the outcome, and nothing declared absent that the paper holds.
       if (!documentScope && pinnedIds.length > 0) promptAddendum = pinnedAddendum(pinnedTitles)
-      // The earlier answers' cited passages ride beside retrieval on a
+      // The earlier answers' cited passages ride beside retrieval on every
       // follow-up; a reformatting turn also gets the answers themselves
-      // and the instruction to reshape, never add (D4-06, D4-07).
-      if (leansOnPrior) {
+      // and the instruction to reshape, never add (D4-06, D4-07). A
+      // follow-up about the earlier papers also gets their own paragraphs
+      // that carry the question's words, tables included, so a figure the
+      // paper holds in Table 1 is in front of the generator before it can
+      // decline (D5-06, D4-22).
+      if (!firstTurn && !documentScope) {
         const prior = [
-          ...priorPassageContext(askOpts.context ?? []),
+          ...priorPassageContext(askOpts.context ?? []).slice(0, leansOnPrior ? 8 : 4),
           ...(reformat ? priorAnswerContext(askOpts.context ?? []) : []),
         ]
         if (prior.length > 0) extraContext = [...(extraContext ?? []), ...prior]
         if (priorIds.length > 0 && opts.management) {
           warmTexts(priorIds.map((id) => ({ id, title: titleOf.get(id) ?? '' })))
+        }
+        if ((priorScoped || leansOnPrior) && !reformat && priorIds.length > 0 && opts.management) {
+          const blocks: string[] = []
+          for (const id of priorIds.slice(0, 2)) {
+            try {
+              const text = await extractionText(opts.management, config, id)
+              const title = titleOf.get(id) ?? ''
+              for (const p of groundingParagraphs(text, query, 3)) {
+                blocks.push(`From "${title}" [${p.section}]: ${p.text}`)
+              }
+            } catch {
+              // Retrieval alone grounds the follow-up.
+            }
+          }
+          if (blocks.length > 0) extraContext = [...(extraContext ?? []), ...blocks].slice(0, 12)
         }
       }
       if (reformat) {
@@ -4039,7 +4090,7 @@ export function buildApp(opts: BuildAppOptions): Hono {
       }
       const finishAnswered = async (doneText: string | undefined) => {
         finished = true
-        const tail = sentinels.flush()
+        const tail = stripFenceLines(sentinels.flush())
         if (tail) await send({ type: 'delta', text: tail })
         // A single-sentence answer is judged now, before the audit runs.
         if (verifier) {
@@ -4050,9 +4101,12 @@ export function buildApp(opts: BuildAppOptions): Hono {
         // author-year entry, a cited title written out), then the sentinel
         // phrases, then a generation that stopped mid-sentence is cut back
         // to its last complete sentence and the surface told (D1-04).
-        const stripped = rewriteSentinels(
+        // Code fences, empty headings and header-only tables go before the
+        // truncation check: a closing fence used to read as a sentence cut
+        // mid-way (D5-05, D5-16).
+        const stripped = cleanFormatLeaks(rewriteSentinels(
           stripModelReferences(doneText ?? answerText, heldCitations.map((c) => c.title)),
-        )
+        ))
         const trimmed = trimTruncatedTail(stripped)
         let text = trimmed.text
         const truncated = trimmed.truncated
@@ -4117,7 +4171,9 @@ export function buildApp(opts: BuildAppOptions): Hono {
               priorResourceIds: priorIds,
               cohortResourceIds: cohortIds,
             })
-            text = bound.text
+            // A heading whose section the gate emptied, or a table the
+            // gate left without rows, goes with the sentences (D5-16).
+            text = dropEmptyHeadings(dropHeaderOnlyTables(bound.text))
             citations = bound.citations
             audit = bound.audit
             emptied = bound.emptied
@@ -4143,6 +4199,7 @@ export function buildApp(opts: BuildAppOptions): Hono {
           // still goes out (what failed, and why, is the finding), then the
           // decline names the figures that could not be verified rather
           // than a generic "no answer".
+          await warmSettled()
           if (nextRetry(retryContext(), 'uncited') === 'pinned') {
             finished = false
             retry = 'pinned'
@@ -4174,6 +4231,7 @@ export function buildApp(opts: BuildAppOptions): Hono {
           // carries: one document-scoped read of it before declining
           // (D2-08, D4-09), the same one extra ask a generator refusal
           // gets (D3-05).
+          await warmSettled()
           if (
             (isWholeDecline(text) || /\d/.test(text)) &&
             nextRetry(retryContext(), 'uncited') === 'pinned'
@@ -4264,6 +4322,14 @@ export function buildApp(opts: BuildAppOptions): Hono {
       // A cohort the question describes is read before a drug or syndrome
       // paper it merely names (D3-01, D4-01).
       const retryPins = cohortIds.length > 0 ? cohortIds : pinnedIds
+      // A terse question that pinned nothing: the retrieved paper whose own
+      // text carries the question's names, read directly on the one retry
+      // before anything is declined (D5-09). Judged when the retry is
+      // considered, from the texts the probe fetched.
+      const topicPinId = () =>
+        !documentScope && firstTurn && pinnedIds.length === 0
+          ? topicPin(query, nearest, [...warm.values()], lexicon)?.id
+          : undefined
       const retryContext = () => ({
         documentScope,
         extraAttemptUsed,
@@ -4275,7 +4341,9 @@ export function buildApp(opts: BuildAppOptions): Hono {
         prequeries: current.prequeries?.length ?? 0,
         bestRelevance,
         strongMatch: STRONG_MATCH,
-        priorPinned: leansOnPrior && priorIds.length > 0 && !current.unpinPrior,
+        priorPinned: !firstTurn && priorIds.length > 0 && !current.unpinPrior,
+        priorScoped: priorScoped && !current.unpinPrior,
+        topicPinId: topicPinId(),
       })
       for (let attempt = 0; attempt < attempts.length; attempt++) {
         current = attempts[attempt]!
@@ -4300,7 +4368,8 @@ export function buildApp(opts: BuildAppOptions): Hono {
         if (current.resourceId && opts.management) {
           try {
             const text = await extractionText(opts.management, config, current.resourceId)
-            const title = pinnedTitles[pinnedIds.indexOf(current.resourceId)] ?? ''
+            const title = pinnedTitles[pinnedIds.indexOf(current.resourceId)] ??
+              titleOf.get(current.resourceId) ?? ''
             const blocks = groundingParagraphs(text, query, 8).map((p) =>
               `From "${title}" [${p.section}]: ${p.text}`
             )
@@ -4314,6 +4383,11 @@ export function buildApp(opts: BuildAppOptions): Hono {
         const attemptAddendum = attempt > 0
           ? [promptAddendum, RETRY_DIRECTIVE].filter(Boolean).join('\n\n')
           : promptAddendum
+        // The earlier turns' papers scope a follow-up that stays within
+        // them; the reformatting turn reads only them, leanly (D5-05).
+        const scopedToPrior = priorIds.length > 0 && !resourceIds && !current.unpinPrior &&
+          !current.resourceId
+        const priorQuestionList = priorQuestions(askOpts.context ?? [], 2)
         try {
           for await (
             const event of provider.ask(config, query, {
@@ -4323,15 +4397,33 @@ export function buildApp(opts: BuildAppOptions): Hono {
               ...(scopedQueries ? { scopedQueries } : {}),
               ...(current.resourceId ? { resourceId: current.resourceId } : {}),
               // A reformatting turn reads only the earlier answers' papers,
-              // searched for the earlier questions, with room for a table.
-              ...(reformat && priorIds.length > 0 && !resourceIds
-                ? { resourceIds: priorIds, topK: 40 }
+              // searched for the earlier questions, without context
+              // expansion or reranking (its material is already supplied),
+              // with a budget sized for one row per earlier answer (D5-05).
+              ...(reformat && scopedToPrior
+                ? {
+                  resourceIds: priorIds,
+                  topK: 12,
+                  lean: true,
+                  scopedQueries: priorQuestionList.map((q) => ({
+                    query: q,
+                    resourceIds: priorIds,
+                  })),
+                }
                 : {}),
+              // A follow-up that stays within the earlier papers is
+              // retrieved from them alone (D5-06).
+              ...(!reformat && priorScoped && scopedToPrior ? { resourceIds: priorIds } : {}),
+              // A terse first-turn question reads a lighter context: a
+              // paragraph budget of twelve, one neighbour each side and no
+              // graph walk, so its first word is not behind thirty
+              // thousand tokens of expansion (D5-08, D3-05).
+              ...(terse && !current.resourceId && !resourceIds ? { light: true, topK: 12 } : {}),
               intent: current.intent,
-              prequeries: reformat ? priorQuestions(askOpts.context ?? [], 3) : current.prequeries,
-              ...(reformat ? { maxTokens: 1800 } : {}),
+              prequeries: reformat ? undefined : current.prequeries,
+              ...(reformat ? { maxTokens: reformatBudget(askOpts.context ?? []) } : {}),
               ...(pinnedIds.length > 0 ? { pinnedResourceIds: pinnedIds } : {}),
-              ...(leansOnPrior && priorIds.length > 0 && !current.unpinPrior
+              ...(!firstTurn && !reformat && priorIds.length > 0 && !current.unpinPrior
                 ? { priorResourceIds: priorIds }
                 : {}),
               ...(pinnedQueries.length > 0 ? { pinnedQueries } : {}),
@@ -4361,7 +4453,8 @@ export function buildApp(opts: BuildAppOptions): Hono {
               const slice = forwardableSlice(forwardedLength, answerText)
               if (slice.text.length > 0) {
                 forwardedLength += slice.text.length
-                const out = sentinels.push(slice.text)
+                // A code fence around a table is never forwarded (D5-05).
+                const out = stripFenceLines(sentinels.push(slice.text))
                 if (out) {
                   await send({ type: 'delta', text: out })
                   const verified = verifier?.push(out)
@@ -4406,6 +4499,7 @@ export function buildApp(opts: BuildAppOptions): Hono {
                 // strong match was retrieved and the generator still
                 // declined. When nothing applies the refusal stands, with
                 // the decline's own search already running (D3-05).
+                await warmSettled()
                 retry = nextRetry(retryContext(), 'refused')
                 if (retry) {
                   void closestMatches()
@@ -4453,10 +4547,16 @@ export function buildApp(opts: BuildAppOptions): Hono {
             prequeries: current.prequeries,
             unpinPrior: true,
           })
-        } else if (retry === 'pinned') {
-          attempts.push({ intent: undefined, prequeries: undefined, resourceId: retryPins[0] })
           await fallbackEvent(
-            'The question names a paper this collection holds; asking it directly.',
+            "The earlier turns' papers did not answer this; asking the whole collection.",
+          )
+        } else if (retry === 'pinned') {
+          const target = retryPins[0] ?? topicPinId()
+          attempts.push({ intent: undefined, prequeries: undefined, resourceId: target })
+          await fallbackEvent(
+            retryPins.length > 0
+              ? 'The question names a paper this collection holds; asking it directly.'
+              : 'A retrieved paper carries the terms of this question; asking it directly.',
           )
         }
         retry = null
