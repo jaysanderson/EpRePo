@@ -163,11 +163,14 @@ const ANIMAL = /\b(?:rat|rats|mouse|mice|rodent|animal|model|models|in vitro|in 
 
 /**
  * The closest matches to name in a decline: ranked first by how much of
- * the question they share - each of the question's content words found in
- * the title counts in full, in the summary by half - and only then by the
- * semantic score, so a paper about Australia and incidence outranks a
- * better-scoring review that shares one word with the question (D3-19).
- * A preclinical paper is never a close match for a question about people.
+ * the question they share, and only then by the semantic score, so a
+ * paper about incidence in Australia outranks a better-scoring review that
+ * shares one word with the question (D3-19). The question's outcome noun
+ * (incidence, mortality, retention) counts double and a capitalised name -
+ * a place, a people, a register - counts half, so a nationwide survey that
+ * merely shares "Australia" does not lead an incidence question (D4-23).
+ * Each word found in the title counts in full, in the summary by half. A
+ * preclinical paper is never a close match for a question about people.
  */
 export function rankClosest<
   T extends { title: string; summary?: string; kind?: string; relevance: number },
@@ -175,11 +178,15 @@ export function rankClosest<
   resources: readonly T[],
   query: string,
 ): T[] {
-  const words = new Set(
-    (query.toLowerCase().match(/[a-z][a-z-]{4,}/g) ?? []).map((w) => w.slice(0, 6)).filter((w) =>
-      !CLOSEST_STOP.has(w)
-    ),
-  )
+  const weights = new Map<string, number>()
+  for (const m of query.matchAll(/(^|\s)([A-Za-z][A-Za-z-]{4,})/g)) {
+    const word = m[2]!
+    const stem = word.toLowerCase().slice(0, 6)
+    if (CLOSEST_STOP.has(stem)) continue
+    const capitalised = m.index !== 0 && /^[A-Z]/.test(word)
+    const weight = OUTCOME_NOUN.test(word) ? 2 : capitalised ? 0.5 : 1
+    weights.set(stem, Math.max(weights.get(stem) ?? 0, weight))
+  }
   const human = !ANIMAL.test(query)
   const stems = (text: string) =>
     new Set((text.toLowerCase().match(/[a-z][a-z-]{4,}/g) ?? []).map((w) => w.slice(0, 6)))
@@ -189,15 +196,19 @@ export function rankClosest<
       const title = stems(r.title)
       const summary = stems(r.summary ?? '')
       let overlap = 0
-      for (const w of words) {
-        if (title.has(w)) overlap += 1
-        else if (summary.has(w)) overlap += 0.5
+      for (const [w, weight] of weights) {
+        if (title.has(w)) overlap += weight
+        else if (summary.has(w)) overlap += weight / 2
       }
       return { r, overlap }
     })
     .sort((a, b) => b.overlap - a.overlap || b.r.relevance - a.r.relevance)
     .map((x) => x.r)
 }
+
+/** The outcome a question asks about: the word that must lead its closest matches. */
+const OUTCOME_NOUN =
+  /^(?:incidence|prevalence|mortality|survival|retention|relapse|relapses|remission|adherence|freedom|responder|responders|discontinuation|tolerability|efficacy|effectiveness|safety|outcome|outcomes|burden|comorbidity|hospitalisation|hospitalization|deaths?|sudep)$/i
 
 const CLOSEST_STOP = new Set(['which', 'there', 'their', 'about', 'these', 'those', 'where'])
 
