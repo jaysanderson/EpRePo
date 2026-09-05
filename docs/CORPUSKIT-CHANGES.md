@@ -317,12 +317,28 @@ finding or item it serves. This PR added one (comment-only) to the seven that la
 `packages/retrieval/src/providers/arag/suggest-ranking.ts`. The Python tools open with module
 docstrings.
 
-## Changes without a written rationale
+## Changes made before the pull-request process, with their rationale
 
-Recorded honestly, from the diff and the commit subjects: `inventory-sample.ts` and the
-`analyse.ts` and `kg.ts` sampler and labeller-scope fixes (before PR #3, after the
-981-resource box exposed a 422 on the design prompts); `stores.ts` `RoutingLog` (described in
-`docs/INTENT-ROUTING.md` "Logging" but in no PR); `ExplorePage.tsx`'s `regionalDiscovery` gate
-and the `eprepo` seed's `regionalDiscovery: false`; the brand SVGs; the `extraHeaders`
-parameter on `client.ts` (one caller, the extraction strategy header). None changes application
-behaviour for a tenant that does not set the field.
+These landed directly on `feat/eprepo-portal` while the portal was being stood up (3 September
+2026), before the branch-and-PR process began with PR #3. Their rationale, from the product
+owner's session notes:
+
+- `apps/api/src/inventory-sample.ts` and the sampler and labeller-scope changes in `analyse.ts`
+  and `kg.ts`: the Knowledge graph "Propose" step sent the whole 981-resource inventory in one
+  prompt and the platform returned HTTP 422 `string_too_long`; the shared sampler bounds the
+  inventory, and the passage labeller was given text-block scope (`on: 0`) because it must label
+  chunks, not resources. Owner request: "KG propose 422, fix".
+- `apps/api/src/stores.ts` `RoutingLog`: a JSONL log of every routing decision so intent-routing
+  behaviour can be reviewed (the ten-persona evaluation and the loops read it); part of the
+  intent-routing demo build, documented in `docs/INTENT-ROUTING.md` "Logging".
+- `ExplorePage.tsx` `regionalDiscovery` gate and the `eprepo` seed's `regionalDiscovery: false`:
+  the owner asked for the "Explore by region" map to be removed from this tenant because the
+  initiative is global; the gate keeps the map for tenants that set it.
+- The brand SVGs (`apps/web/public/brand/eprepo-mark.svg`, `eprepo-logo.svg`): the owner asked
+  for a new mark and horizontal lockup for the tenant.
+- `client.ts` `extraHeaders` (used by `uploadFile({method})`): uploads apply an extraction
+  strategy per file through the platform's `x-extract-strategy` header, needed by the corpus
+  loader and the Extraction Lab.
+
+None of these changes application behaviour for a tenant that does not set the field or use the
+feature.
