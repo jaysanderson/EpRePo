@@ -4,8 +4,29 @@ One entry per pull request merged into `feat/eprepo-portal`, newest first. Each 
 changed for the reader and which findings it closed. Finding ids: `P<persona>-<n>` from the
 ten-persona evaluation (`docs/EPREPO-ROADMAP.md`, `docs/persona-reports/p1.md` to `p10.md`),
 `R<n>` roadmap items, `D<loop>-<n>` from the D'Souza test-fix loops
-(`docs/persona-reports/dsouza-loop1.md` to `loop4.md`). Dates are the merge dates (UTC).
+(`docs/persona-reports/dsouza-loop1.md` to `loop5.md`). Dates are the merge dates (UTC).
 The architecture of the answer trust layer these entries built is in `docs/TRUST-LAYER.md`.
+
+## PR #19 - 5 September 2026 - D'Souza loop 5 (j2): sessions, the table turn, terse refusals, the checking state, latency
+
+For the reader: a follow-up in a conversation always carries the earlier answers' papers, and one
+that stays within them ("what was the strongest predictor in that study", "back to the JME
+cohort") is answered from those papers alone with their own paragraphs and tables in front of
+the generator, so a Table 1 row is not declined. "Put the three in a table" comes back as a
+Markdown table with every row: the code fence is gone, a cell the check could not verify reads
+"not verified" and the row stays, and the turn reads only the session's papers with a budget
+sized to the rows. A terse clinic question that pinned no paper reads the retrieved paper that
+carries its own terms before it is declined. "Grant background:" no longer scopes retrieval to
+an author called Grant. While an answer streams its text is shown as unchecked, in muted ink
+with an "Unchecked - still streaming" badge, and "First sentence verified" appears only under
+visible text, so nothing is presented as the answer and then withdrawn. Code fences, empty
+headings, header-only tables and "(inference)" tokens no longer reach the reader. "lamotrigine
+SUDEP" is a search, not a lookup of lamotrigine. The in-app documentation and How this works say
+document chat is checked the same way. A terse question reads a lighter retrieval context
+towards the budget of one probe, one platform ask and one retry per question.
+Closed: D5-05, D5-06, D5-07, D5-08, D5-09, D5-16, D5-17, D5-18, D4-06, D4-07, D4-08 (the
+application's share; the platform's retrieval stage remains the floor), D3-05 and D1-09 (the
+same share).
 
 ## PR #17 - 5 September 2026 - D'Souza loop 4 (i1): the gate proves the cohort and the figure before it acts, or refuses
 
