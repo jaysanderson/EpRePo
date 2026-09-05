@@ -117,6 +117,21 @@ export interface AskOptions {
    * needs more than the platform's default (a table over three studies).
    */
   maxTokens?: number
+  /**
+   * Lean retrieval: no context expansion (neighbouring paragraphs, graph
+   * walks) and no cross-encoder reranking, for a turn whose material is
+   * already supplied as `extraContext` and whose retrieval only has to
+   * produce citations to bind (a reformatting turn, D5-05).
+   */
+  lean?: boolean
+  /**
+   * Light retrieval for a terse question (D5-08, D3-05): one neighbouring
+   * paragraph each side instead of two, no graph walk, the reranker kept.
+   * A five-word clinic question was reading thirty-five thousand tokens of
+   * context before its first word; the pinned paper's own passes still
+   * carry their full budget.
+   */
+  light?: boolean
 }
 
 export interface CatalogOptions {

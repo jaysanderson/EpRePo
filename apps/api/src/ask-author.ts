@@ -127,12 +127,40 @@ export function authorsNamed(
     const lower = fold(word)
     if (word.length < 4 || seen.has(lower)) continue
     if (NOT_A_SURNAME.has(lower) || lexiconLower.has(lower)) continue
+    // A surname scopes retrieval only in an author construction: "X's
+    // papers", "papers by X", "X et al.", "X and colleagues", "what did X
+    // find". "Grant background: ..." names no author, whatever the
+    // catalogue holds under Grant (D5-07).
+    if (!namesAnAuthor(query, word)) continue
     const resourceIds = catalogue.filter((r) => hasAuthor(r, word)).map((r) => r.id)
     if (resourceIds.length === 0) continue
     seen.add(lower)
     out.push({ surname: word, resourceIds })
   }
   return out
+}
+
+/**
+ * Whether the question uses the surname in an author construction. The
+ * shapes: "X's papers/work/group/studies/publications/findings/research",
+ * "papers/work/studies by X", "by X and colleagues", "X et al.", "X and
+ * colleagues/co-workers/collaborators", "the X group/lab/team", "authored
+ * by X", and "what has/did X (and colleagues) publish/find/report/show".
+ */
+export function namesAnAuthor(query: string, surname: string): boolean {
+  const name = surname.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/['’]/g, "['’]")
+  const shapes = [
+    `\\b${name}['’]s\\s+(?:own\\s+)?(?:papers?|publications?|articles?|studies|work|group|lab|team|research|findings|results|cohorts?|series|reports?)\\b`,
+    `\\b(?:papers?|publications?|articles?|studies|work|research|reports?|findings)\\s+(?:by|from|of)\\s+${name}\\b`,
+    `\\b${name}\\s+et\\s+al\\b`,
+    `\\b${name}\\s+and\\s+(?:colleagues|co-?workers|collaborators|others)\\b`,
+    `\\b(?:by|from)\\s+${name}\\b`,
+    `\\bthe\\s+${name}\\s+(?:group|lab|team)\\b`,
+    `\\b(?:authored|written|published|led)\\s+by\\s+${name}\\b`,
+    `\\b(?:has|have|had|did|does|do)\\s+${name}\\b`,
+    `\\b${name}\\s+(?:publish|published|find|found|finds|report|reported|reports|show|showed|shows|describe|described|describes|conclude|concluded|study|studied|examine|examined|investigate|investigated|write|wrote|writes|argue|argued)\\b`,
+  ]
+  return shapes.some((shape) => new RegExp(shape, 'i').test(query))
 }
 
 /**

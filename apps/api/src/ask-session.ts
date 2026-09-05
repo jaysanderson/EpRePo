@@ -121,8 +121,67 @@ export function reformatAddendum(query: string): string {
   return 'This turn asks for the earlier answers in this conversation in another shape, not for new ' +
     `research. Reproduce the figures, denominators, study names and designs exactly as the earlier answers ` +
     `and their cited passages state them, as ${shape}, and add nothing that they do not state. ` +
-    'Every row or item carries a bracketed marker for its source. Do not decline: the material is in ' +
-    'the earlier answers and passages supplied.'
+    'Every row or item carries a bracketed marker for its source. Write the Markdown directly, never ' +
+    "inside a code fence. Where a study has no acronym, name it by the cited paper's title, never " +
+    '"not named". Do not decline: the material is in the earlier answers and passages supplied.'
+}
+
+/**
+ * The generation budget a reformatting turn needs: a table row or a list
+ * item per earlier answer, with room for the cells (D5-05). The loop 4
+ * budget of 1800 tokens was fixed whatever the session held; a five-turn
+ * session's table needs more, a two-turn one less. Capped at the platform's
+ * own ceiling.
+ */
+export function reformatBudget(context: readonly ContextTurn[]): number {
+  const answers = context.filter((t) => t.author === 'AGENT' && t.text.trim().length > 0).length
+  return Math.min(4096, Math.max(1800, 900 + 450 * answers))
+}
+
+/**
+ * Whether a follow-up stays inside the earlier turns' papers: it refers
+ * back and names no entity the session has not already discussed. "What
+ * was the strongest predictor in that study" (D5-06) and "back to the JME
+ * cohort: what proportion had a psychiatric comorbidity" are about the
+ * papers the session cited, so retrieval is scoped to them with the
+ * platform's resource filter and nothing else can crowd them out; "now add
+ * lacosamide" names a new drug and is not. The lexicon terms and acronyms
+ * of the follow-up are compared with those of the earlier questions and
+ * answers.
+ */
+export function staysWithinPriorTurns(
+  query: string,
+  context: readonly ContextTurn[],
+  lexicon: readonly string[] = [],
+): boolean {
+  if (context.length === 0 || isReformatFollowUp(query)) return false
+  if (!refersToPriorTurns(query) && !RESUMES_PRIOR.test(query)) return false
+  const earlier = context.map((t) => t.text).join('\n').toLowerCase()
+  for (const term of entityTerms(query, lexicon)) {
+    if (!earlier.includes(term)) return false
+  }
+  return true
+}
+
+/** "Back to the JME cohort", "returning to that study", "in the same paper". */
+const RESUMES_PRIOR = /\b(?:back to|returning to|return to|going back to)\b/i
+
+/** Acronyms (JME, LGI1, PERMIT) and lexicon terms a follow-up names, lower-cased. */
+function entityTerms(query: string, lexicon: readonly string[]): string[] {
+  const out = new Set<string>()
+  const lower = query.toLowerCase()
+  for (const term of lexicon) {
+    const t = term.toLowerCase()
+    if (
+      t.length >= 4 && new RegExp(`\\b${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(lower)
+    ) {
+      out.add(t)
+    }
+  }
+  for (const m of query.matchAll(/\b[A-Z][A-Z0-9]{2,}\b/g)) {
+    if (!/^(?:CI|HR|OR|RR|SMR|IQR|AUC|SD)$/.test(m[0])) out.add(m[0].toLowerCase())
+  }
+  return [...out]
 }
 
 /**
@@ -133,6 +192,6 @@ export function reformatAddendum(query: string): string {
  * paragraphs otherwise crowd out the paper it asks about (baseline TDB).
  */
 export function refersToPriorTurns(query: string): boolean {
-  return /\b(?:that|those|these|this|it|its|the same|same|above|earlier|previous|prior|both|either|compare|comparison|compared|versus|vs|again|also|too|the cohort|the study|the trial|the paper|each group|in each)\b/i
+  return /\b(?:that|those|these|this|it|its|the same|same|above|earlier|previous|prior|both|either|compare|comparison|compared|versus|vs|again|also|too|the cohort|the study|the trial|the paper|each group|in each|back to)\b/i
     .test(query)
 }

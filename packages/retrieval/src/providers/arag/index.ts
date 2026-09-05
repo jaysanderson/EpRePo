@@ -3489,7 +3489,14 @@ export class AragProvider implements RetrievalProvider {
     // walk the knowledge graph from entities detected in the query (uses the
     // box's graph extraction agent). Degrades gracefully if unsupported.
     const depth = intent?.answer.depth === 'deep' ? 'deep' : opts.depth
-    let strategies: Record<string, unknown>[] = intent
+    let strategies: Record<string, unknown>[] = opts.lean
+      // A reformatting turn's material is in extra_context; retrieval
+      // only has to bind citations, so no expansion and no walk (D5-05).
+      ? []
+      : opts.light
+      // A terse question: one neighbour each side, no graph walk.
+      ? [{ name: 'neighbouring_paragraphs', before: 1, after: 1 }]
+      : intent
       ? intentStrategies(intent)
       : depth === 'deep'
       ? [{ name: 'full_resource' }]
@@ -3497,6 +3504,7 @@ export class AragProvider implements RetrievalProvider {
         { name: 'neighbouring_paragraphs', before: 2, after: 2 },
         { name: 'graph_beta', hops: 2, agentic_graph_only: true },
       ]
+    if (opts.lean) body.reranker = 'noop'
     if (opts.topK && opts.topK > 0) {
       // A request-level paragraph budget wins over the stored
       // configuration's (verified for /find; the author-scoped review

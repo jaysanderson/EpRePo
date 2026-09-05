@@ -1,13 +1,18 @@
 import { describe, it } from '@std/testing/bdd'
 import { expect } from '@std/expect'
 import {
+  cleanFormatLeaks,
   corpusDecline,
+  dropEmptyHeadings,
+  dropHeaderOnlyTables,
   endsMidSentence,
   forwardableSlice,
   looksLikeProviderDecline,
   referenceBlockStart,
   rewriteSentinels,
   SentinelStream,
+  stripCodeFences,
+  stripFenceLines,
   stripModelReferences,
   trimTruncatedTail,
   withheldDecline,
@@ -92,8 +97,8 @@ describe('rewriteSentinels', () => {
     expect(rewriteSentinels('Not enough data to answer this.')).toBe('')
   })
 
-  it('normalises the bracketed inference marker to the styled hedge', () => {
-    expect(rewriteSentinels('Likely benign [inference].')).toBe('Likely benign (inference).')
+  it('removes the inference marker in either bracket form (D5-16)', () => {
+    expect(rewriteSentinels('Likely benign [inference].')).toBe('Likely benign.')
   })
 
   it('leaves ordinary uses of the word alone', () => {
@@ -282,5 +287,42 @@ describe('table and list answers (D4-06)', () => {
     expect(endsMidSentence('- Retention: 71.1% (n = 1644)')).toBe(false)
     expect(endsMidSentence('- Responder rate 58.3%')).toBe(false)
     expect(endsMidSentence('- Responder rate was')).toBe(true)
+  })
+})
+
+describe('format leaks (D5-05, D5-16)', () => {
+  it('strips a code fence around a table and leaves the table', () => {
+    const fenced = '```markdown\n| A | B |\n|---|---|\n| 1 | 2 |\n```'
+    expect(stripCodeFences(fenced)).toBe('| A | B |\n|---|---|\n| 1 | 2 |')
+    expect(stripFenceLines('```markdown\n')).toBe('')
+    expect(stripFenceLines('| 1 | 2 |\n')).toBe('| 1 | 2 |\n')
+  })
+
+  it('drops a heading whose section is empty and keeps one with content', () => {
+    expect(dropEmptyHeadings('Intro.\n\n**Validation:**\n\n*One sentence was removed.*')).toBe(
+      'Intro.\n\n*One sentence was removed.*',
+    )
+    expect(dropEmptyHeadings('### LGI1\n\n### NMDAR\n\nText.')).toBe('### NMDAR\n\nText.')
+    expect(dropEmptyHeadings('### LGI1\n\nText.')).toBe('### LGI1\n\nText.')
+  })
+
+  it('removes a table left with a header and no rows', () => {
+    expect(dropHeaderOnlyTables('Lead.\n\n| A | B |\n|---|---|\n\nTail.')).toBe('Lead.\n\nTail.')
+    expect(dropHeaderOnlyTables('| A | B |\n|---|---|\n| 1 | 2 |')).toBe(
+      '| A | B |\n|---|---|\n| 1 | 2 |',
+    )
+  })
+
+  it('removes the inference token rather than restyling it', () => {
+    expect(rewriteSentinels('This may be due to syncope (inference).[1]')).toBe(
+      'This may be due to syncope.[1]',
+    )
+    expect(rewriteSentinels('Likely [inference] the case.')).toBe('Likely the case.')
+  })
+
+  it('cleans every leak at once and no longer reads a closing fence as a cut sentence', () => {
+    const cleaned = cleanFormatLeaks('```markdown\n| A | B |\n|---|---|\n| 1 | 2 |\n```')
+    expect(cleaned).toBe('| A | B |\n|---|---|\n| 1 | 2 |')
+    expect(trimTruncatedTail(cleaned).truncated).toBe(false)
   })
 })

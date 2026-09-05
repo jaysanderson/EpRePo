@@ -59,3 +59,29 @@ describe('nextRetry - one extra ask at most (D3-05)', () => {
     expect(nextRetry({ ...base, pinnedIds: ['p1'], documentScope: true }, 'refused')).toBeNull()
   })
 })
+
+describe('nextRetry - loop 5 (D5-06, D5-09)', () => {
+  it('reads the earlier paper alone when a scoped follow-up refuses over a strong match, else asks the whole collection', () => {
+    expect(nextRetry({ ...base, priorPinned: true, priorScoped: true }, 'refused')).toBe('unpinned')
+    expect(
+      nextRetry({ ...base, priorPinned: true, priorScoped: true, bestRelevance: 0.99 }, 'refused'),
+    )
+      .toBe('pinned')
+    expect(
+      nextRetry(
+        { ...base, priorPinned: true, priorScoped: true, extraAttemptUsed: true },
+        'refused',
+      ),
+    )
+      .toBeNull()
+  })
+
+  it("reads the paper that carries a terse question's own terms when nothing was pinned", () => {
+    expect(nextRetry({ ...base, topicPinId: 'icv' }, 'refused')).toBe('pinned')
+    expect(nextRetry({ ...base, topicPinId: 'icv' }, 'uncited')).toBe('pinned')
+    // Already read: reading it again produces the figures the gate rejected.
+    expect(nextRetry({ ...base, topicPinId: 'icv', citedIds: ['icv'] }, 'uncited')).toBeNull()
+    // A study-guard pin takes precedence.
+    expect(nextRetry({ ...base, topicPinId: 'icv', pinnedIds: ['p1'] }, 'refused')).toBe('pinned')
+  })
+})

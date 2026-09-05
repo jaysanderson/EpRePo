@@ -423,6 +423,10 @@ export function routeByRules(query: string, ctx: RouteContext): RouteDecision | 
       if (!re.test(q)) continue
       if (intent.requireEntity && entities.length === 0) continue
       if (intent.requireLexiconEntity && lexiconEntities(q, lexicon).length === 0) continue
+      // A listing (exact lookup) only when the entity is the whole query:
+      // "lamotrigine SUDEP" is a two-entity question for retrieval, not a
+      // lookup of lamotrigine (D5-17).
+      if (intent.answer.strategy === 'none' && !singleEntityQuery(q, entities)) continue
       return {
         intent: intent.id,
         confidence: 1,
@@ -456,6 +460,35 @@ export function routeByRules(query: string, ctx: RouteContext): RouteDecision | 
     }
   }
   return null
+}
+
+/** Words that complete an entity's name rather than add a second one: "Dravet syndrome", "SCN8A epilepsy". */
+const ENTITY_SUFFIX =
+  /\b(?:syndrome|epilepsy|epilepsies|encephalitis|disease|disorder|deficiency|mutation|mutations|variant|variants|gene|seizures?)\b/gi
+
+/**
+ * Whether the recognised entities account for the whole query: a lookup
+ * lists one thing, so what remains after the entities and their completing
+ * words are removed must be nothing but punctuation.
+ */
+export function singleEntityQuery(query: string, entities: readonly string[]): boolean {
+  // Entities nested in one another ("Dravet", "Dravet syndrome") are one.
+  const distinct = entities.filter((e) =>
+    !entities.some((other) => other !== e && other.toLowerCase().includes(e.toLowerCase()))
+  )
+  return distinct.length === 1 && entityCoversQuery(query, entities)
+}
+
+export function entityCoversQuery(query: string, entities: readonly string[]): boolean {
+  let rest = query
+  for (const entity of entities) {
+    rest = rest.replace(
+      new RegExp(`\\b${entity.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'gi'),
+      ' ',
+    )
+  }
+  rest = rest.replace(ENTITY_SUFFIX, ' ')
+  return !/[A-Za-z0-9]/.test(rest)
 }
 
 function describeRule(intent: Intent, entities: string[]): string {

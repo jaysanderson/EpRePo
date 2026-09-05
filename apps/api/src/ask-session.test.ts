@@ -9,6 +9,8 @@ import {
   priorResourceIds,
   refersToPriorTurns,
   reformatAddendum,
+  reformatBudget,
+  staysWithinPriorTurns,
 } from './ask-session.ts'
 
 const context: ContextTurn[] = [
@@ -110,5 +112,64 @@ describe('follow-ups that lean on the earlier turns (D4-07)', () => {
         'Now add lacosamide: what 50% responder rate did the randomised adjunctive lacosamide trial report?',
       ),
     ).toBe(false)
+  })
+})
+
+describe('follow-ups that stay within the earlier papers (D5-06)', () => {
+  const jme: ContextTurn[] = [
+    {
+      author: 'USER',
+      text:
+        'In the JME drug-resistance prediction study, how many patients were included, what proportion were drug resistant, and over what period were they recruited?',
+    },
+    {
+      author: 'AGENT',
+      text: 'In the JME drug-resistance prediction study, 2,518 patients were included.[1]',
+      resourceIds: ['jme'],
+    },
+  ]
+  const lexicon = ['lacosamide', 'lamotrigine', 'brivaracetam']
+  it('scopes "that study" and "back to the JME cohort" to the earlier papers', () => {
+    expect(
+      staysWithinPriorTurns(
+        'What was the strongest predictor in that study, with its odds ratio and confidence interval?',
+        jme,
+        lexicon,
+      ),
+    ).toBe(true)
+    expect(
+      staysWithinPriorTurns(
+        'Back to the JME cohort: what proportion had a psychiatric comorbidity, if the paper reports it?',
+        jme,
+        lexicon,
+      ),
+    ).toBe(true)
+  })
+  it('does not confine a follow-up that names a new drug or study, a reformat, or a first turn', () => {
+    expect(
+      staysWithinPriorTurns(
+        'How does that compare with the lamotrigine SUDEP case-control study?',
+        jme,
+        lexicon,
+      ),
+    ).toBe(false)
+    expect(
+      staysWithinPriorTurns('Now add lacosamide: what responder rate did it report?', jme, lexicon),
+    )
+      .toBe(false)
+    expect(staysWithinPriorTurns('Put the two in a table', jme, lexicon)).toBe(false)
+    expect(staysWithinPriorTurns('What was the strongest predictor in that study?', [], lexicon))
+      .toBe(false)
+  })
+  it('sizes the reformatting budget to the answers a table has to hold (D5-05)', () => {
+    expect(reformatBudget(jme)).toBe(1800)
+    const five = [...jme, ...jme, ...jme, ...jme, ...jme]
+    expect(reformatBudget(five)).toBe(3150)
+    expect(reformatBudget([...five, ...five])).toBe(4096)
+  })
+  it('asks a table turn to write Markdown directly and to name a study by its paper', () => {
+    const addendum = reformatAddendum('Summarise the three in a table')
+    expect(addendum).toContain('never inside a code fence')
+    expect(addendum).toContain('never "not named"')
   })
 })

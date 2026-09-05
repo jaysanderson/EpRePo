@@ -2054,11 +2054,11 @@ describe('POST /api/t/:slug/ask refusals and sentinels', () => {
     const streamed = events.filter((e) => e.type === 'delta').map((e) =>
       e.type === 'delta' ? e.text : ''
     ).join('')
-    expect(streamed).toContain('The cited sources do not provide a quota (inference).')
+    expect(streamed).toContain('The cited sources do not provide a quota.')
     expect(streamed).not.toContain('Not enough data')
     const done = events.find((e) => e.type === 'done')
     expect(done && done.type === 'done' ? done.text : '').toBe(
-      'The cited sources do not provide a quota (inference). Stocks fell 12% since 2019.[1]',
+      'The cited sources do not provide a quota. Stocks fell 12% since 2019.[1]',
     )
   })
 })
@@ -2195,5 +2195,175 @@ describe('POST /api/t/:slug/ask automatic routing', () => {
     expect(text).toContain("This portal's sources do not answer this question directly")
     expect(text).not.toContain('15 patients')
     expect(events.some((e) => e.type === 'citation')).toBe(false)
+  })
+})
+
+describe('POST /api/t/:slug/ask loop 5 follow-ups and terse questions (D5-05, D5-06, D5-09)', () => {
+  type Seen = {
+    resourceIds?: string[]
+    resourceId?: string
+    priorResourceIds?: string[]
+    lean?: boolean
+    light?: boolean
+    maxTokens?: number
+    topK?: number
+  }
+  const answer = async function* (): AsyncIterable<AskEvent> {
+    yield { type: 'sources', resources: [{ ...resourceOne, relevance: 0.9, citedCount: 1 }] }
+    yield { type: 'delta', text: 'Populations declined 12% since 2019.[1]' }
+    yield {
+      type: 'citation',
+      citation: { index: 1, resourceId: 'res-1', title: resourceOne.title },
+    }
+    yield { type: 'done', text: 'Populations declined 12% since 2019.[1]' }
+  }
+  const context = [
+    {
+      author: 'USER' as const,
+      text: 'In the abalone stock study, how much did populations decline?',
+    },
+    {
+      author: 'AGENT' as const,
+      text: 'Populations declined 12% since 2019.[1]',
+      resourceIds: ['res-1'],
+      passages: ['Abalone populations have declined 12% since 2019 across the southern zones.'],
+    },
+  ]
+
+  it('scopes a follow-up that stays within the earlier papers to them, and pins them on every follow-up', async () => {
+    const seen: Seen[] = []
+    class Recording extends StubProvider {
+      override async *ask(_t: TenantConfig, _q: string, opts?: Seen): AsyncIterable<AskEvent> {
+        seen.push({ ...opts })
+        yield* answer()
+      }
+    }
+    const app = buildApp({ provider: new Recording(), tenants: freshTenants() })
+    await sseEvents(
+      await app.request('/api/t/eprepo/ask', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          query: 'What was the strongest predictor in that study?',
+          context,
+        }),
+      }),
+    )
+    expect(seen[0]?.resourceIds).toEqual(['res-1'])
+    expect(seen[0]?.priorResourceIds).toEqual(['res-1'])
+    // A follow-up naming something new is pinned to the earlier papers but not confined.
+    await sseEvents(
+      await app.request('/api/t/eprepo/ask', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ query: 'Now add SCN8A: what did the gene study find?', context }),
+      }),
+    )
+    expect(seen[1]?.resourceIds).toBeUndefined()
+    expect(seen[1]?.priorResourceIds).toEqual(['res-1'])
+  })
+
+  it('reads a reformatting turn leanly from the earlier papers with a budget sized for the rows', async () => {
+    const seen: Seen[] = []
+    class Recording extends StubProvider {
+      override async *ask(_t: TenantConfig, _q: string, opts?: Seen): AsyncIterable<AskEvent> {
+        seen.push({ ...opts })
+        yield { type: 'sources', resources: [{ ...resourceOne, relevance: 0.9, citedCount: 1 }] }
+        yield { type: 'delta', text: '```markdown\n| Study | Decline |\n|---|---|\n' }
+        yield { type: 'delta', text: '| Abalone | 12% since 2019 [1] |\n```' }
+        yield {
+          type: 'citation',
+          citation: { index: 1, resourceId: 'res-1', title: resourceOne.title },
+        }
+        yield {
+          type: 'done',
+          text:
+            '```markdown\n| Study | Decline |\n|---|---|\n| Abalone | 12% since 2019 [1] |\n```',
+        }
+      }
+    }
+    const app = buildApp({ provider: new Recording(), tenants: freshTenants() })
+    const events = await sseEvents(
+      await app.request('/api/t/eprepo/ask', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ query: 'Put the above in a table', context }),
+      }),
+    )
+    expect(seen[0]?.resourceIds).toEqual(['res-1'])
+    expect(seen[0]?.lean).toBe(true)
+    expect(seen[0]?.maxTokens).toBe(1800)
+    const done = events.find((e) => e.type === 'done')
+    const text = done && done.type === 'done' ? done.text ?? '' : ''
+    expect(text).not.toContain('```')
+    expect(text).toContain('| Abalone | 12% since 2019 [1] |')
+    expect(done && done.type === 'done' ? done.truncated : true).toBeFalsy()
+    const streamed = events.filter((e) => e.type === 'delta').map((e) =>
+      e.type === 'delta' ? e.text : ''
+    ).join('')
+    expect(streamed).not.toContain('```')
+  })
+
+  it("reads the paper that carries a terse question's names when the generator refuses, before declining", async () => {
+    const seen: Seen[] = []
+    // Ids of their own: the extraction cache is per process, and other
+    // tests have filed texts under res-1 and res-2.
+    const abalone = { ...resourceOne, id: 'j2-abalone' }
+    const lobster = { ...resourceTwo, id: 'j2-lobster' }
+    class Refusing extends StubProvider {
+      override async listResources(): Promise<ResourceSummary[]> {
+        return [abalone, lobster]
+      }
+      override async search(_t: TenantConfig, query: string): Promise<SearchResults> {
+        return {
+          query,
+          resources: [
+            { ...lobster, relevance: 0.8, citedCount: 0 },
+            { ...abalone, relevance: 0.5, citedCount: 0 },
+          ],
+          relatedQuestions: [],
+        }
+      }
+      override async *ask(_t: TenantConfig, _q: string, opts?: Seen): AsyncIterable<AskEvent> {
+        seen.push({ ...opts })
+        if (!opts?.resourceId) {
+          yield { type: 'sources', resources: [{ ...lobster, relevance: 0.8, citedCount: 0 }] }
+          yield { type: 'done', refused: true, text: '' }
+          return
+        }
+        yield { type: 'sources', resources: [{ ...abalone, relevance: 0.9, citedCount: 1 }] }
+        yield { type: 'delta', text: 'Populations declined 12% since 2019.[1]' }
+        yield {
+          type: 'citation',
+          citation: { index: 1, resourceId: 'j2-abalone', title: abalone.title },
+        }
+        yield { type: 'done', text: 'Populations declined 12% since 2019.[1]' }
+      }
+    }
+    // The probe's shortlist carries both papers; only the abalone text names abalone.
+    const texts = {
+      'j2-abalone':
+        'Abalone stock health. Abalone populations declined 12% since 2019 (n = 40 sites).',
+      'j2-lobster': 'Rock lobster catch fell under marine heatwaves; no abalone were sampled.',
+    }
+    const app = buildApp({
+      provider: new Refusing(),
+      tenants: freshTenants(),
+      management: fakeManagement(texts),
+    })
+    // The warm texts are fetched during the probe; give them a moment to land.
+    const events = await sseEvents(
+      await app.request('/api/t/eprepo/ask', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ query: 'Abalone decline - number?', route: 'auto' }),
+      }),
+    )
+    expect(seen.length).toBe(2)
+    expect(seen[0]?.light).toBe(true)
+    expect(seen[1]?.resourceId).toBe('j2-abalone')
+    const done = events.find((e) => e.type === 'done')
+    expect(done && done.type === 'done' ? done.refused : true).toBeFalsy()
+    expect(events.some((e) => e.type === 'fallback')).toBe(true)
   })
 })

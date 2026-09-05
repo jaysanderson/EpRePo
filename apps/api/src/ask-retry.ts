@@ -30,6 +30,10 @@ export interface RetryContext {
   strongMatch: number
   /** The current attempt pinned the session's earlier papers into a follow-up's grounding set. */
   priorPinned?: boolean
+  /** The current attempt scoped retrieval to the earlier papers alone (a follow-up that stays within them, D5-06). */
+  priorScoped?: boolean
+  /** A retrieved paper that carries the terse question's own terms, when nothing was pinned (D5-09). */
+  topicPinId?: string
 }
 
 /**
@@ -44,14 +48,25 @@ export function nextRetry(ctx: RetryContext, reason: 'refused' | 'uncited'): Ret
   if (ctx.documentScope || ctx.extraAttemptUsed) return null
   const pinnable = ctx.pinnedIds.length > 0 &&
     !ctx.pinnedIds.some((id) => ctx.citedIds.includes(id))
-  if (reason === 'uncited') return pinnable ? 'pinned' : null
+  // A terse question the generator refused, or answered with another
+  // paper's figures, while a retrieved paper carries the question's own
+  // terms: read that paper directly before declining (D5-09).
+  const topicPinnable = !pinnable && ctx.pinnedIds.length === 0 && Boolean(ctx.topicPinId) &&
+    !ctx.citedIds.includes(ctx.topicPinId!)
+  if (reason === 'uncited') return pinnable || topicPinnable ? 'pinned' : null
   // The data sheets matched on words but held no answer: the general
   // configuration is the right place to ask, whatever else applies.
   if (ctx.currentIntent && ctx.supplementsOnly) return 'supplements'
-  if (pinnable) return 'pinned'
-  // A follow-up that pinned the earlier turns' papers and still refused
-  // over a strong match: their paragraphs crowded out the paper it asks
-  // about ("now add lacosamide"). Ask once more without the pins.
+  if (pinnable || topicPinnable) return 'pinned'
+  // A follow-up scoped to the earlier turns' papers that refused: when
+  // the scoped retrieval matched strongly, the paper is the one and the
+  // generator, not the corpus, said no, so it is read alone with its own
+  // sections and the firmer directive; otherwise the question reaches
+  // beyond the earlier papers after all and the whole collection is asked
+  // once (D5-06). A follow-up that merely pinned them and refused over a
+  // strong match has the latter remedy: their paragraphs crowded out the
+  // paper it asks about ("now add lacosamide").
+  if (ctx.priorScoped) return ctx.bestRelevance >= ctx.strongMatch ? 'pinned' : 'unpinned'
   if (ctx.priorPinned && ctx.bestRelevance >= ctx.strongMatch) return 'unpinned'
   // A strong match was retrieved and the generator still declined: the
   // prequeries or a narrower configuration crowded the grounding set.
