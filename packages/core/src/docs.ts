@@ -217,12 +217,18 @@ export const DOC_PAGES: DocPage[] = [
           '- **Years and contraindications.** A year must come from a cited resource. A ' +
           'medication the answer calls contraindicated must be called that by a cited passage, ' +
           'and a medication the cited sources flag is never dropped silently.\n\n' +
+          'While the answer is still streaming, its first complete sentence is checked against ' +
+          'the papers retrieval found and, when it passes, the paper that carries it is named ' +
+          'under the answer; the checked answer then replaces the streamed text.\n\n' +
           'These checks are plain text comparisons against the extracted text of the papers, ' +
           'with no language model in the loop, so the check cannot invent support. The ' +
-          'confidence label under the answer comes from that check together with the ' +
-          "platform's own quality scoring of how well the answer addresses the question, how " +
-          'firmly it is grounded and how relevant the retrieved passages were. Groundedness ' +
-          'decides: a fluent answer on weak grounding is marked low.',
+          'confidence label under the answer is led by that check: an unverified figure, year ' +
+          'or contraindication marks it low, removed sentences cap it at moderate, and high is ' +
+          "earned only when every figure was found. The platform's own quality scoring of how " +
+          'well the answer addresses the question, how firmly it is grounded and how relevant ' +
+          'the retrieved passages were can lower the label but never raise it, and is shown as ' +
+          "the platform's self-assessment. The check decides: a fluent answer whose figures the " +
+          'cited papers do not carry is not shown as high confidence.',
       },
       {
         heading: 'What you can do with it',
@@ -407,8 +413,38 @@ export const DOC_PAGES: DocPage[] = [
         body: 'The portal never gives a bare, unattributed answer. Each factual claim carries a ' +
           'bracketed citation marker like [1] that links to the exact source passage, and the ' +
           'sources are listed beneath the answer. Citation numbers are assigned by the ' +
-          "application from the platform's own source attribution, so the number you click always " +
-          'resolves to the passage that grounds that claim.',
+          "application, sentence by sentence, from the platform's own source attribution and " +
+          "the cited papers' text: a sentence keeps a marker only when the cited paper carries " +
+          'its words, its figures and the names it hangs on, so the number you click resolves to ' +
+          'a passage that grounds that claim. Markers never sit on headings, and an item in a ' +
+          'list takes the citation of the paragraph it belongs to.',
+      },
+      {
+        heading: 'Every figure is checked before you see it',
+        body:
+          'Where an answer quotes figures, Ask checks them against the cited passages before the ' +
+          'answer is complete. Every number, percentage, dose and range must appear in the cited ' +
+          "passage beside the claim's own terms, about the same outcome and at the same " +
+          'follow-up. A figure the cited passage does not carry is looked for in the full text ' +
+          'of the papers retrieval found, and if one carries it the sentence is cited to that ' +
+          'paper instead. When the question names a cohort, trial or study, a figure sentence ' +
+          'must cite a paper about that cohort, and a figure the cited paper only quotes from ' +
+          'other studies is removed rather than footnoted.\n\n' +
+          'A sentence whose figures cannot be verified anywhere is removed, and the answer says ' +
+          'so in a note beneath it, naming the figures. A sentence cited to the wrong paper is ' +
+          "replaced by the named paper's own sentence only when that sentence carries the same " +
+          'figure at the same time point, quoted verbatim and cited; a decline is never replaced. ' +
+          'A denominator the answer paired with a figure differently from the paper is corrected ' +
+          "to the paper's own pairing, and the correction is stated. A year must come from a " +
+          'cited resource, and a medication called contraindicated must be called that by a ' +
+          'cited passage.\n\n' +
+          'While the answer streams, its first complete sentence is checked against the papers ' +
+          'retrieval found and, when it passes, "First sentence verified against" the paper ' +
+          'appears under the answer; "Checking N figures" shows until the checked answer replaces ' +
+          'the streamed text. The badge beneath the finished answer then reads what happened: ' +
+          '"N figures checked", with any sentence removed or replaced counted beside it and the ' +
+          'figures named on hover. If nothing verifiable is left, the answer is withheld and the ' +
+          'portal says which figures could not be verified rather than showing them.',
       },
       {
         heading: 'The confidence signal',
@@ -418,15 +454,18 @@ export const DOC_PAGES: DocPage[] = [
           'confidence** or **Confidence not scored**, and it stays loud and labelled while the ' +
           'news is bad: a low-confidence answer shows a warning you cannot miss, a high-confidence ' +
           'one a quiet tick.\n\n' +
-          'Open the control to see what sits behind it. The answer is scored across three ' +
-          'dimensions - how well it answers your question (answer relevance), how firmly it is ' +
-          'grounded in the sources (groundedness), and how relevant the retrieved context was ' +
-          '(context relevance) - each shown as a plain score out of five with a one-line reading. ' +
-          'Groundedness is the deciding signal: a fluent answer built on weak grounding is still ' +
-          'marked low. When the scorer did not run, the control says so rather than guessing.\n\n' +
-          'Where an answer quotes figures, Ask also checks them against the cited passages and ' +
-          'shows the result beside the answer, so a number that does not appear in its source ' +
-          'is flagged rather than passed off as fact.\n\n' +
+          "The label is led by the portal's own check of the answer against the cited papers. " +
+          'An unverified figure, year or contraindication makes it low; removed sentences cap it ' +
+          'at moderate; every figure found beside its claim, with most sentences carrying a ' +
+          'citation, makes it high. High confidence is earned only by that check, never by a ' +
+          'score alone.\n\n' +
+          "Open the control to see what sits behind it, including the platform's self-assessment " +
+          'of the answer across three dimensions - how well it answers your question (answer ' +
+          'relevance), how firmly it is grounded in the sources (groundedness), and how relevant ' +
+          'the retrieved context was (context relevance) - each shown as a plain score out of ' +
+          'five with a one-line reading. Those scores can lower the label one step when ' +
+          'groundedness is weak, and never raise it. When the check had nothing to judge and the ' +
+          'scorer did not run, the control says so rather than guessing.\n\n' +
           'When confidence is low, the same panel offers to **re-answer the question deeply**, ' +
           'against the full text of the matching documents, so a thinly grounded first answer has ' +
           'a direct path to a firmer one rather than leaving you at a dead end.',
@@ -435,15 +474,19 @@ export const DOC_PAGES: DocPage[] = [
         heading: 'Honest refusals',
         body:
           'If the corpus does not hold enough relevant material to answer confidently, the portal ' +
-          'says so and shows you the closest passages it found and what to try next, rather than ' +
-          'bluffing an answer. An honest "no direct evidence found" is a feature, not a failure.',
+          'says so before generating anything, names the closest matches it found in the text ' +
+          'and lists them beneath the answer as closest matches, not used, rather than bluffing ' +
+          'an answer. A question about a relationship no held paper studies is declined as a ' +
+          'boundary, and a paper the question names is read directly before anything is declined. ' +
+          'An honest "no direct evidence found" is a feature, not a failure.',
       },
       {
         heading: 'The evidence behind an answer',
         body:
-          'Beneath an answer the evidence list shows every source it drew on. Each one carries ' +
-          'its matched passage and a relevance score as a percentage, so you can weigh the ' +
-          'sources at a glance.\n\n' +
+          'Beneath an answer the evidence list shows every source it drew on. Each one quotes ' +
+          'the paragraph that carries the claims cited to it, with the page it sits on, and a ' +
+          'relevance score as a percentage, so you can weigh the sources at a glance; a weak ' +
+          'match is labelled as one, and a bibliography paragraph is never shown as evidence.\n\n' +
           "When you want the AI's read on each source, open **Journey through the context**. It " +
           'adds a short verdict to every source - for example **Supports**, **Partial** or **Not ' +
           'relevant** - which then appears alongside the evidence. Working this out costs a little ' +

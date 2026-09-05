@@ -1,3 +1,13 @@
+/**
+ * Exact catalogue lookups: identifiers and author names.
+ *
+ * Resolves a DOI, PMCID, PMID or author surname against catalogue metadata
+ * before any retrieval runs, so an identifier or author question gets the
+ * one matching resource (or an honest no-match) instead of retrieval's best
+ * guess. Used by `/search` and `/route` in `app.ts`.
+ * Serves: R7 (P2-11, P4-07, P9-09, P6-16, P6-17, P7-12, P8-13, P8-19,
+ * P10-14, P10-23, P9-10, P3-18, P1-12), D3-04, D4-16; PR #3, #7, #16.
+ */
 import type { ResourceSummary, ScoredResource, SearchLookup } from '@research-portal/core'
 import type { IdentifierKind } from './intent-router.ts'
 

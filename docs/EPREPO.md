@@ -121,6 +121,24 @@ accent inks until they clear WCAG AA on the dark surface (`ensureContrast`). A p
 on a dark library palette (Observatory) is left exactly as authored. Every page must be checked
 in both schemes before it is called done - see `apps/web/CLAUDE.md`.
 
+## The answer trust layer and the test-fix loops
+
+Every Ask answer on this portal passes through the trust layer described in
+`docs/TRUST-LAYER.md`: routed by rule or classifier (`docs/INTENT-ROUTING.md`), probed before
+generation, pinned to the papers the question names, then re-bound sentence by sentence,
+audited figure by figure against the cited texts, gated (an unverifiable sentence is removed
+and the removal stated; a substitute stands in only for the same figure at the same time point;
+a decline is never replaced) and labelled with a confidence the check leads. The layer was
+built across the four D'Souza test-fix loops (scores 4, 6, 7, 6; `docs/EPREPO-ROADMAP.md`
+delivery status, `docs/persona-reports/dsouza-loop1.md` to `loop4.md`); each merged pull request
+has an entry in `docs/CHANGELOG-EPREPO.md`, and `docs/CORPUSKIT-CHANGES.md` records every change
+this fork made to the corpuskit codebase and whether it belongs upstream.
+
+Decision (loop 4, 5 September 2026): **simple and honest over clever.** When the layer cannot
+verify a sentence it removes it and says so rather than substituting; structured-statement
+generation through `answer_json_schema` was trialled on twelve questions and not adopted (it
+fabricated a cohort figure the prose path declined and cannot carry paragraph citations).
+
 ## Facet counts, sorting and example copy
 
 - `GET /api/t/:slug/facets` serves `topic`, `kind` and `format` together from one memoised

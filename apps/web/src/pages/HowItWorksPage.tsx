@@ -674,12 +674,20 @@ export function HowItWorksPage() {
               </Bullet>
             </ul>
             <P>
+              While the answer is still streaming, its first complete sentence is checked against
+              the papers retrieval found and, when it passes, the paper that carries it is named
+              under the answer; the checked answer then replaces the streamed text.
+            </P>
+            <P>
               These checks are plain text comparisons against the extracted text of the papers, with
               no language model in the loop, so the check cannot invent support. The confidence
-              label under the answer comes from that check together with the platform's own quality
-              scoring of how well the answer addresses the question, how firmly it is grounded and
-              how relevant the retrieved passages were. Groundedness decides: a fluent answer on
-              weak grounding is marked low.
+              label under the answer is led by that check: an unverified figure, year or
+              contraindication marks it low, removed sentences cap it at moderate, and high is
+              earned only when every figure was found. The platform's own quality scoring of how
+              well the answer addresses the question, how firmly it is grounded and how relevant the
+              retrieved passages were can lower the label but never raise it, and is shown as the
+              platform's self-assessment. The check decides: a fluent answer whose figures the cited
+              papers do not carry is not shown as high confidence.
             </P>
           </Section>
 

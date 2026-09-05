@@ -1,12 +1,15 @@
-import type { CatalogItem } from '@research-portal/core'
-
 /**
+ * Library browse filters and sorting for the catalogue.
+ *
  * Pure helpers for the library browse path: the `/catalog` filter grammar
  * (OR within a facet, AND across facets) and the client-side sort the
  * platform cannot do (`sort_field` accepts only created/modified/title, so a
  * publication-date sort runs over the cached listing). Kept UI- and
  * network-free so every rule here is unit-tested.
+ * Serves: R16 (PR #5).
  */
+
+import type { CatalogItem } from '@research-portal/core'
 
 export interface CatalogBrowseFilters {
   topicIds?: string[]
