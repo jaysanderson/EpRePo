@@ -215,8 +215,17 @@ const eprepo: TenantConfig = TenantConfigSchema.parse({
     'diazepam',
     'midazolam',
     'ketogenic diet',
+    // The autoimmune encephalitis immunotherapies the group's papers
+    // report on: a terse clinic question about them routes by rule, and
+    // the study guard reads them as the question's drug (D4-08).
+    'rituximab',
+    'cyclophosphamide',
+    'methylprednisolone',
+    'immunoglobulin',
     'Dravet',
     'Lennox-Gastaut',
+    'LGI1',
+    'NMDAR',
   ],
   intents: [
     {

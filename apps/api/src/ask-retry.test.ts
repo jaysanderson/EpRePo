@@ -20,6 +20,13 @@ describe('nextRetry - one extra ask at most (D3-05)', () => {
     expect(nextRetry({ ...base, bestRelevance: 0.96 }, 'refused')).toBeNull()
   })
 
+  it("drops the earlier turns' pins when a pinned follow-up refuses over a strong match (D4-07)", () => {
+    expect(nextRetry({ ...base, bestRelevance: 0.99, priorPinned: true }, 'refused')).toBe(
+      'unpinned',
+    )
+    expect(nextRetry({ ...base, bestRelevance: 0.4, priorPinned: true }, 'refused')).toBeNull()
+    expect(nextRetry({ ...base, bestRelevance: 0.99, priorPinned: true }, 'uncited')).toBeNull()
+  })
   it('re-asks on the general configuration when a supplements-only intent refuses', () => {
     expect(nextRetry({ ...base, currentIntent: 'data', supplementsOnly: true }, 'refused')).toBe(
       'supplements',

@@ -128,6 +128,8 @@ export function stripModelReferences(text: string, titles: readonly string[] = [
 // ---------------------------------------------------------------------------
 
 /** A last word no English sentence ends on: a conjunction, a preposition, an article, "Therefore,". */
+const LIST_ITEM = /^\s*(?:[-*•]|\d{1,3}[.)])\s+/
+
 const DANGLING_WORD =
   /\b(?:and|or|but|nor|so|yet|which|that|because|although|though|whereas|while|whether|if|as|than|the|a|an|of|to|in|on|at|by|for|with|from|into|onto|about|between|among|therefore|thus|hence|however|moreover|furthermore|additionally|also|is|are|was|were|be|been|has|have|had|may|might|can|could|would|should|will|not|no)[,;:]?$/i
 
@@ -143,6 +145,12 @@ export function endsMidSentence(text: string): boolean {
   // A heading or a list item introducing nothing is a different defect; a
   // one-word line is not a sentence to judge.
   if (/^\s*#{1,6}\s/.test(last)) return false
+  // A Markdown table row is complete when its closing pipe is there; a
+  // row cut by the generation budget has none (D4-06). A list item that
+  // ends on a figure, a closing bracket or a marker is a complete item.
+  if (/^\s*\|.*\|\s*$/.test(last)) return false
+  if (/^\s*\|/.test(last)) return true
+  if (LIST_ITEM.test(last) && /(?:\d|%|\))\s*$/.test(last)) return false
   if (/[.!?]["'”’)*_]*$/.test(last)) return false
   if (/[,;:\-–]$/.test(last)) return true
   return DANGLING_WORD.test(last) || /\s\S+$/.test(last)

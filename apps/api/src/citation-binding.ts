@@ -216,6 +216,8 @@ export interface SentenceFeatures {
   bigrams: string[]
   numbers: string[]
   entities: string[]
+  /** The study designs the sentence states ("nested case-control"): a text that never mentions one cannot carry the sentence. */
+  designs: string[]
   /** What the audit's figure check needs: the claim's terms, outcome, timepoint and question-named entities. */
   claim: ClaimFeatures
 }
@@ -256,8 +258,36 @@ export function sentenceFeatures(
     bigrams,
     numbers: extractNumbers(normaliseFigures(plain)),
     entities: namedEntities(plain, lexicon),
+    designs: designTerms(plain),
     claim: claimFeatures(plain, lexicon, questionEntities),
   }
+}
+
+/**
+ * The study designs a sentence states, as the phrases a cited text must
+ * carry: "nested case-control", "randomised", "cross-sectional",
+ * "retrospective cohort". A design sentence bound to a paper that never
+ * mentions the design was the LGS criteria paper cited for "a
+ * retrospective, nested case-control design" (D4-07).
+ */
+const DESIGN_TERM =
+  /\b(?:nested case[- ]control|case[- ]control|randomi[sz]ed|double[- ]blind|placebo[- ]controlled|open[- ]label|cross[- ]sectional|retrospective|prospective|observational|pooled analysis|meta[- ]analysis|case series|case report|non[- ]randomi[sz]ed|single[- ]arm|first[- ]in[- ]human|nationwide survey|qualitative study|modelling study|simulation)\b/gi
+
+export function designTerms(sentence: string): string[] {
+  const out = new Set<string>()
+  for (const m of sentence.matchAll(DESIGN_TERM)) {
+    out.add(m[0].toLowerCase().replace(/\s+/g, ' ').replace(/randomized/, 'randomised'))
+  }
+  return [...out]
+}
+
+/** Whether a text states a design term, either spelling of "randomised" and either dash. */
+export function textStatesDesign(lower: string, term: string): boolean {
+  const pattern = term
+    .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    .replace(/[- ]/g, '[- ]')
+    .replace(/randomised/, 'randomi[sz]ed')
+  return new RegExp(`\\b${pattern}\\b`, 'i').test(lower)
 }
 
 /**
@@ -292,6 +322,12 @@ export function supportScore(
   // a fenfluramine trial never mentions the Melbourne cohort.
   for (const name of features.claim.mandatory) {
     if (!text.lower.includes(name)) return 0
+  }
+  // The design a sentence states must be in the text: a paper that never
+  // says "case-control" is not the source for "a nested case-control
+  // design" whatever else it shares with the sentence (D4-07).
+  for (const design of features.designs) {
+    if (!textStatesDesign(text.lower, design)) return 0
   }
   // Every figure the sentence states must be in the text beside the claim's
   // own terms, not merely somewhere in it: "21% to 45%" bound to a paper
@@ -660,6 +696,20 @@ export function bindSentences(input: BindInput): BindResult {
 }
 
 /**
+ * A table row's markers sit inside its last cell, never after the closing
+ * pipe where they render as a column of their own; a header row (no
+ * figure, no claim) carries none (D4-06).
+ */
+export function tableRowMarkers(line: string): string {
+  const m = /^(\s*\|.*\|)((?:\s*\[\d{1,3}\])+)\s*$/.exec(line)
+  if (!m) return line
+  const row = m[1]!
+  const markers = m[2]!.replace(/\s+/g, '')
+  if (/^\s*\|[\s|:-]*\|\s*$/.test(row) || !/\d/.test(row)) return row
+  return row.replace(/\s*\|\s*$/, ` ${markers} |`)
+}
+
+/**
  * The answer text from its layout: each sentence followed by its markers in
  * ascending order, a line whose every sentence was removed dropped with it.
  */
@@ -676,13 +726,12 @@ export function renderBound(
     }
     const kept = line.sentences.filter((i) => !removed.has(i))
     if (kept.length === 0) continue
-    lines.push(
-      line.prefix +
-        kept.map((i) => {
-          const s = sentences[i]!
-          return s.bound.length > 0 ? `${s.text}${s.bound.map((n) => `[${n}]`).join('')}` : s.text
-        }).join(' '),
-    )
+    const rendered = line.prefix +
+      kept.map((i) => {
+        const s = sentences[i]!
+        return s.bound.length > 0 ? `${s.text}${s.bound.map((n) => `[${n}]`).join('')}` : s.text
+      }).join(' ')
+    lines.push(tableRowMarkers(rendered))
   }
   // A removed list item or paragraph never leaves a double blank line behind.
   return lines.join('\n').replace(/\n{3,}/g, '\n\n').replace(/\s+$/, '')

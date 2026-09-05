@@ -7,7 +7,7 @@
  * retrieval, chosen for the reason the first pass failed, and the refusal
  * is accepted when none applies.
  */
-export type RetryKind = 'supplements' | 'pinned' | 'prequeries'
+export type RetryKind = 'supplements' | 'pinned' | 'prequeries' | 'unpinned'
 
 export interface RetryContext {
   /** Document chat never retries: the document either answers or it does not. */
@@ -28,6 +28,8 @@ export interface RetryContext {
   /** The strongest retrieval relevance seen on the current attempt, and the cut that reads as "the generator, not the corpus, said no". */
   bestRelevance: number
   strongMatch: number
+  /** The current attempt pinned the session's earlier papers into a follow-up's grounding set. */
+  priorPinned?: boolean
 }
 
 /**
@@ -47,6 +49,10 @@ export function nextRetry(ctx: RetryContext, reason: 'refused' | 'uncited'): Ret
   // configuration is the right place to ask, whatever else applies.
   if (ctx.currentIntent && ctx.supplementsOnly) return 'supplements'
   if (pinnable) return 'pinned'
+  // A follow-up that pinned the earlier turns' papers and still refused
+  // over a strong match: their paragraphs crowded out the paper it asks
+  // about ("now add lacosamide"). Ask once more without the pins.
+  if (ctx.priorPinned && ctx.bestRelevance >= ctx.strongMatch) return 'unpinned'
   // A strong match was retrieved and the generator still declined: the
   // prequeries or a narrower configuration crowded the grounding set.
   // Dropping the default intent with no prequeries changes nothing, so

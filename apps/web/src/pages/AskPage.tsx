@@ -112,6 +112,12 @@ type ChatMessage = {
    * many figures are being checked. Cleared by `done`; never persisted.
    */
   checking?: number
+  /**
+   * The first sentence, checked against a retrieved paper's text while
+   * the rest still streams: every figure it states was found beside its
+   * claim in that paper. Cleared by `done`; never persisted.
+   */
+  verified?: { sentence: string; title: string }
   /** The intent-routing decision this answer ran under (docs/INTENT-ROUTING.md). */
   route?: RouteDecision
   /** Per-source AI relevance verdicts, once judged - persisted so the Evidence table doesn't re-judge on reload. */
@@ -1252,6 +1258,19 @@ function AnswerCard({
         )
         : null}
 
+      {message.pending && message.verified
+        ? (
+          <p
+            className='rp-answer-verified mt-2 text-xs leading-relaxed text-ink-3'
+            role='status'
+            data-testid='first-sentence-verified'
+          >
+            <span className='font-medium text-[var(--rp-ok-ink)]'>First sentence verified</span>
+            {' '}
+            against <span className='italic'>{message.verified.title}</span>
+          </p>
+        )
+        : null}
       {message.pending && typeof message.checking === 'number'
         ? <CheckingBadge figures={message.checking} />
         : null}
@@ -2175,10 +2194,17 @@ export function AskPage() {
       .filter((message) => !message.error)
       .map((message) => {
         const resourceIds = [...new Set(message.citations.map((c) => c.resourceId))].slice(0, 12)
+        // The passages the cited papers were quoted for: a follow-up that
+        // reshapes or leans on this answer reads them again (D4-06, D4-07).
+        const passages = message.sources
+          .filter((s) => resourceIds.includes(s.id) && (s.matchedPassage ?? '').trim().length > 0)
+          .map((s) => (s.matchedPassage ?? '').slice(0, 2000))
+          .slice(0, 12)
         return {
           author: message.author,
           text: message.text,
           ...(resourceIds.length > 0 ? { resourceIds } : {}),
+          ...(passages.length > 0 ? { passages } : {}),
         }
       })
 
@@ -2232,6 +2258,12 @@ export function AskPage() {
           switch (event.type) {
             case 'route':
               update((message) => ({ ...message, route: event.decision }))
+              break
+            case 'verified':
+              update((message) => ({
+                ...message,
+                verified: { sentence: event.sentence, title: event.title },
+              }))
               break
             case 'stage':
               if (event.status === 'started') {
@@ -2345,6 +2377,7 @@ export function AskPage() {
                 text: event.text ?? message.text,
                 pending: false,
                 checking: undefined,
+                verified: undefined,
                 refused: event.refused,
                 truncated: event.truncated === true,
               }))

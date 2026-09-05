@@ -228,3 +228,30 @@ describe('grounding prequeries', () => {
     )
   })
 })
+
+describe('groundingPrequeries - follow-ups and Help (D4-07, D4-17)', () => {
+  it("gives an earlier turn's paper a lighter pass than a pinned paper, and never twice", () => {
+    const queries = groundingPrequeries('how does that cohort compare', {
+      pinnedResourceIds: ['pin'],
+      priorResourceIds: ['pin', 'prior'],
+    })
+    expect(queries).toHaveLength(2)
+    expect(queries[0]).toMatchObject({
+      weight: 2,
+      request: { resource_filters: ['pin'], top_k: 20 },
+    })
+    expect(queries[1]).toMatchObject({
+      weight: 1,
+      request: { resource_filters: ['prior'], top_k: 10 },
+    })
+  })
+  it('carries the documentation filter on every Help prequery', () => {
+    const filter = { field: { prop: 'label', labelset: 'content-type', label: 'documentation' } }
+    const queries = groundingPrequeries('internet and model', {
+      prequeries: ['does the portal look anything up on the internet', 'which model writes'],
+      filterExpression: filter,
+    })
+    expect(queries).toHaveLength(2)
+    for (const q of queries) expect(q.request).toMatchObject({ filter_expression: filter })
+  })
+})

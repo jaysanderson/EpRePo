@@ -105,6 +105,18 @@ export interface AskOptions {
   extraContext?: string[]
   /** Instructions appended to the system prompt for this ask only. */
   promptAddendum?: string
+  /**
+   * Resources the session's earlier turns cited (a follow-up): each gets
+   * a lighter retrieval pass of its own than a pinned paper, so "that
+   * cohort" resolves to the earlier turn's paper without its paragraphs
+   * crowding out a paper the follow-up newly asks about (D4-07).
+   */
+  priorResourceIds?: string[]
+  /**
+   * The generation budget in tokens for this ask, when the answer's shape
+   * needs more than the platform's default (a table over three studies).
+   */
+  maxTokens?: number
 }
 
 export interface CatalogOptions {

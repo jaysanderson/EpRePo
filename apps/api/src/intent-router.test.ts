@@ -4,15 +4,18 @@ import { IntentSchema } from '@research-portal/core'
 import {
   classifierIntents,
   decideFromClassifier,
+  decomposable,
   extractEntities,
   fillPrequeries,
   isResultsQuestion,
+  isTerseResultsQuestion,
   lexiconEntities,
   looksLikeGeneSymbol,
   parseAuthorYear,
   parseIdentifier,
   RESULTS_QUESTION_RULE,
   routeByRules,
+  wordCount,
 } from './intent-router.ts'
 
 const base = {
@@ -262,5 +265,50 @@ describe('classifier gate', () => {
     )
     expect(allowed.intent).toBe('data')
     expect(allowed.stage).toBe('classifier')
+  })
+})
+
+describe('terse clinic questions (D4-08)', () => {
+  const lexicon = ['lamotrigine', 'rituximab', 'brivaracetam', 'LGI1']
+  it('counts words without their punctuation', () => {
+    expect(wordCount('lamotrigine SUDEP risk - adjusted HR?')).toBe(5)
+    expect(wordCount('rituximab anti-NMDAR relapse - HR and dose schedule')).toBe(7)
+  })
+  it('recognises a short question with an entity and an outcome word', () => {
+    expect(isTerseResultsQuestion('lamotrigine SUDEP risk - adjusted HR?', lexicon)).toBe(true)
+    expect(isTerseResultsQuestion('rituximab anti-NMDAR relapse - HR and dose schedule', lexicon))
+      .toBe(true)
+    expect(isTerseResultsQuestion('brivaracetam 12 month retention EXPERIENCE - number?', lexicon))
+      .toBe(true)
+    // No entity, or no outcome word, or too long: not terse.
+    expect(isTerseResultsQuestion('short sleep next day seizure risk - how much', lexicon)).toBe(
+      false,
+    )
+    expect(isTerseResultsQuestion('lamotrigine mechanism of action', lexicon)).toBe(false)
+    expect(
+      isTerseResultsQuestion(
+        'What is the adjusted hazard ratio for SUDEP with lamotrigine at EMU admission in the case-control study?',
+        lexicon,
+      ),
+    ).toBe(false)
+  })
+  it('routes a terse question to the default configuration by rule, ahead of the classifier', () => {
+    const decision = routeByRules('lamotrigine SUDEP risk - adjusted HR?', {
+      ...ctx,
+      lexicon,
+    })
+    expect(decision).toMatchObject({ intent: 'general', stage: 'rule', rule: 'terse-results' })
+    expect(decision?.rationale).toContain('short results question')
+  })
+  it('decomposes only a long question with a question word', () => {
+    expect(decomposable('lamotrigine SUDEP risk - adjusted HR?')).toBe(false)
+    expect(decomposable('brivaracetam perampanel lacosamide retention comparison table now')).toBe(
+      false,
+    )
+    expect(
+      decomposable(
+        'What is the evidence that timing antiseizure medication to seizure cycles improves efficacy?',
+      ),
+    ).toBe(true)
   })
 })

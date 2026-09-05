@@ -213,4 +213,61 @@ describe('rankClosest', () => {
     )
     expect(ranked.map((x) => x.id)).toEqual(['rat'])
   })
+  it('weights the outcome noun above a place name: a projection with incidence outranks a survey in Australia (D4-23)', () => {
+    const ranked = rankClosest(
+      [
+        r(
+          'seeg',
+          'Stereoelectroencephalography for Epilepsy Presurgical Assessment: A Nationwide Survey of Evolution of Practice in Australia',
+          0.76,
+          'survey',
+          'A survey of SEEG practice across Australian centres.',
+        ),
+        r(
+          'proj',
+          'Ten-year projection of adult epilepsy burden in Australia',
+          0.73,
+          'cohort-study',
+          'Incidence and prevalence of epilepsy in Australian adults projected to 2033.',
+        ),
+        r(
+          'adh',
+          "Facilitators and barriers of antiseizure medication adherence from Australian healthcare providers' perspectives: A qualitative study",
+          0.56,
+          'qualitative-study',
+        ),
+      ],
+      'What is the incidence of epilepsy in Aboriginal and Torres Strait Islander Australians?',
+    )
+    expect(ranked.map((x) => x.id)).toEqual(['proj', 'seeg', 'adh'])
+  })
+  it('ranks a review sharing the outcome word below the cohort paper, and reads burden as epidemiology', () => {
+    const ranked = rankClosest(
+      [
+        r(
+          'pte',
+          'Management of post-traumatic epilepsy: An evidence review over the last 5 years',
+          0.79,
+          'narrative-review',
+          'This review synthesises evidence on the incidence and management of post-traumatic epilepsy.',
+        ),
+        r(
+          'proj',
+          'Ten-year projection of adult epilepsy burden in Australia',
+          0.73,
+          'cohort-study',
+          'Projects the burden of epilepsy in Australian adults from 2024 to 2033 using life tables.',
+        ),
+        r(
+          'tas',
+          'Epidemiology and etiology of infantile developmental and epileptic encephalopathies in Tasmania',
+          0.14,
+          undefined,
+          'Incidence of 0.44 per 1000 live births.',
+        ),
+      ],
+      'What is the incidence of epilepsy in Aboriginal and Torres Strait Islander Australians?',
+    )
+    expect(ranked.map((x) => x.id)).toEqual(['proj', 'tas', 'pte'])
+  })
 })

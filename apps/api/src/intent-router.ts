@@ -311,6 +311,45 @@ function listingIntent(ctx: RouteContext): Intent | undefined {
 }
 
 /** A named person's papers: the possessive, "papers by", or "et al." after a capitalised name. */
+/**
+ * A terse clinic question, typed the way a phone question is typed: seven
+ * words or fewer, a lexicon entity (a drug, a syndrome, an antigen) and an
+ * outcome word ("lamotrigine SUDEP risk - adjusted HR?"). It is a results
+ * question in shorthand: routed to the default configuration by rule, and
+ * never sent to the classifier (five seconds) or decomposed into
+ * sub-questions (a five-word question searched five ways took 24 seconds
+ * on the phone, D4-08).
+ */
+export const TERSE_MAX_WORDS = 7
+
+const OUTCOME_WORD =
+  /\b(?:a?hr|or|rr|smr|ci|risk|rates?|retention|relapses?|freedom|responders?|discontinu\w*|side effects?|adverse|dos(?:e|es|ing)|schedule|incidence|prevalence|mortality|number|outcomes?|efficacy|effectiveness|tolerability|how (?:many|much|often|long)|death|deaths|sudep)\b/i
+
+/** The words of a query, punctuation and dashes aside. */
+export function wordCount(query: string): number {
+  return (query.match(/[A-Za-z0-9][\w'’.%-]*/g) ?? []).length
+}
+
+export function isTerseResultsQuestion(query: string, lexicon: readonly string[] = []): boolean {
+  if (wordCount(query) > TERSE_MAX_WORDS) return false
+  // A lexicon term (a drug, a syndrome, an antigen), not a bare gene
+  // symbol: a preclinical dosing question is not a clinic question.
+  if (lexiconEntities(query, lexicon).length === 0) return false
+  return OUTCOME_WORD.test(query)
+}
+
+/**
+ * Whether a question is long enough, and shaped enough like a question, to
+ * be decomposed into sub-questions or given an intent's probe prequeries:
+ * eight words or more, and a question word somewhere in it. A terse clinic
+ * question is searched as typed (D4-08).
+ */
+export function decomposable(query: string): boolean {
+  return wordCount(query) > TERSE_MAX_WORDS &&
+    /\b(?:what|which|how|why|when|where|who|does|do|did|is|are|was|were|can|could|should|compare|comparison|versus|vs)\b/i
+      .test(query)
+}
+
 const AUTHOR_PAPERS =
   /\b[A-Z][\w'’-]+['’]s\s+(?:papers?|publications?|articles?|studies|work)\b|\b(?:papers?|publications?|articles?|studies|work)\s+(?:by|from)\s+[A-Z][\w'’-]+\b|\b[A-Z][\w'’-]+\s+et\s+al\b/
 
@@ -392,6 +431,27 @@ export function routeByRules(query: string, ctx: RouteContext): RouteDecision | 
         configuration: configurationFor(intent.id, ctx.defaultIntent),
         entities,
         rule,
+      }
+    }
+  }
+  // No intent rule fired. A terse clinic question ("lamotrigine SUDEP
+  // risk - adjusted HR?") is a results question in shorthand: the default
+  // configuration, by rule, so the classifier never takes five seconds
+  // over five words (D4-08). An intent's own rule (a dosing question to
+  // the clinical configuration) has already had its turn.
+  if (isTerseResultsQuestion(q, lexicon)) {
+    const target = eligibleIntents(ctx).find((i) => i.id === ctx.defaultIntent)
+    if (target) {
+      return {
+        intent: target.id,
+        confidence: 1,
+        stage: 'rule',
+        rationale: `${target.label}: a short results question, answered from the papers themselves${
+          entities.length > 0 ? ` (${entities.join(', ')})` : ''
+        }`,
+        configuration: configurationFor(target.id, ctx.defaultIntent),
+        entities,
+        rule: 'terse-results',
       }
     }
   }

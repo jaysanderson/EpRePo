@@ -552,14 +552,16 @@ describe('GET /api/t/:slug/search - catalogue lookups', () => {
     expect(body.lookup).toEqual({ kind: 'doi', value: '10.1111/epi.17708', matched: false })
   })
 
-  it('finds papers by author surname ahead of the retrieval results', async () => {
+  it('lists papers by author surname from the catalogue alone (D4-16)', async () => {
     const response = await app().request('/api/t/frdc/search?q=vajda')
     const body = SearchResultsSchema.parse(await response.json())
     expect(body.lookup).toEqual({ kind: 'author', value: 'vajda', matched: true })
     expect(body.resources[0]?.id).toBe('art-1')
     expect(body.resources[0]?.matchedPassage).toContain('Vajda FJE')
-    // The stub's own results still follow, without duplicating the author hit.
-    expect(body.resources.filter((r) => r.id === 'art-1')).toHaveLength(1)
+    // The catalogue's author matches and nothing else: a paper that merely
+    // cites the author in its reference list never joins the list (D4-16).
+    expect(body.resources.map((r) => r.id)).toEqual(['art-1'])
+    expect(body.resources.every((r) => r.matchedField === 'metadata')).toBe(true)
   })
 
   it('reports an author lookup as a listing decision on a portal with intents', async () => {
@@ -1860,7 +1862,13 @@ describe('POST /api/t/:slug/ask sentence-level binding and audit', () => {
       const event = events.find((e) => e.type === 'searched')
       return event && event.type === 'searched' ? event.queries : []
     }
-    expect(await searched('What rituximab dose was used for NMDAR encephalitis?')).toEqual([])
+    // An antigen alone is no subject for a drug-safety probe; a medication
+    // (rituximab is in the lexicon) on a dosing question is.
+    expect(await searched('What immunotherapy dose was used for NMDAR encephalitis?')).toEqual([])
+    expect(await searched('What rituximab dose should be used for NMDAR encephalitis?')).toEqual([
+      'contraindications, drugs to avoid and safety monitoring for rituximab',
+      'dose limits, starting dose and interactions for rituximab',
+    ])
     expect(await searched('Should valproate be avoided in women of childbearing age?')).toEqual([
       'contraindications, drugs to avoid and safety monitoring for valproate',
       'dose limits, starting dose and interactions for valproate',

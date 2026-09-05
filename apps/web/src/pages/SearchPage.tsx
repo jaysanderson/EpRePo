@@ -40,6 +40,27 @@ import {
 } from '../lib/passage.ts'
 import { Byline, bylineFor } from '../components/Byline.tsx'
 
+/**
+ * An author lookup's heading counts articles and their attachments apart:
+ * "42 articles · 24 supplements" for a person with 42 papers, never "66
+ * resources" (D4-16). Filed format first, the title's shape otherwise.
+ */
+function isAttachment(resource: { title: string; format?: string }): boolean {
+  if (resource.format) return resource.format !== 'article'
+  return /^(?:supplementary|supplement\b|peer review|video|movie|media|additional file|appendix)/i
+    .test(resource.title)
+}
+
+export function authorCount(resources: readonly { title: string; format?: string }[]): string {
+  const attachments = resources.filter(isAttachment).length
+  const articles = resources.length - attachments
+  const parts = [`${articles} ${articles === 1 ? 'article' : 'articles'}`]
+  if (attachments > 0) {
+    parts.push(`${attachments} ${attachments === 1 ? 'supplement' : 'supplements'}`)
+  }
+  return parts.join(' · ')
+}
+
 const MODES: { value: RetrievalMode; label: string }[] = [
   { value: 'hybrid', label: 'Hybrid' },
   { value: 'semantic', label: 'Semantic' },
@@ -798,7 +819,11 @@ export function SearchPage() {
         {hasQuery && !isLoading && !isError && results
           ? (
             <p className='text-sm font-medium tabular-nums text-ink-3'>
-              {filteredResults.length} {filteredResults.length === 1 ? 'resource' : 'resources'}
+              {results.lookup?.kind === 'author' && results.lookup.matched
+                ? authorCount(filteredResults)
+                : `${filteredResults.length} ${
+                  filteredResults.length === 1 ? 'resource' : 'resources'
+                }`}
               {answerMode && citedResults.length > 0 ? ` · ${citedResults.length} cited` : ''}
             </p>
           )

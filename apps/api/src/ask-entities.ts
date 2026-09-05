@@ -17,7 +17,7 @@
  */
 import type { ScoredResource } from '@research-portal/core'
 import { isMedicationTerm } from './ask-prequeries.ts'
-import { lexiconEntities } from './intent-router.ts'
+import { isResultsQuestion, lexiconEntities } from './intent-router.ts'
 import { isAttachmentTitle, studyAcronyms } from './study-guard.ts'
 
 /** How many entities a question may ground separately. */
@@ -163,11 +163,17 @@ const ANIMAL = /\b(?:rat|rats|mouse|mice|rodent|animal|model|models|in vitro|in 
 
 /**
  * The closest matches to name in a decline: ranked first by how much of
- * the question they share - each of the question's content words found in
- * the title counts in full, in the summary by half - and only then by the
- * semantic score, so a paper about Australia and incidence outranks a
- * better-scoring review that shares one word with the question (D3-19).
- * A preclinical paper is never a close match for a question about people.
+ * the question they share, and only then by the semantic score, so a
+ * paper about incidence in Australia outranks a better-scoring review that
+ * shares one word with the question (D3-19). The question's outcome noun
+ * counts double, and so does any word of its family (incidence, prevalence,
+ * epidemiology and burden are one subject); a capitalised name - a place,
+ * a people, a register - counts half, so a nationwide survey that merely
+ * shares "Australia" does not lead an incidence question; and a narrative
+ * review or an editorial, which reports no figure of its own, ranks at
+ * half strength under a results question (D4-23). Each word found in the
+ * title counts in full, in the summary by half. A preclinical paper is
+ * never a close match for a question about people.
  */
 export function rankClosest<
   T extends { title: string; summary?: string; kind?: string; relevance: number },
@@ -175,28 +181,90 @@ export function rankClosest<
   resources: readonly T[],
   query: string,
 ): T[] {
-  const words = new Set(
-    (query.toLowerCase().match(/[a-z][a-z-]{4,}/g) ?? []).map((w) => w.slice(0, 6)).filter((w) =>
-      !CLOSEST_STOP.has(w)
-    ),
-  )
+  const weights = new Map<string, number>()
+  const families = new Set<string>()
+  for (const m of query.matchAll(/(^|\s)([A-Za-z][A-Za-z-]{4,})/g)) {
+    const word = m[2]!
+    const stem = word.toLowerCase().slice(0, 6)
+    if (CLOSEST_STOP.has(stem)) continue
+    const family = outcomeFamilyOf(word)
+    if (family) {
+      // Counted once, through its family, below.
+      families.add(family)
+      continue
+    }
+    const capitalised = m.index !== 0 && /^[A-Z]/.test(word)
+    weights.set(stem, Math.max(weights.get(stem) ?? 0, capitalised ? 0.5 : 1))
+  }
   const human = !ANIMAL.test(query)
-  const stems = (text: string) =>
-    new Set((text.toLowerCase().match(/[a-z][a-z-]{4,}/g) ?? []).map((w) => w.slice(0, 6)))
+  const asksResult = families.size > 0 || isResultsQuestion(query)
+  const wordsOf = (text: string) => text.toLowerCase().match(/[a-z][a-z-]{4,}/g) ?? []
+  const stems = (text: string) => new Set(wordsOf(text).map((w) => w.slice(0, 6)))
+  const familiesIn = (text: string) =>
+    new Set(wordsOf(text).map(outcomeFamilyOf).filter((f): f is string => f !== null))
   return resources
     .filter((r) => !(human && r.kind === 'preclinical'))
     .map((r) => {
       const title = stems(r.title)
       const summary = stems(r.summary ?? '')
       let overlap = 0
-      for (const w of words) {
-        if (title.has(w)) overlap += 1
-        else if (summary.has(w)) overlap += 0.5
+      for (const [w, weight] of weights) {
+        if (title.has(w)) overlap += weight
+        else if (summary.has(w)) overlap += weight / 2
       }
+      // The question's subject under another name: "burden" for an
+      // incidence question.
+      const titleFamilies = familiesIn(r.title)
+      const summaryFamilies = familiesIn(r.summary ?? '')
+      for (const f of families) {
+        if (titleFamilies.has(f)) overlap += 2
+        else if (summaryFamilies.has(f)) overlap += 1
+      }
+      if (asksResult && r.kind !== undefined && SECOND_HAND_KIND.has(r.kind)) overlap /= 2
       return { r, overlap }
     })
     .sort((a, b) => b.overlap - a.overlap || b.r.relevance - a.r.relevance)
     .map((x) => x.r)
+}
+
+/** Kinds that report no figure of their own. */
+const SECOND_HAND_KIND = new Set(['narrative-review', 'editorial', 'commentary', 'letter'])
+
+/** The outcome families a question or a title may name: one subject under several words. */
+const OUTCOME_FAMILIES: Record<string, readonly string[]> = {
+  epidemiology: [
+    'incidence',
+    'incident',
+    'prevalence',
+    'prevalent',
+    'epidemiology',
+    'epidemiological',
+    'burden',
+    'projection',
+    'projected',
+  ],
+  mortality: ['mortality', 'death', 'deaths', 'died', 'survival', 'sudep', 'fatal'],
+  retention: ['retention', 'discontinuation', 'discontinued', 'adherence', 'persistence'],
+  response: [
+    'relapse',
+    'relapses',
+    'remission',
+    'freedom',
+    'responder',
+    'responders',
+    'response',
+    'efficacy',
+    'effectiveness',
+  ],
+  safety: ['safety', 'tolerability', 'adverse', 'contraindication', 'contraindications'],
+}
+const FAMILY_OF = new Map<string, string>()
+for (const [family, words] of Object.entries(OUTCOME_FAMILIES)) {
+  for (const w of words) FAMILY_OF.set(w, family)
+}
+
+function outcomeFamilyOf(word: string): string | null {
+  return FAMILY_OF.get(word.toLowerCase()) ?? null
 }
 
 const CLOSEST_STOP = new Set(['which', 'there', 'their', 'about', 'these', 'those', 'where'])

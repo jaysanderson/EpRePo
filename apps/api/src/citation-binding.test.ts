@@ -2,6 +2,7 @@ import { describe, it } from '@std/testing/bdd'
 import { expect } from '@std/expect'
 import {
   bindSentences,
+  designTerms,
   looksLikeBibliographyEntry,
   looksLikeReferencePassage,
   namedEntities,
@@ -12,6 +13,8 @@ import {
   splitSentences,
   stripReferenceSection,
   supportScore,
+  tableRowMarkers,
+  textStatesDesign,
 } from './citation-binding.ts'
 
 const LEXICON = ['vigabatrin', 'lamotrigine', 'levetiracetam', 'phenytoin', 'Dravet']
@@ -418,5 +421,54 @@ describe('bindSentences - names the question uses', () => {
       'Intro line.\n\n- First 45% here.[1] Second.',
     )
     expect(renderBound(bound.layout, bound.sentences)).toBe(bound.text)
+  })
+})
+
+describe('design sentences (D4-07)', () => {
+  it('reads the designs a sentence states', () => {
+    expect(
+      designTerms(
+        'This study was a retrospective, nested case-control design conducted across multiple Epilepsy Monitoring Units over an 18-year period.',
+      ),
+    ).toEqual(['retrospective', 'nested case-control'])
+    expect(designTerms('A randomized, double-blind, placebo-controlled trial of lacosamide.'))
+      .toEqual(['randomised', 'double-blind', 'placebo-controlled'])
+    expect(designTerms('Retention was 64.2% at 12 months.')).toEqual([])
+  })
+  it('matches a design in a text under either spelling and either dash', () => {
+    expect(textStatesDesign('a nested case control study of sudep', 'nested case-control')).toBe(
+      true,
+    )
+    expect(textStatesDesign('this randomized trial enrolled 240 adults', 'randomised')).toBe(true)
+    expect(textStatesDesign('a retrospective cohort applying the ilae criteria', 'case-control'))
+      .toBe(false)
+  })
+  it('never binds a design sentence to a paper that does not mention the design', () => {
+    const sentence =
+      'This study was a retrospective, nested case-control design conducted across Epilepsy Monitoring Units in Australia and the USA over an 18-year period.'
+    const lgs = prepareText(
+      'We applied the ILAE diagnostic criteria for Lennox-Gastaut syndrome to a retrospective cohort of adults ' +
+        'attending Epilepsy Monitoring Units in Australia and the USA over an 18-year period; 29 patients met all criteria.',
+    )
+    const sudep = prepareText(
+      'We conducted a retrospective, nested case-control study of SUDEP across four Epilepsy Monitoring Units in Australia ' +
+        'and the USA over an 18-year period, comparing lamotrigine use between cases and living controls.',
+    )
+    const features = sentenceFeatures(sentence, [])
+    expect(supportScore(features, lgs)).toBe(0)
+    expect(supportScore(features, sudep)).toBeGreaterThan(0)
+  })
+})
+
+describe('table rows (D4-06)', () => {
+  it("moves a row's markers into its last cell and drops them from a header row", () => {
+    expect(tableRowMarkers('| Brivaracetam | EXPERIENCE | 36.9% | n = 822 |[2]')).toBe(
+      '| Brivaracetam | EXPERIENCE | 36.9% | n = 822 [2] |',
+    )
+    expect(tableRowMarkers('| Drug | Study | Responder rate |[1]')).toBe(
+      '| Drug | Study | Responder rate |',
+    )
+    expect(tableRowMarkers('|---|---|---|[1]')).toBe('|---|---|---|')
+    expect(tableRowMarkers('Retention was 64.2%.[1]')).toBe('Retention was 64.2%.[1]')
   })
 })
