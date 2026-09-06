@@ -1414,6 +1414,59 @@ export async function bindAndAudit(raw: BindAndAuditInput): Promise<BindAndAudit
       }
     }
   }
+  // Before declining, read the paper the decline would name (docs/persona-
+  // reports/dsouza-loop8.md D8-11, and the D3-02 regression it reopened).
+  // The gate has emptied the answer, and the figures it removed sit in a
+  // retrieved paper: JOB5's "The SMR was 3.6 (95% CI 2.9-4.4) in those
+  // with a psychiatric disorder" is one sentence of the paper its own
+  // decline named, and E1's relapse rate the same. Quoted and cited, that
+  // sentence is the paper's own wording rather than the model's claim, so
+  // it stands where a refusal stood - under the same rules the offer after
+  // a removal follows, plus the requirement that it carry what the answer
+  // tried to state.
+  let rescuedAnswer = false
+  if (gated.sentences.length === 0 && gated.removed.length > 0 && !leadSentence(text)) {
+    const entries = [...citedEntries, ...poolEntries].filter((e) => named(e))
+    for (const removed of gated.removed) {
+      if (rescuedAnswer) break
+      if (removed.reason === 'secondhand' || removed.reason === 'conclusion') continue
+      // Only a figure distinctive enough to identify the finding: a
+      // confidence level is in every paper, and matching one would quote
+      // whatever sentence happened to carry an interval.
+      const distinctive = removed.figures.filter((f) =>
+        (/%|\./.test(f) || /^\d{3,}$/.test(f)) && !/^(?:90|95|99)%$/.test(f)
+      )
+      if (distinctive.length === 0) continue
+      const cue = {
+        ...replacementCue(removed.text, lexicon, questionEntities, questionOutcomes, terms),
+        strict: true,
+      }
+      for (const entry of entries) {
+        const raw = texts.get(entry.index)
+        if (!raw) continue
+        const found = ownFigureSentence(raw, cue)
+        if (!found || found.score < 4) continue
+        // The quote must carry what the answer tried to say, in the
+        // paper's words, about the outcome the question asked for.
+        if (!distinctive.some((f) => figurePattern(f).test(found.sentence))) continue
+        if (
+          questionOutcomes.length > 0 &&
+          !outcomeFamilies(found.sentence).some((o) => questionOutcomes.includes(o))
+        ) continue
+        let marker = citations.find((c) => c.resourceId === entry.resourceId)?.index
+        if (marker === undefined) {
+          marker = citations.length + 1
+          citations.push({ index: marker, resourceId: entry.resourceId, title: entry.title })
+          textsByNew.set(marker, raw)
+        }
+        const quote = quoteSentence(found.sentence).replace(/^The paper itself reports: /, '')
+        text = `*No cited passage carries the answer as it was generated, so the paper that ` +
+          `reports it is quoted instead.*\n\n${quote}[${marker}]`
+        rescuedAnswer = true
+        break
+      }
+    }
+  }
   // A protocol's recruitment target is not an enrolment (docs/persona-
   // reports/dsouza-loop5.md D5-11): a kept sentence that states a planned
   // sample from a protocol paper is said to be that, and the results paper
@@ -1782,7 +1835,8 @@ export async function bindAndAudit(raw: BindAndAuditInput): Promise<BindAndAudit
     text,
     citations,
     sources,
-    emptied: (gated.removed.length > 0 && gated.sentences.length === 0) || emptiedByRemoval,
+    emptied: !rescuedAnswer &&
+      ((gated.removed.length > 0 && gated.sentences.length === 0) || emptiedByRemoval),
     audit: {
       type: 'audit',
       figuresChecked: checks.length,
@@ -1790,7 +1844,10 @@ export async function bindAndAudit(raw: BindAndAuditInput): Promise<BindAndAudit
       yearsUnsupported: missingYears,
       contraindicationsUnsupported,
       sentencesChecked: bound.sentences.length,
-      sentencesCited: gated.sentences.filter((s) => s.bound.length > 0).length,
+      sentencesCited: Math.min(
+        bound.sentences.length,
+        gated.sentences.filter((s) => s.bound.length > 0).length + (rescuedAnswer ? 1 : 0),
+      ),
       denominatorsMissing: denominators.map((d) => d.figure),
       attributionsCorrected,
       sentencesRemoved: gated.removed.length + strippedStudies.removed.length,

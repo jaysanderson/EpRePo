@@ -148,6 +148,46 @@ describe('removal is real: a removed figure is not printed in the answer (D8-02)
   })
 })
 
+const VEM = 'Association Between Psychiatric Comorbidities and Mortality in Epilepsy.\n\n' +
+  'Abstract\n\nMethods: A retrospective medical record audit was conducted on 2,709 adults ' +
+  'admitted for video-EEG monitoring and diagnosed with epilepsy.\n\nIntroduction\n\nPeople ' +
+  'with epilepsy die earlier.\n\nResults\n\nThe standardised mortality ratio was 3.6 (95% CI ' +
+  '2.9-4.4) in those with a lifetime psychiatric disorder and 2.5 (95% CI 1.9-3.2) in those ' +
+  'without.\n\nDiscussion\n\nThe cohort is large.'
+
+describe('the paper the decline would name is read first (D8-11, D3-02)', () => {
+  it("quotes the paper's own sentence rather than refusing a question it answers", async () => {
+    const result = await bindAndAudit({
+      management: management({ vem: VEM }),
+      config,
+      query: 'What is the standardised mortality ratio in people with epilepsy and a ' +
+        'psychiatric comorbidity?',
+      text: 'The standardised mortality ratio (SMR) for people with epilepsy and a psychiatric ' +
+        'comorbidity is 3.6 (95% confidence interval 2.9-4.4).',
+      citations: [{
+        index: 1,
+        resourceId: 'vem',
+        title: 'Association Between Psychiatric ' +
+          'Comorbidities and Mortality in Epilepsy',
+      }],
+      sources: [
+        resource(
+          'vem',
+          'Association Between Psychiatric Comorbidities and Mortality in Epilepsy',
+          'Mortality in adults admitted for video-EEG monitoring.',
+        ),
+      ],
+      lexicon: [],
+      variant: undefined,
+      floor: 0.3,
+    })
+    expect(result.emptied).toBe(false)
+    expect(result.text).toContain('3.6')
+    expect(result.text).toContain('lifetime psychiatric disorder')
+    expect(result.citations).toHaveLength(1)
+  })
+})
+
 describe('a briefing never prints a figure its audit reports as removed (D8-02)', () => {
   it('reconciles the removed list with the sections it kept', () => {
     const result = auditBriefing({
