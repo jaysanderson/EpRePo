@@ -1612,6 +1612,47 @@ label.rp-btn:has(input:focus-visible) {
 .rp-btn-danger:hover:not(:disabled) {
   background: var(--rp-bad-bg);
 }
+
+/* The house switch: the visual half of a toggle whose semantics live on the
+ * <button> that wraps it (aria-expanded + aria-controls for a disclosure).
+ * The track rides the shape and density dials; the knob is a circle, which is
+ * shape-independent by design. On is a solid accent fill, which is what the
+ * accent role is for. */
+.rp-switch {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  width: calc(2rem * var(--rp-density-ctl, 1));
+  height: calc(1.125rem * var(--rp-density-ctl, 1));
+  padding: 2px;
+  border: 1px solid var(--rp-line-2);
+  border-radius: var(--rp-radius-chip);
+  background: var(--rp-surface-3);
+  transition: background-color 150ms var(--rp-ease), border-color 150ms var(--rp-ease);
+}
+.rp-switch-knob {
+  display: block;
+  width: calc(0.75rem * var(--rp-density-ctl, 1));
+  height: calc(0.75rem * var(--rp-density-ctl, 1));
+  border-radius: 9999px;
+  background: var(--rp-ink-3);
+  transition: transform 150ms var(--rp-ease), background-color 150ms var(--rp-ease);
+}
+.rp-switch[data-on='true'] {
+  border-color: var(--rp-accent);
+  background: var(--rp-accent);
+}
+.rp-switch[data-on='true'] .rp-switch-knob {
+  background: var(--rp-on-accent);
+  transform: translateX(calc(1.25rem * var(--rp-density-ctl, 1) - 6px));
+}
+@media (prefers-reduced-motion: reduce) {
+  .rp-switch,
+  .rp-switch-knob {
+    transition: none;
+  }
+}
+
 .rp-chip {
   display: inline-flex;
   align-items: center;
