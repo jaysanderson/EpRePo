@@ -7,6 +7,30 @@ ten-persona evaluation (`docs/EPREPO-ROADMAP.md`, `docs/persona-reports/p1.md` t
 (`docs/persona-reports/dsouza-loop1.md` to `loop5.md`). Dates are the merge dates (UTC).
 The architecture of the answer trust layer these entries built is in `docs/TRUST-LAYER.md`.
 
+## PR (this loop) - 6 September 2026 - D'Souza loop 8 (m2): removal is real, and the paper is read before the refusal
+
+For the reader: an answer no longer prints a figure its own footnote says it removed. Ask to
+compare brivaracetam and perampanel at 12 months and the note names 33.8%, which is gone from the
+page, instead of naming 22.1% and 14.9% while printing both - and the 22.1% it printed was the
+other trial arm's number, which the check now catches, because a figure belongs to the arm its own
+phrase names. Ask what placebo responder rate to assume for powering a trial and the wrong "22%
+(n = 1,674, full analysis set)" is removed rather than served under a High confidence badge: a
+denominator must come from the figure's own sentence, and an analysis set the paper does not name
+beside the figure is not the paper's wording. Ask the anti-NMDAR rituximab study what proportion
+relapsed and at what median time and both halves of its Results sentence come back - 28% of 67 at
+a median of 764 days - where the gate used to keep the 764 and delete the 28%. Ask the
+standardised mortality ratio in psychiatric comorbidity, or the relapse rate after withdrawal in
+juvenile myoclonic epilepsy, and the paper's own sentence is quoted and cited where both questions
+used to be refused with that paper at the top of the refusal's own list. Beside them: a marker is
+no longer lent by a phrase every epilepsy paper uses, a finding the answer credits to authors who
+did not write the cited paper is named as second-hand, a sentence the check could tie to no
+passage is named under the answer, a heading the gate emptied goes with its sentences, and the
+sub-question decomposition may hold up retrieval for seven seconds rather than sixteen (first word
+16.5-18.1 s to 13.7-14.1 s on the sleep-deprivation question). Closes D8-02, D8-05, D8-11 and the
+D3-02 regression, D8-01, part of D8-04, and D8-18; How this works is rewritten to what the build
+checks. Left: D8-03, D8-06, D8-12, D8-13, D8-14 (clause decomposition and composition, batch m1),
+D8-07 to D8-10, D8-15 to D8-17, D8-19, D8-20.
+
 ## PR (this loop) - 6 September 2026 - D'Souza loop 7 (l1): retrieval is pinned to what the question names
 
 For the reader: ask "in anti-LGI1 antibody encephalitis, what proportion of patients relapsed, and
