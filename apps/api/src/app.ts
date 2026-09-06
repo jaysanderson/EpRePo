@@ -36,6 +36,7 @@ import {
   parseKbUrl,
   type RetrievalProvider,
 } from '@research-portal/retrieval'
+import { publicErrorMessage, publicSseEvent } from './public-error.ts'
 import { type NewTenantInput, TenantStore, type TenantStoreApi } from './tenants.ts'
 import { tenantToday } from './tenant-time.ts'
 import { BindingStore, type BindingStoreApi } from './bindings.ts'
@@ -966,17 +967,6 @@ export function buildApp(opts: BuildAppOptions): Hono {
 
     return c.redirect(location, 308)
   })
-
-  /** Streamed errors must never carry internal URLs, box ids or upstream bodies. */
-  const publicErrorMessage = (err: unknown): string => {
-    if (err instanceof KnowledgeBoxNotConnectedError) {
-      return 'This portal is not connected to its content yet.'
-    }
-    const message = err instanceof Error ? err.message : ''
-    const status = /Agentic RAG API (\d+)/.exec(message)?.[1]
-    if (status) return `The answer service had a problem (HTTP ${status}) - please try again.`
-    return 'The answer service had a problem - please try again.'
-  }
 
   /**
    * Ingestion writes (link/text/upload) can hit the platform's processing
@@ -2268,7 +2258,11 @@ export function buildApp(opts: BuildAppOptions): Hono {
     return streamSSE(c, async (stream) => {
       let chain: Promise<void> = Promise.resolve()
       const write = (slug: string, event: unknown) => {
-        chain = chain.then(() => stream.writeSSE({ data: JSON.stringify({ slug, event }) }))
+        chain = chain.then(() =>
+          stream.writeSSE({
+            data: JSON.stringify({ slug, event: publicSseEvent(event, `estate-ask ${slug}`) }),
+          })
+        )
         return chain
       }
       await Promise.all(targets.map(async (config) => {
@@ -3741,7 +3735,11 @@ export function buildApp(opts: BuildAppOptions): Hono {
       // a follow-up, and the texts a figure carried forward is checked
       // against (D3-06).
       const priorIds = priorResourceIds(askOpts.context ?? [])
-      const send = (event: unknown) => stream.writeSSE({ data: JSON.stringify(event) })
+      // A provider failure is described in the portal's own words; the
+      // upstream detail - host, box id, vendor name - stays in the server
+      // log (docs/persona-reports/dsouza-loop8.md D8-07).
+      const send = (event: unknown) =>
+        stream.writeSSE({ data: JSON.stringify(publicSseEvent(event, 'ask')) })
       // A follow-up that asks for the earlier answers in another shape
       // ("put the three drugs in a table") is answered from the papers and
       // passages those answers cited, with no new topic searched and no
@@ -5200,7 +5198,9 @@ export function buildApp(opts: BuildAppOptions): Hono {
       // deltas and the finished text pass through the Help voice rewrite, and
       // an answer that was nothing but the template becomes the decline.
       const sentinels = new DocsSentinelStream()
-      const send = (event: unknown) => stream.writeSSE({ data: JSON.stringify(event) })
+      // Same rule as Ask: the help assistant never shows an upstream string.
+      const send = (event: unknown) =>
+        stream.writeSSE({ data: JSON.stringify(publicSseEvent(event, 'docs-ask')) })
       // A two-part question is searched part by part, so the page that
       // answers one part is retrieved even when the other part's words
       // dominate; the prompt answers what the documentation holds and
