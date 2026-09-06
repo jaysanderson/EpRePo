@@ -294,3 +294,18 @@ abstracts); assessment keys and briefing takeaways never rest on a second-hand f
 figure answer on a named paper binds to the pinned paper. Closed: D5-01, D5-02, D5-03, D5-04
 (DCC, XB, TFA, TDE), D5-10, D5-11, D5-12, D5-13, D5-14, D5-15; regressions D3-02, D3-07 (mechanism),
 D4-09. Left: PD (the abstract's own wording), EB's "overall" label, D4-22 (a follow-up turn, PR #19).
+
+## The four promises, the denominator addendum, the quiz source and the author review (loop 6, k2)
+How this works now describes what the build does: a table cell the check cannot read (an analysis
+set, "not reported") is marked "not verified" like a failed figure, in one addendum line; the
+second-hand, rescue and named-study sentences say what happens in each branch rather than promising
+one. The denominator addendum is silent inside a table, for a fitted statistic (F1, AUC, R squared),
+and for a share the paper qualifies with a range or an IQR; where the paper gives the count one
+clause further on it prints "232 of 583" instead of a complaint. A quiz question is bound to the
+paper whose text carries its quote, not to the title the model wrote, and one whose quote no
+retrieved paper carries is dropped and counted; the brief asks for two spare questions and the
+route trims back to the count the reader chose. An author review lists one item per cited paper
+with its year, journal and design, and answers "what sample size did they enrol" per paper from
+each paper's own sentence, with a protocol's number named as planned recruitment. Dates the API
+writes use the portal's timezone; every route sets its own page title; the search field's input is
+a full-height control on a phone. Closes D6-08, D5-13, D6-09, D6-10, D6-13, D6-14, D6-15, D6-16a.
