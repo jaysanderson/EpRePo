@@ -415,6 +415,44 @@ export function reconcileRemovals(
   return removed.map((r) => ({ ...r, figures: r.figures.filter((f) => !printed.has(f)) }))
 }
 
+/**
+ * The line naming a sentence the answer states with no citation behind it
+ * (docs/persona-reports/dsouza-loop8.md D8-04, and the How this works
+ * promise about citations). The sentence stays - it is often the model's
+ * own framing of what the cited ones say - but the reader is told which
+ * one the portal could not tie to a passage, rather than being left to
+ * count markers.
+ */
+export function uncitedNote(sentences: readonly { text: string; bound: number[] }[]): string {
+  const uncited = sentences.filter((s) => s.bound.length === 0 && assertsFinding(s.text))
+  if (uncited.length === 0 || uncited.length === sentences.length) return ''
+  const first = uncited[0]!.text.replace(/\s+/g, ' ').trim()
+  const quoted = first.length > 120 ? `${first.slice(0, 117)}...` : first
+  return uncited.length === 1
+    ? `*One sentence in this answer carries no citation - "${quoted}" - because no retrieved ` +
+      "passage was found to carry it. Read it as the answer's own framing, not as a sourced " +
+      'claim.*'
+    : `*${uncited.length} sentences in this answer carry no citation, the first of them ` +
+      `"${quoted}", because no retrieved passage was found to carry them. Read them as the ` +
+      "answer's own framing, not as sourced claims.*"
+}
+
+/**
+ * Whether a sentence asserts something about the evidence, rather than
+ * framing the answer around it. A heading, a bold label, a list lead-in
+ * ending in a colon, a table row and the portal's own italic notes assert
+ * nothing; a sentence with a reporting or stative verb does.
+ */
+export function assertsFinding(text: string): boolean {
+  const trimmed = text.trim()
+  if (trimmed.length < 25 || trimmed.endsWith(':')) return false
+  if (trimmed.startsWith('*') || /^#{1,6}\s/.test(trimmed)) return false
+  if (isTableRow(trimmed)) return false
+  if (/^\*\*[^*]+\*\*:?$/.test(trimmed)) return false
+  return /\b(?:is|are|was|were|has|have|had|can|could|may|might|show|shows|showed|find|finds|found|report|reports|reported|suggest|suggests|suggested|indicate|indicates|indicated|remain|remains|remained|achiev\w+|reduc\w+|increas\w+|associated|includ\w+|require\w*|improv\w+|predict\w*)\b/i
+    .test(trimmed)
+}
+
 /** A sentence that draws a conclusion from what came before it. */
 export const CONCLUSION =
   /^\s*(?:Thus|Therefore|Hence|Overall|In summary|In conclusion|Taken together|Consequently|This (?:suggests|indicates|means|shows)|These (?:findings|results|figures|data) (?:suggest|indicate|show))\b/i

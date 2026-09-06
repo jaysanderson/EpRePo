@@ -45,7 +45,14 @@ import {
   syntheticCitation,
   withQualifier,
 } from './figure-rescue.ts'
-import { figureOffsets, markedSentences, secondhandFigures, secondhandNote } from './secondhand.ts'
+import {
+  attributedElsewhere,
+  attributedNote,
+  figureOffsets,
+  markedSentences,
+  secondhandFigures,
+  secondhandNote,
+} from './secondhand.ts'
 import {
   bindSentences,
   looksLikeReferencePassage,
@@ -66,6 +73,7 @@ import {
   rowKey,
   stripConnective,
   tableCellHeadings,
+  uncitedNote,
 } from './answer-gate.ts'
 import { correctAttributions, type NamedAuthor } from './ask-author.ts'
 import { choosePassage, paragraphsOf } from './evidence-passages.ts'
@@ -1796,12 +1804,22 @@ export async function bindAndAudit(raw: BindAndAuditInput): Promise<BindAndAudit
           replaced: replaced.length,
         }),
         blankedNote(gated.blanked, unreadableCells.marked),
+        uncitedNote(gated.sentences) || undefined,
         ...offered,
         protocolNote,
         effectSizeNote(effectSizes),
         boundary,
         scoped,
         secondhandNote(secondhand),
+        attributedNote(
+          attributedElsewhere(
+            markedSentences(text),
+            (index) => {
+              const id = citations.find((c) => c.index === index)?.resourceId
+              return id === undefined ? undefined : authorsOf(id)
+            },
+          ),
+        ),
       ].filter((n): n is string => n !== undefined),
     })
   }

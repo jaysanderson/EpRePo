@@ -15,7 +15,8 @@ import { describe, it } from '@std/testing/bdd'
 import { expect } from '@std/expect'
 import type { ScoredResource, TenantConfig } from '@research-portal/core'
 import { bindAndAudit, type ExtractionSource } from './ask-grounding.ts'
-import { answerBody, figuresStillPrinted, gateFigures } from './answer-gate.ts'
+import { answerBody, figuresStillPrinted, gateFigures, uncitedNote } from './answer-gate.ts'
+import { attributedElsewhere, attributedNote } from './secondhand.ts'
 import { auditBriefing } from './briefing-audit.ts'
 import { claimFeatures, figureSupportedBy, prepareSource } from './answer-audit.ts'
 
@@ -185,6 +186,46 @@ describe('the paper the decline would name is read first (D8-11, D3-02)', () => 
     expect(result.text).toContain('3.6')
     expect(result.text).toContain('lifetime psychiatric disorder')
     expect(result.citations).toHaveLength(1)
+  })
+})
+
+describe('what the answer credits to other authors, and what it cites nobody for', () => {
+  it('names a finding the answer credits to authors who did not write the cited paper', () => {
+    const found = attributedElsewhere(
+      [{
+        text: 'Rajna and Veres showed that sleep deprivation increased seizure risk six-fold.',
+        bound: [1],
+      }],
+      () => ['Dell KL', 'Payne DE', 'Kremen V'],
+    )
+    expect(found.map((f) => f.surname)).toEqual(['Rajna'])
+    expect(attributedNote(found)).toContain('Rajna [1]')
+  })
+
+  it("says nothing when the paper's own authors are the ones credited", () => {
+    expect(
+      attributedElsewhere(
+        [{ text: 'Dell et al. found no effect on seizure risk.', bound: [1] }],
+        () => ['Dell KL', 'Payne DE'],
+      ),
+    ).toEqual([])
+  })
+
+  it('names the sentence an answer states with no citation behind it', () => {
+    const note = uncitedNote([
+      { text: 'Seizure freedom at 12 months was 14.9% of patients.', bound: [1] },
+      {
+        text: 'Wearable devices are more acceptable to people with epilepsy than invasive ' +
+          'devices, and many people may still find forecasting devices useful.',
+        bound: [],
+      },
+    ])
+    expect(note).toContain('One sentence in this answer carries no citation')
+    expect(note).toContain('Wearable devices are more acceptable')
+  })
+
+  it('says nothing when every sentence carries one', () => {
+    expect(uncitedNote([{ text: 'Retention at 12 months was 71.1%.', bound: [1] }])).toBe('')
   })
 })
 

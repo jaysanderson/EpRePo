@@ -384,3 +384,63 @@ export function secondhandNote(figures: readonly SecondhandFigure[]): string | u
   } in the cited paper only where it cites other studies (its introduction, its discussion or ` +
     'a figure it takes from earlier work), not among its own results.*'
 }
+
+// ---------------------------------------------------------------------------
+// Work the answer attributes to someone else (docs/persona-reports/
+// dsouza-loop8.md, the sleep-deprivation answer): "Rajna and Veres showed
+// that sleep deprivation ... increased seizure risk by 6-fold", cited to a
+// paper neither of them wrote. The figure check never saw it - "6-fold" is
+// not a figure token - but the sentence says plainly whose result it is.
+// ---------------------------------------------------------------------------
+
+/** "Rajna and Veres showed", "Dell et al. found", "Smith and colleagues reported". */
+const ATTRIBUTED =
+  /\b([A-Z][a-z]{2,}(?:['’][A-Za-z]+)?)\s+(?:(?:and|&)\s+(?:[A-Z][a-z]{2,}|colleagues|co-?workers)|et\s+al\.?)\s+(?:showed|found|reported|demonstrated|observed|described|concluded|noted|documented)\b/g
+
+/** A surname the answer credits a finding to, with the marker on that sentence. */
+export interface AttributedFinding {
+  surname: string
+  index: number
+  sentence: string
+}
+
+/**
+ * Findings the answer credits by name to authors the cited paper was not
+ * written by: the paper is reporting someone else's work, which is what
+ * second-hand means, whether or not the sentence carries a figure token.
+ */
+export function attributedElsewhere(
+  sentences: readonly { text: string; bound: number[] }[],
+  authorsOf: (index: number) => readonly string[] | undefined,
+): AttributedFinding[] {
+  const out: AttributedFinding[] = []
+  const seen = new Set<string>()
+  for (const sentence of sentences) {
+    const re = new RegExp(ATTRIBUTED.source, 'g')
+    let m: RegExpExecArray | null
+    while ((m = re.exec(sentence.text)) !== null) {
+      const surname = m[1]!
+      const index = sentence.bound[0]
+      if (index === undefined || seen.has(surname.toLowerCase())) continue
+      // The paper's own authors are not someone else.
+      const written = sentence.bound.some((n) =>
+        (authorsOf(n) ?? []).some((a) => new RegExp(`\\b${surname}\\b`, 'i').test(a))
+      )
+      if (written) continue
+      // A citation whose author list could not be read says nothing.
+      if (sentence.bound.every((n) => (authorsOf(n) ?? []).length === 0)) continue
+      seen.add(surname.toLowerCase())
+      out.push({ surname, index, sentence: sentence.text.trim() })
+    }
+  }
+  return out
+}
+
+/** The one-line note for findings the answer credits to other authors. */
+export function attributedNote(findings: readonly AttributedFinding[]): string | undefined {
+  if (findings.length === 0) return undefined
+  const items = findings.slice(0, 3).map((f) => `${f.surname} [${f.index}]`).join(', ')
+  return `*Work credited to other authors: ${items} did not write the paper cited beside ` +
+    `${findings.length === 1 ? 'that finding' : 'those findings'}, so it is that paper's ` +
+    'account of earlier work rather than its own result. Check the original before relying on it.*'
+}
