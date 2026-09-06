@@ -87,6 +87,9 @@ import {
   answerByClause,
   clauseAddendum,
   clausePinningApplies,
+  GUIDANCE_ADDENDUM,
+  guidancePin,
+  guidanceProbe,
   medicationPapers,
   medicationsInResults,
 } from './clause-pin.ts'
@@ -3860,9 +3863,20 @@ export function buildApp(opts: BuildAppOptions): Hono {
       // resolves, retrieval is unchanged.
       // Only a first turn pins: a follow-up is already scoped by the earlier
       // turns' papers, and an author question by the author's articles.
-      const resolvedPin = !documentScope && firstTurn
+      // An open "which medications" question names no cohort, so the loop 7
+      // pin resolves nothing and retrieval hands the generator every paper
+      // that mentions a drug and the syndrome. On this collection that put a
+      // single-centre phenytoin case series above the international
+      // consensus statement and the answer led on it. When the question
+      // names a syndrome the collection has guidance for, that guidance is
+      // the pin (clause-pin.ts, `guidancePin`).
+      const namedPin = !documentScope && firstTurn
         ? resolvePin(query, merchandisedCatalogue, lexicon)
         : null
+      const guidance = !documentScope && firstTurn && !namedPin
+        ? guidancePin(query, merchandisedCatalogue, lexicon)
+        : null
+      const resolvedPin = namedPin ?? guidance
       // The papers a cohort designator matched: the cohort's own papers for
       // the question-level guard, whatever their titles carry (D4-01).
       const cohortIds = pinned.filter((p) => p.kind === 'cohort').map((p) => p.id)
@@ -4077,10 +4091,23 @@ export function buildApp(opts: BuildAppOptions): Hono {
       // the ones that fit: a drug-safety probe fires for medication entities
       // on a treatment question, never for an antigen, a journal or a
       // retention question (ask-prequeries.ts).
-      if (intentDef && intentDef.answer.prequeries.length > 0 && decomposable(query)) {
+      // A guidance-pinned question is put to its guidance in the words the
+      // guidance uses as well as the reader's. "Which ASMs should be avoided
+      // in SCN1A Dravet?" retrieves the consensus statement's abstract and
+      // the answer comes back "the cited sources do not list them", while
+      // the written-out probe reaches the recommendations that do
+      // (clause-pin.ts, `guidanceProbe`).
+      const guidanceProbes = guidance && pin ? [guidanceProbe(guidance)] : []
+      if (
+        guidanceProbes.length > 0 ||
+        (intentDef && intentDef.answer.prequeries.length > 0 && decomposable(query))
+      ) {
         const entities = extractEntities(query, lexicon)
-        const mandatory = applicablePrequeries(intentDef.answer.prequeries, query, entities)
-        const combined = [...mandatory, ...(askOpts.prequeries ?? [])].slice(0, MAX_PREQUERIES)
+        const mandatory = intentDef && decomposable(query)
+          ? applicablePrequeries(intentDef.answer.prequeries, query, entities)
+          : []
+        const combined = [...guidanceProbes, ...mandatory, ...(askOpts.prequeries ?? [])]
+          .slice(0, MAX_PREQUERIES)
         if (combined.length > 0) {
           askOpts.prequeries = combined
           await send({ type: 'searched', queries: combined })
@@ -4345,8 +4372,12 @@ export function buildApp(opts: BuildAppOptions): Hono {
       // not the outcome, and nothing declared absent that the paper holds.
       // Under a pin the supplied passages are the named papers' own, so the
       // prompt says so; without one, the pinned papers merely lead.
-      if (pin) promptAddendum = pinAddendum(pin)
-      else if (!documentScope && pinnedIds.length > 0) promptAddendum = pinnedAddendum(pinnedTitles)
+      if (pin) {
+        promptAddendum = [pinAddendum(pin), guidance ? GUIDANCE_ADDENDUM : '']
+          .filter(Boolean).join(' ')
+      } else if (!documentScope && pinnedIds.length > 0) {
+        promptAddendum = pinnedAddendum(pinnedTitles)
+      }
       // The earlier answers' cited passages ride beside retrieval on every
       // follow-up; a reformatting turn also gets the answers themselves
       // and the instruction to reshape, never add (D4-06, D4-07). A

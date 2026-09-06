@@ -204,6 +204,26 @@ resource id per sentence** (`clause-pin.ts`).
   "how common", "how old"), or a treatment question naming a drug and a condition. It does **not**
   apply to "what is the evidence for X" or "does X work", which are genuine multi-paper syntheses
   and which this build already answers well.
+- **A question that names no treatment is never decomposed by treatment**
+  (`isOpenTreatmentQuestion`). An open "which medications" question - "Which anti-seizure
+  medications are contraindicated in SCN1A Dravet syndrome?" - has no clause structure at all, so
+  the only clauses available are the drugs `medicationsInResults` read off whatever retrieval
+  returned. That produced a **phenytoin** heading arguing phenytoin may be *beneficial* in Dravet
+  syndrome, then clause declines for cannabidiol and fenfluramine, neither of which the reader
+  had asked about: an inverted answer to the portal's most-tested question. A category comparison
+  now needs a **ranking cue** ("best", "highest", "safest", "better", "rank"), which is what
+  separates "which ASM has the best real-world retention" (decomposed, D8-13) from "which ASMs are
+  contraindicated" (one question).
+- **An open treatment question naming a syndrome pins that syndrome's guidance** (`guidancePin`).
+  A syndrome is a topic, not a cohort, so the loop 7 pin resolves nothing and retrieval hands the
+  generator every paper that mentions a drug and the syndrome - on this collection a single-centre
+  phenytoin case series at 1.00 above the international consensus statement at 0.97. The
+  collection's consensus statements, guidelines and management recommendations for the condition
+  the question names (by phrase, "SCN1A Dravet syndrome", or by tenant entity term, "Dravet") are
+  pinned instead, and the pinned ask is asked in the words guidance uses as well as the reader's
+  (`guidanceProbe`, a prequery) and told to name the medications and expand the reader's
+  abbreviations (`GUIDANCE_ADDENDUM`). The ordinary rule still holds: a pin whose papers the
+  question itself cannot find above the grounding floor is dropped, and retrieval is unchanged.
 - **Every clause resolves to one paper**, in this order: the names the clause itself uses (the
   loop 7 pin, run per clause), then the **medications and conditions that scope it**
   (`conditionNames`, `medicationNames`, `scopeResources` in `name-pin.ts` - a scope is deliberately
@@ -542,6 +562,24 @@ resource id per sentence** (`clause-pin.ts`).
   invisible. It now splits with the notes cut out, like the pass above it.
 
 ### Second-hand figures and sections
+- **"Second-hand" is defined against a Results section, so a paper without one is not judged on
+  its sections** (`reportsOwnResults`). A review article's headings are "Newly Approved Drugs",
+  "Investigational Drugs": the splitter reads its whole body as one long introduction, and every
+  figure in it looked second-hand. That is why "What fenfluramine dose is recommended in Dravet
+  syndrome, with and without stiripentol?" returned its four correct figures (0.7 mg/kg/day,
+  26 mg/day, 0.4, 17) and then called all four second-hand, from the review's own dosing
+  paragraph. With no Results section the provenance decision falls back to the paper's own
+  attribution cues alone ("as reported by", "et al.", a trailing reference marker).
+- **A proportion printed beside the group the paper counted is the paper's own count**
+  (`carriesOwnDenominator`): "(PHYSICIANS: n = 19, 100%)", "(n = 1,674, 23.6%)". Earlier work is
+  quoted as a claim, not as a denominator. This is what a consensus statement's recommendations
+  look like, and the extraction places them after the Discussion heading, so the Dravet
+  consensus's own panel vote read as second-hand and the whole lamotrigine recommendation was cut
+  out of the answer. The cue does not apply to a sentence that cites earlier work or ends on a
+  reference marker.
+- **The located passage is judged at the figure, not at the passage's first words**, and only
+  within that passage: an occurrence past its end, or in another section, is a different
+  occurrence and is not read as this one.
 - **A figure the cited paper carries only in its Introduction or Discussion is that paper citing
   other studies** (D2-06, D2-14, D3-08; PRs #11, #14). Table rows, figure legends and a line of
   bare statistics under its label are first-hand wherever the extraction placed them; a figure

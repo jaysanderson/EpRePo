@@ -1,9 +1,11 @@
 import { describe, it } from '@std/testing/bdd'
 import { expect } from '@std/expect'
 import {
+  carriesOwnDenominator,
   figureOffsets,
   hasBodyHeadings,
   markedSentences,
+  reportsOwnResults,
   secondhandFigures,
   secondhandNote,
   sectionAt,
@@ -174,5 +176,109 @@ describe('a figure the paper attributes to earlier work', () => {
       [{ text: 'The rate was 5.9 per 1000.', bound: [1] }],
       new Map([[1, 'No headings here. We found 5.9 per 1000 in our cohort.']]),
     )).toEqual([])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Papers that are not IMRaD articles (PR: the fenfluramine second-hand note)
+// ---------------------------------------------------------------------------
+
+/** A review: an abstract, one long body under numbered headings, a conclusion. */
+const REVIEW = [
+  ' Ameliorating Seizures in Dravet Syndrome: A Review ',
+  ' Abstract ',
+  ' We review newly approved and investigational drugs. ',
+  ' 1 Introduction ',
+  ' Dravet syndrome is a developmental and epileptic encephalopathy. ',
+  ' 3 Newly Approved Drugs ',
+  ' When fenfluramine is combined with stiripentol, a reduction in the maximum dose is',
+  ' recommended, from 0.7 mg/kg/day (maximum 26 mg/day) without stiripentol to 0.4 mg/kg/day',
+  ' (maximum 17 mg/day) on stiripentol. ',
+  ' 5 Conclusion ',
+  ' Several disease-modifying therapies are in trials. ',
+].join('\n')
+
+/** A consensus statement: its recommendations carry the panel vote behind them. */
+const CONSENSUS = [
+  ' International consensus on diagnosis and management of Dravet syndrome ',
+  ' Abstract ',
+  ' We gathered consensus from physicians and caregivers. ',
+  ' 1 | INTRODUCTION ',
+  ' Earlier surveys reported avoidance in 45% of centres.11 ',
+  ' 3 | RESULTS ',
+  ' All physicians (n = 20) and nine of 11 caregivers participated in both rounds. ',
+  ' 4 | DISCUSSION ',
+  ' Lamotrigine ',
+  ' Lamotrigine should be considered contraindicated in children with DS (physicians: n = 19, 79%). ',
+  ' Lamotrigine may have a very limited role in adults with refractory seizures due to DS, but',
+  ' should not be used until all appropriate agents have been trialed',
+  ' (PHYSICIANS: n = 19, 100%). ',
+].join('\n')
+
+describe('a paper with no Results section of its own', () => {
+  it('is not judged on its sections, so a review reports its own dosing', () => {
+    const spans = sectionSpans(REVIEW)
+    expect(hasBodyHeadings(spans)).toBe(true)
+    expect(reportsOwnResults(spans)).toBe(false)
+    // Without the rule every figure in the review's body sits in what the
+    // splitter calls its introduction, so all four were called second-hand.
+    expect(sectionAt(spans, REVIEW.indexOf('0.7'))).toBe('introduction')
+    expect(
+      secondhandFigures(
+        [{
+          text:
+            'The recommended dose is 0.7 mg/kg/day (maximum 26 mg/day), reduced to 0.4 mg/kg/day (maximum 17 mg/day) on stiripentol.',
+          bound: [1],
+        }],
+        new Map([[1, REVIEW]]),
+      ),
+    ).toEqual([])
+  })
+
+  it('still flags a figure the text itself attributes to earlier work', () => {
+    const quoting = REVIEW.replace(
+      ' recommended, from 0.7 mg/kg/day',
+      ' recommended, as reported by an earlier trial, from 0.7 mg/kg/day',
+    )
+    expect(
+      secondhandFigures(
+        [{ text: 'The dose is reduced to 0.7 mg/kg/day.', bound: [1] }],
+        new Map([[1, quoting]]),
+      ),
+    ).toEqual([{ figure: '0.7', index: 1 }])
+  })
+})
+
+describe('carriesOwnDenominator', () => {
+  it('reads a proportion printed beside the group the paper counted', () => {
+    expect(carriesOwnDenominator(CONSENSUS, CONSENSUS.indexOf('100%'))).toBe(true)
+    expect(carriesOwnDenominator(CONSENSUS, CONSENSUS.indexOf('79%'))).toBe(true)
+    // No parenthesis of its own, and a quotation of earlier work, are not.
+    expect(carriesOwnDenominator(CONSENSUS, CONSENSUS.indexOf('45%'))).toBe(false)
+    expect(
+      carriesOwnDenominator(
+        'the rate rose to (n = 40) 22% after 2020.[6]',
+        'the rate rose to (n = 40) '.length,
+      ),
+    ).toBe(false)
+  })
+
+  it("keeps a consensus recommendation's own vote out of the second-hand note", () => {
+    const spans = sectionSpans(CONSENSUS)
+    expect(reportsOwnResults(spans)).toBe(true)
+    expect(sectionAt(spans, CONSENSUS.indexOf('100%'))).toBe('discussion')
+    const passage =
+      'Lamotrigine may have a very limited role in adults with refractory seizures due to DS, but should not be used until all appropriate agents have been trialed (PHYSICIANS: n = 19, 100%).'
+    expect(
+      secondhandFigures(
+        [{
+          text:
+            'It may have a very limited role in adults with refractory seizures (physicians: n = 19, 100%).',
+          bound: [1],
+          located: [{ figure: '100%', index: 1, passage }],
+        }],
+        new Map([[1, CONSENSUS]]),
+      ),
+    ).toEqual([])
   })
 })

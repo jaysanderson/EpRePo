@@ -94,6 +94,27 @@ export function hasBodyHeadings(spans: readonly SectionSpan[]): boolean {
 }
 
 /**
+ * Whether the paper has a Results section at all. "Second-hand" is defined
+ * against one: a figure is the paper's own when it appears among its own
+ * results, and somebody else's when it appears only where the paper cites
+ * other work. A review article has no Results section - its headings are
+ * "Newly Approved Drugs", "Investigational Drugs" - so the splitter reads
+ * its whole body as one long introduction, and every figure in it looks
+ * second-hand. That is how the fenfluramine dosing question came back with
+ * its four correct figures (0.7 mg/kg/day, 26 mg/day, 0.4, 17) and a note
+ * calling all four second-hand: they sit in the review's own dosing
+ * paragraph, which is as first-hand as a review gets.
+ *
+ * With no Results section the section a figure sits in says nothing about
+ * where it came from, so provenance is decided on the paper's own
+ * attribution cues alone ("as reported by", "et al.", a numbered reference
+ * marker), which are unaffected.
+ */
+export function reportsOwnResults(spans: readonly SectionSpan[]): boolean {
+  return spans.some((s) => s.section === 'results')
+}
+
+/**
  * Offsets of every occurrence of a figure in the text, as a whole number.
  * A thousands separator in the text ("2,698") still matches "2698"; the
  * text itself is not rewritten, so offsets line up with the section spans.
@@ -164,6 +185,36 @@ export function speaksOfOwnWork(text: string, offset: number): boolean {
   if (/\bet al\.?/i.test(sentence)) return false
   return /\b(?:our|we)\s+(?:[a-z-]+\s+){0,3}(?:cohort|study|series|trial|analysis|analyses|data|results?|findings?|patients|participants|sample|population|observations?)\b|\bwe (?:found|observed|report|reported|showed|show|noted|identified|demonstrated)\b|\b(?:this|the present|the current) (?:study|trial|cohort|analysis|series|report|paper|investigation)\b|\bin (?:this|our) (?:study|trial|cohort|analysis|series)\b/i
     .test(sentence)
+}
+
+/**
+ * Whether the figure at an offset is printed with its own denominator inside
+ * the same parenthesis: "(PHYSICIANS: n = 19, 100%)", "(n = 1674, 23.6%)".
+ * A paper that prints the group it counted beside the proportion is counting
+ * it itself. Earlier work is quoted as a claim ("rose to over 22% after
+ * 2020[6]"), not as a denominator, so this reads the paper's own numbers
+ * wherever the extraction placed them.
+ *
+ * It is what a consensus statement's recommendations look like. The
+ * international Dravet consensus prints each recommendation with the panel
+ * vote behind it - "Lamotrigine may have a very limited role in adults ...
+ * (PHYSICIANS: n = 19, 100%)" - in a block the extraction puts after the
+ * Discussion heading, so the vote read as second-hand and the whole
+ * recommendation was cut out of the answer to "which anti-seizure
+ * medications are contraindicated in SCN1A Dravet syndrome?".
+ *
+ * A parenthesis that quotes earlier work is not the paper's own count, so a
+ * sentence carrying an attribution cue or a reference marker is excluded.
+ */
+export function carriesOwnDenominator(text: string, offset: number): boolean {
+  const before = text.slice(Math.max(0, offset - 200), offset)
+  const open = before.lastIndexOf('(')
+  if (open === -1) return false
+  const inside = before.slice(open + 1)
+  // The parenthesis is still open at the figure, and it carries a count.
+  if (inside.includes(')') || !/\bn\s*=\s*\d/i.test(inside)) return false
+  return !citesEarlierWork(text, offset) &&
+    !endsWithReferenceMarker(ownWorkSentence(text, offset))
 }
 
 /**
@@ -245,6 +296,16 @@ export function citesEarlierWork(text: string, offset: number): boolean {
 /** Sections where a paper's own findings live. */
 const OWN: ReadonlySet<Section> = new Set(['abstract', 'methods', 'results', 'conclusion', 'other'])
 
+/**
+ * How much longer a located passage is in the raw extraction than in the
+ * normalised text the audit quotes: the raw carries the line breaks,
+ * hyphenation and column gutters the normalisation collapsed, which on this
+ * corpus runs under a tenth of the passage. A quarter is generous and still
+ * ends well inside the paragraph, so a figure past the passage's end is a
+ * different occurrence and is not judged as this one.
+ */
+const PASSAGE_SLACK = 1.25
+
 export interface SecondhandFigure {
   figure: string
   /** Citation index of the paper the figure was attributed to. */
@@ -292,18 +353,35 @@ export function secondhandFigures(
         if (!text || !spans) continue
         const place = (sentence.located ?? []).find((l) => l.figure === figure && l.index === index)
         const at = place ? offsetOfPassage(text, place.passage) : -1
-        const offsets = at >= 0 ? [at] : figureOffsets(figure, text)
+        // Where the FIGURE sits inside the located passage, not where the
+        // passage begins. The passage runs to a paragraph, and a proportion
+        // several lines into it is judged on its own line's punctuation and
+        // its own parenthesis: "(PHYSICIANS: n = 19, 100%)" is a count, and
+        // the passage's opening words are not. It must be the same passage,
+        // so an occurrence past its end or in another section is not it.
+        const inPassage = at >= 0 && place
+          ? figureOffsets(figure, text).filter((o) =>
+            o >= at && o <= at + Math.ceil(place.passage.length * PASSAGE_SLACK) &&
+            sectionAt(spans, o) === sectionAt(spans, at)
+          )
+          : []
+        const offsets = at >= 0
+          ? (inPassage.length > 0 ? inPassage : [at])
+          : figureOffsets(figure, text)
         if (offsets.length === 0) continue
         // A table row or a figure legend is the paper's own data wherever
         // the extraction placed it (D3-08); a figure the paper's own
         // sentence attributes to earlier work ("based on previous
         // incidence data", "as reported by") is second-hand wherever it
         // sits, a Methods power calculation included. A text without
-        // body headings is judged on that attribution alone.
-        const sectioned = hasBodyHeadings(spans)
+        // body headings, and a paper with no Results section of its own
+        // (a review, a consensus statement), is judged on that attribution
+        // alone: see `reportsOwnResults`.
+        const sectioned = hasBodyHeadings(spans) && reportsOwnResults(spans)
         const sections = new Set(
           offsets.map((o) =>
-            inTableOrLegend(text, o) || speaksOfOwnWork(text, o)
+            inTableOrLegend(text, o) || speaksOfOwnWork(text, o) ||
+              carriesOwnDenominator(text, o)
               ? 'results'
               // A sentence that carries a numbered citation is quoting
               // other work whatever section it sits in (D5-15).

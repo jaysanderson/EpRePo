@@ -212,7 +212,10 @@ export const DOC_PAGES: DocPage[] = [
           'draws on two papers, because no part of the answer was written with two papers in ' +
           'front of it. Where a clause has no paper, the answer says so for that clause and ' +
           'answers the rest. Questions that ask what the evidence is for something, rather than ' +
-          'for a number, are still answered across papers.\n' +
+          'for a number, are still answered across papers. A question that names no medication ' +
+          'is never split by medication: "which medications are contraindicated in this ' +
+          'syndrome" is one question, and where the collection holds a consensus statement or ' +
+          'guideline for the condition you name, that is the paper it is answered from.\n' +
           '4. **The answer is written only from those passages.** Nothing is drawn from general ' +
           'knowledge or from the internet. Every sentence that states a finding carries a ' +
           'citation to the passage it came from (an item in a list takes the citation of the ' +
@@ -266,8 +269,11 @@ export const DOC_PAGES: DocPage[] = [
           "figure is kept but marked as second-hand, with the paper's own finding beside it - " +
           'and the marked sentence never leads the answer. What counts as second-hand is ' +
           'judged by the words, not the section: a figure a paper states in its own voice ' +
-          '("our cohort", "this trial", "we found"), or reports in its own abstract, is that ' +
-          "paper's finding wherever the extraction placed it. A finding the answer credits by " +
+          '("our cohort", "this trial", "we found"), reports in its own abstract, or prints ' +
+          'beside the group it counted ("physicians: n = 19, 100%"), is that ' +
+          "paper's finding wherever the extraction placed it, and a paper with no results " +
+          'section of its own - a review, a consensus statement - is judged on those words ' +
+          'alone. A finding the answer credits by ' +
           'name to authors who did not write the paper cited beside it ("Rajna and Veres ' +
           'showed ...") is that paper\'s account of earlier work, and is named as such under ' +
           'the answer whether or not it carries a figure.\n' +
