@@ -178,9 +178,90 @@ badge.
   `numbersMissing`. The layer is smaller after loop 7 than before it.
 - **What the pin does not do.** It fires only on a first turn (a follow-up is already scoped by
   the earlier turns' papers, an author question by that author's articles) and only when a name
-  resolves. A question that names no study, cohort or antibody - "what placebo responder rate
-  should I assume", "what is the adjusted hazard ratio for SUDEP" - retrieves exactly as it did
-  before, and the figure check is what stands behind it.
+  resolves. A question that names no study, cohort or antibody keeps the ordinary retrieval - but
+  since loop 8 it is usually decomposed into clauses first, below.
+
+### Clause pinning: the pin applied one level down
+
+This is the architecture change of loop 8 (`dsouza-loop8.md` section 6). The name pin works, and
+it works only where the question names something the catalogue resolves: 20 of 25 pinned asks were
+clean, and about **one clinician question in six** names such a thing. In the other five sixths the
+answer was still generated over a bag of ten papers, and that is where loop 8's defects clustered -
+12 of 26 unpinned asks carried one, including both P0s and five of the seven P1s.
+
+So a question is now decomposed into clauses **before** retrieval, each clause is resolved to one
+paper, each is answered as a **one-paper ask** and the answers are composed with **exactly one
+resource id per sentence** (`clause-pin.ts`).
+
+- **Decompose before retrieving.** A comparison is one clause per drug ("compare brivaracetam and
+  perampanel" is two questions whose answers live in two papers); a two-part question is one clause
+  per part; anything else is a single clause over the whole question. A comparison needs a
+  comparison cue - "compare", "versus", "which of", "better" - so "switched from levetiracetam to
+  brivaracetam" stays one question about one cohort, and a question that also names a study,
+  antibody or consortium is that study's question and is not split per drug (PA1a).
+- **Clause pinning applies where per-paper attribution is the right shape**: a comparison, a
+  question that asks for a quantity (`asksForQuantity`: the router's results rule plus "what share",
+  "how common", "how old"), or a treatment question naming a drug and a condition. It does **not**
+  apply to "what is the evidence for X" or "does X work", which are genuine multi-paper syntheses
+  and which this build already answers well.
+- **Every clause resolves to one paper**, in this order: the names the clause itself uses (the
+  loop 7 pin, run per clause), then the **medications and conditions that scope it**
+  (`conditionNames`, `medicationNames`, `scopeResources` in `name-pin.ts` - a scope is deliberately
+  wider than a pin, up to 60 papers, because *a drug scopes a clause and never pins an answer*),
+  then retrieval over the collection.
+  - **A condition scopes, so a different disease cannot answer.** "Is carbamazepine
+    contraindicated in juvenile myoclonic epilepsy" scopes to the JME papers, which is what keeps a
+    CLN2 disease guideline's "carbamazepine ... should be avoided" out of the answer (D8-08).
+  - **A clause with no subject of its own stays with the clause before it.** "... and how many
+    were female" is found both over the collection and inside the previous clause's paper, and it
+    leaves that paper only for a match 0.15 better. Answering it from whichever cohort paper ranks
+    next is exactly D8-03 (a neonatal channelopathy cohort's sex split offered as the sub-scalp
+    trial's).
+  - **The paper is chosen by shared phrase, not by score alone.** Semantic scores at the top of a
+    find sit within a point or two of each other and their order is not stable: "what placebo
+    responder rate should I assume" put a paediatric lacosamide trial at 0.94 and the pooled
+    placebo analysis the question is about at 0.93. Within a 0.15 band of the top score, the paper
+    sharing most adjacent content-word pairs with the clause wins - "placebo responder rate"
+    against "placebo response rate" (D8-01).
+  - **The framing a question carries for the portal is not part of what the paper is asked.** "For
+    a registrar teaching session: what does the collection say about ..." scored 0.19 against the
+    paper that answers it and 0.43 without the framing (D8-06).
+- **Each clause is answered as a document chat.** One `resource_filters` entry, the document-chat
+  prompt addendum plus a clause addendum naming the paper and the clause's drug, and the paper's
+  own tables and key-resources blocks as `extra_context` - the same shape `/ask` runs in for the
+  document chat that got right every figure Ask got wrong in loop 8. Measured on this build,
+  `rag_strategies: full_resource` here was both slower (117 s against 9 s on the same question) and
+  less accurate - it answered the UMPIRE cohort's age from the eligibility criteria rather than the
+  reported mean - so the one-paper ask uses document chat's own strategies, not the whole text.
+- **Composition carries hard attribution.** Every marker the generator wrote is stripped (it was
+  numbering a single-source context and means nothing), and each sentence of a clause's answer is
+  given the one marker of the paper that produced it. **No sentence can draw on two papers, because
+  no generation ever saw two.** That is what closes the marker defects of D8-04 for these questions
+  and makes D8-02 structurally impossible on this path: there is no shared pool from which a
+  removed figure can reappear.
+- **A block never remarks on the drug the block beside it answers for.** Asked only about
+  brivaracetam, a paper's answer closes "the paper does not provide data on perampanel, so no
+  comparison can be made" - true of that paper and false of the answer, whose next block is the
+  perampanel answer. Those sentences are dropped, and a block that is *only* a decline becomes a
+  named clause decline instead.
+- **A clause that resolves to nothing, or whose paper answers nothing, is declined by name** -
+  "*This collection holds no paper answering this question for perampanel.*" - and the rest of the
+  answer stands. The whole answer is refused only when no clause was answered at all, and then the
+  ordinary retrieval runs instead: clause pinning never turns a question the collection can answer
+  into a refusal.
+- **A question that names a study the catalogue does not hold never goes down this path**, so the
+  coverage decline of D7-08 still fires for RANSOM and ESETT.
+- **The composed answer is audited like any other.** It goes through the same binding, figure
+  check, gate, denominator and second-hand passes; the clause path changes what the generator sees,
+  not what the checker does.
+- **The rule clause pinning replaced, and deleted.** The **entity pin** of D2-03 - one extra
+  retrieval pass per named drug, whose top paper joined the grounding set so that "one drug's
+  figure is never read off the other drug's paper" - is gone (`entityPins`, `MAX_ENTITY_PINS` in
+  `ask-entities.ts`, and its call in the ask route). Loop 8 shows it did not achieve that: with
+  both entity papers in one grounding pool, U7 still printed the perampanel extension's 74.6% under
+  a heading that said Brivaracetam. Clause pinning makes the same guarantee structural, so the
+  extra passes bought nothing but latency. `comparisonEntities`, `entityQuery` and `pickEntityPaper`
+  stay: the decomposition and the briefing path use them.
 
 ### Routing and grounding before generation
 - **The grounding gate runs before generation, not after.** The platform reports its retrieval
@@ -757,6 +838,7 @@ PR #17). The ones that cover the trust layer:
 | `apps/api/src/answer-shape.test.ts` (32), `ask-stream-verify.test.ts` (8) | Reference-block stripping, sentinels on stream and text, truncation, table rows; the first verified sentence |
 | `apps/api/src/citation-binding.test.ts` (26) | Sentence binding, entity and rare-word rules, design terms, list items, table-row markers, renumbering |
 | `apps/api/src/answer-audit.test.ts` (32), `figure-normalisation.test.ts` (13, fifty figure rows from the four reports), `figure-rescue.test.ts` (18), `secondhand.test.ts` (12), `answer-gate.test.ts` (15), `loop4-guards.test.ts` (17), `loop5-locate.test.ts` (28, the loop 5 figures: located sentences and table rows, quantity phrases, thresholds, pairings, the cohort and stitch rules, offered findings and the protocol note), `ask-grounding.test.ts` (10), `loop8-removal.test.ts` (7, the removal invariant end to end, the arm rule, the denominator's own sentence, the rescue before a decline, the attribution and uncited notes) | Figure matching and normalisation, outcome and follow-up conflicts, denominators, contraindications, years; the rescue, cohort guard and replacement; section classification and second-hand figures; the gate, removal note, effect sizes and design lead; the loop 4 guards; locate first; `bindAndAudit` end to end with stubbed texts |
+| `apps/api/src/clause-pin.test.ts` (35), `loop8-clause-pin.test.ts` (4) | Decomposition, condition and medication scopes, clause resolution and inheritance, the phrase tie-break, framing strip, composition with one marker per sentence, clause declines; and the whole path end to end through `/ask` |
 | `apps/api/src/evidence-passages.test.ts` (6) | The card passage that carries the bound claims |
 | `apps/api/src/app.test.ts` (87) | The `/ask` route with a stub provider and management: routing, the grounding gate, fallback, pinned retry, withheld decline, the contraindication strip, document chat, author lookup, prequery expectations, the audit event |
 | `packages/retrieval/src/providers/arag/intents.test.ts` (12), `ask-structured.test.ts`, `display.test.ts` | Configuration names and filters, prequery construction, structured asks, refusal detection |
@@ -775,8 +857,10 @@ apps/api/src/app.ts                     the /api/t/:slug/ask route (steps 1 to 1
 apps/api/src/intent-router.ts           routing rules, classifier threshold, decision shape
 apps/api/src/catalog-lookup.ts          identifier, author and person-name resolution against the catalogue
 apps/api/src/study-guard.ts             study names, eponyms, described cohorts -> pinned papers
-apps/api/src/name-pin.ts                the retrieval pin: antibodies, consortia, acronyms, cohorts, drugs -> resource_filters
-apps/api/src/ask-entities.ts            per-entity pins, question clauses
+apps/api/src/name-pin.ts                the retrieval pin: antibodies, consortia, acronyms, cohorts, drugs -> resource_filters;
+                                        medication and condition scopes for a clause
+apps/api/src/clause-pin.ts              clause pinning: decompose -> resolve each clause to one paper -> one-paper ask -> compose
+apps/api/src/ask-entities.ts            question clauses, comparison entities, closest-match ranking
 apps/api/src/ask-author.ts              author scope, attribution correction, paper listings
 apps/api/src/ask-prequeries.ts          which mandatory prequeries fit; medication and treatment-decision tests
 apps/api/src/ask-session.ts             follow-up context: prior ids, passages, reformatting turns

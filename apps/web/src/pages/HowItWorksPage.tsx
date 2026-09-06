@@ -594,7 +594,7 @@ export function HowItWorksPage() {
           </Section>
 
           <Section id='answered'>
-            <P>Three things happen between the question and the answer:</P>
+            <P>Four things happen between the question and the answer:</P>
             <Steps>
               <li>
                 <strong className='font-semibold text-ink'>The question is routed.</strong>{' '}
@@ -610,6 +610,17 @@ export function HowItWorksPage() {
                 looked up by name and pinned into the sources, so it cannot be crowded out of them;
                 when the collection does not hold that study, the answer says so rather than
                 answering from a paper that only cites it.
+              </li>
+              <li>
+                <strong className='font-semibold text-ink'>
+                  A question that asks for a number is answered one paper at a time.
+                </strong>{' '}
+                A question that asks for a rate, a proportion, an age or a comparison is broken into
+                its clauses first, each clause is resolved to the one paper that answers it, and
+                each is answered from that paper alone. The answers are put together so that every
+                sentence carries exactly one citation: no sentence draws on two papers, because no
+                part of the answer was written with two papers in front of it. Where a clause has no
+                paper, the answer says so for that clause and answers the rest.
               </li>
               <li>
                 <strong className='font-semibold text-ink'>
