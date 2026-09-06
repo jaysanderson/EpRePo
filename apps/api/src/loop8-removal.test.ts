@@ -156,6 +156,34 @@ const VEM = 'Association Between Psychiatric Comorbidities and Mortality in Epil
   '2.9-4.4) in those with a lifetime psychiatric disorder and 2.5 (95% CI 1.9-3.2) in those ' +
   'without.\n\nDiscussion\n\nThe cohort is large.'
 
+describe('a heading whose every sentence was removed goes with them', () => {
+  it('leaves no bold label standing over nothing', () => {
+    const bound = {
+      text: '**Perampanel:**\n- Retention at 12 months was 75%.',
+      layout: [
+        { kind: 'raw' as const, text: '**Perampanel:**' },
+        { kind: 'sentences' as const, prefix: '- ', sentences: [0] },
+      ],
+      sentences: [
+        { text: 'Retention at 12 months was 75%.', bound: [1], line: 1, original: [1], block: [] },
+      ],
+      citations: [{ index: 1, resourceId: 'a', title: 'A' }],
+      usable: [1],
+      named: [1],
+      dropped: 0,
+      rebound: 0,
+    }
+    const gated = gateFigures(bound, [{
+      sentence: 'Retention at 12 months was 75%.',
+      figure: '75%',
+      supported: false,
+      reason: 'entity' as const,
+      supportedBy: [],
+    }], [1])
+    expect(gated.text.trim()).toBe('')
+  })
+})
+
 describe('the paper the decline would name is read first (D8-11, D3-02)', () => {
   it("quotes the paper's own sentence rather than refusing a question it answers", async () => {
     const result = await bindAndAudit({

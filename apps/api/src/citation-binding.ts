@@ -805,15 +805,44 @@ export function tableRowMarkers(line: string): string {
  * The answer text from its layout: each sentence followed by its markers in
  * ascending order, a line whose every sentence was removed dropped with it.
  */
+/** A Markdown heading, or a bold label on a line of its own, that introduces what follows. */
+export function isLabelLine(text: string): boolean {
+  const trimmed = text.trim()
+  return /^#{1,6}\s/.test(trimmed) || /^\*\*[^*]+\*\*:?$/.test(trimmed)
+}
+
 export function renderBound(
   layout: readonly BoundLine[],
   sentences: readonly BoundSentence[],
   removed: ReadonlySet<number> = new Set(),
 ): string {
   const lines: string[] = []
-  for (const line of layout) {
+  // A heading or a bold label whose every sentence was removed is a
+  // promise the answer no longer keeps: "**Perampanel:**" over nothing at
+  // all (docs/persona-reports/dsouza-loop8.md, the retention comparison
+  // after the gate took the perampanel rows). It goes with them.
+  const empty = new Set<number>()
+  for (let i = 0; i < layout.length; i++) {
+    const line = layout[i]!
+    if (line.kind !== 'raw' || !isLabelLine(line.text)) continue
+    let anything = false
+    for (let j = i + 1; j < layout.length; j++) {
+      const next = layout[j]!
+      if (next.kind === 'raw') {
+        if (isLabelLine(next.text)) break
+        continue
+      }
+      if (next.sentences.some((n) => !removed.has(n))) {
+        anything = true
+        break
+      }
+    }
+    if (!anything) empty.add(i)
+  }
+  for (let index = 0; index < layout.length; index++) {
+    const line = layout[index]!
     if (line.kind === 'raw') {
-      lines.push(line.text)
+      if (!empty.has(index)) lines.push(line.text)
       continue
     }
     const kept = line.sentences.filter((i) => !removed.has(i))
