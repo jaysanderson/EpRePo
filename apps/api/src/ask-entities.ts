@@ -1,27 +1,20 @@
 /**
- * Per-entity grounding for a question that names several things at once
+ * What a question names, and how it comes apart
  * (docs/persona-reports/dsouza-loop2.md D2-03, D2-05, D2-08).
  *
- * A comparison ("perampanel versus brivaracetam") retrieved on the whole
- * question grounds on whichever paper the merged ranking likes, so one
- * drug's figure was read off the other drug's paper. The fix leverages the
- * platform: the routed stored configuration runs once per named entity
- * and the top paper for each joins the grounding set through its own
- * `resource_filters` prequery, before generation. A two-part question about
- * one named paper ("what are the criteria, and what proportion met them")
- * likewise runs each clause against the pinned paper, so retrieval reads
- * more of that paper before the answer declares anything absent.
+ * The clauses of a multi-part question, the drugs and studies a comparison
+ * names, the retrieval text for one of them, and the ranking that chooses
+ * which papers a decline names. Clause pinning (clause-pin.ts) builds on
+ * all of it: a comparison is now answered one paper at a time rather than
+ * being grounded on several papers at once and checked afterwards.
  *
- * Everything here is deterministic; the only platform call is the search
- * function the caller passes in, so the module is tested with a stub.
+ * Everything here is deterministic and pure, so the module is tested
+ * without the platform.
  */
 import type { ScoredResource } from '@research-portal/core'
 import { isMedicationTerm } from './ask-prequeries.ts'
 import { isResultsQuestion, lexiconEntities } from './intent-router.ts'
 import { isAttachmentTitle, studyAcronyms } from './study-guard.ts'
-
-/** How many entities a question may ground separately. */
-export const MAX_ENTITY_PINS = 3
 
 /**
  * The clauses of a multi-part question, each a standalone retrieval query:
@@ -102,50 +95,6 @@ export function pickEntityPaper(
   const word = new RegExp(`(?:^|[^a-z0-9])${escape(entity.toLowerCase())}(?=$|[^a-z0-9])`)
   return articles.find((r) => word.test(r.title.toLowerCase())) ??
     articles.find((r) => mentionsEntity(r, entity))
-}
-
-export interface EntityPin {
-  entity: string
-  id: string
-  title: string
-  /** The retrieved paper itself, for the sources rail. */
-  paper: ScoredResource
-}
-
-/**
- * One retrieval per named entity on the routed configuration, merged into
- * a list of papers to pin. Entities a pinned paper's title already names
- * are skipped (the study guard has them). Failures leave the entity
- * unpinned rather than failing the ask.
- */
-export async function entityPins(
-  query: string,
-  entities: readonly string[],
-  alreadyPinned: readonly { id: string; title: string }[],
-  search: (text: string) => Promise<readonly ScoredResource[]>,
-): Promise<EntityPin[]> {
-  if (entities.length < 2) return []
-  const wanted = entities.filter((e) =>
-    !alreadyPinned.some((p) => mentionsEntity({ title: p.title }, e))
-  ).slice(0, MAX_ENTITY_PINS)
-  const found = await Promise.all(
-    wanted.map(async (entity) => {
-      try {
-        const results = await search(entityQuery(query, entity, entities))
-        const paper = pickEntityPaper(results, entity)
-        return paper ? { entity, id: paper.id, title: paper.title, paper } : null
-      } catch {
-        return null
-      }
-    }),
-  )
-  const out: EntityPin[] = []
-  for (const pin of found) {
-    if (pin && !out.some((p) => p.id === pin.id) && !alreadyPinned.some((p) => p.id === pin.id)) {
-      out.push(pin)
-    }
-  }
-  return out
 }
 
 /**

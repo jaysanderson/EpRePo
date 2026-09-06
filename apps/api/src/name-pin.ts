@@ -24,6 +24,7 @@
  * the pinned papers actually address the question - lives in the ask route.
  */
 import type { ResourceSummary } from '@research-portal/core'
+import { isMedicationTerm } from './ask-prequeries.ts'
 import { GENERIC_ACRONYMS } from './intent-router.ts'
 import {
   bestTitleMatch,
@@ -424,4 +425,221 @@ export function pinAddendum(pin: NamePin): string {
     'declare absent something the supplied passages contain, and never state a figure that no ' +
     "supplied passage carries. Do not write a paper's title into the prose: the citation " +
     'marker identifies which paper each sentence came from.'
+}
+
+// ---------------------------------------------------------------------------
+// Clause scopes: the medications and conditions of the entity graph
+// (docs/persona-reports/dsouza-loop8.md section 6, step 2)
+// ---------------------------------------------------------------------------
+
+/**
+ * The head nouns a condition or syndrome phrase ends on. "Epilepsy" alone is
+ * the corpus, not a condition; it names a condition only under a qualifier
+ * ("juvenile myoclonic epilepsy", "drug-resistant epilepsy"), which is why
+ * every match here needs at least one leading word of its own.
+ */
+const CONDITION_HEAD =
+  '(?:epilepsy|epilepsies|encephalitis|encephalopathy|encephalopathies|syndrome|seizures?|disease|disorder|epilepticus|sclerosis|dysplasia|spasms|convulsions?)'
+
+/**
+ * Leading words that qualify nothing: articles, prepositions and the words a
+ * question puts in front of a condition without narrowing it ("people with
+ * epilepsy", "the risk of epilepsy"). A phrase whose only leading word is
+ * one of these is the bare head noun again.
+ */
+const NOT_A_QUALIFIER = new Set([
+  'the',
+  'a',
+  'an',
+  'with',
+  'in',
+  'of',
+  'for',
+  'and',
+  'or',
+  'to',
+  'from',
+  'on',
+  'at',
+  'by',
+  'people',
+  'patients',
+  'person',
+  'adults',
+  'children',
+  'infants',
+  'women',
+  'men',
+  'their',
+  'its',
+  'this',
+  'that',
+  'these',
+  'those',
+  'have',
+  'has',
+  'had',
+  'is',
+  'are',
+  'was',
+  'were',
+  'do',
+  'does',
+  'did',
+  'all',
+  'any',
+  'some',
+  'other',
+  'both',
+  'new',
+  'risk',
+  'death',
+  'onset',
+  'treatment',
+  'management',
+  'diagnosis',
+  'incidence',
+  'prevalence',
+  'mortality',
+  'burden',
+  'history',
+  // Verbs and adverbs a question puts in front of its subject: "how often
+  // functional seizures", "stress increase seizure", "compare seizure".
+  'often',
+  'common',
+  'many',
+  'much',
+  'long',
+  'likely',
+  'frequent',
+  'compare',
+  'compared',
+  'increase',
+  'increases',
+  'increased',
+  'reduce',
+  'reduces',
+  'reduced',
+  'predict',
+  'predicts',
+  'affect',
+  'affects',
+  'become',
+  'becomes',
+  'cause',
+  'causes',
+  'misdiagnosed',
+  'diagnosed',
+  'associated',
+  'report',
+  'reports',
+  'reported',
+  'say',
+  'says',
+  'as',
+  'after',
+  'before',
+  'during',
+  'between',
+  'about',
+  'per',
+  'first',
+  'second',
+  'third',
+  'day',
+  'days',
+  'week',
+  'weeks',
+  'month',
+  'months',
+  'year',
+  'years',
+  'rate',
+  'rates',
+  'ratio',
+  'proportion',
+  'percentage',
+  'share',
+  'number',
+  'evidence',
+  'trial',
+  'trials',
+  'study',
+  'studies',
+  'cohort',
+  'analysis',
+])
+
+/**
+ * The conditions and syndromes a question names, longest qualifier first:
+ * "juvenile myoclonic epilepsy", "drug-resistant epilepsy", "autoimmune
+ * encephalitis", "functional seizures", "CLN2 disease". A condition does not
+ * pin an answer - many papers are about one condition - but it scopes a
+ * clause, which is what keeps a CLN2 guideline out of a question about
+ * juvenile myoclonic epilepsy (D8-08).
+ */
+export function conditionNames(query: string): string[] {
+  const out: string[] = []
+  const pattern = new RegExp(
+    `((?:[A-Za-z][A-Za-z0-9'’-]*\\s+){1,3})(${CONDITION_HEAD})\\b`,
+    'gi',
+  )
+  for (const m of query.matchAll(pattern)) {
+    const lead = m[1]!.trim().split(/\s+/)
+    // Keep the longest tail of the leading words that are real qualifiers,
+    // so "in people with drug-resistant epilepsy" keeps "drug-resistant".
+    let start = lead.length
+    while (start > 0 && !NOT_A_QUALIFIER.has(lead[start - 1]!.toLowerCase())) start--
+    const qualifiers = lead.slice(start)
+    if (qualifiers.length === 0) continue
+    const phrase = `${qualifiers.join(' ')} ${m[2]}`.toLowerCase()
+    if (!out.includes(phrase)) out.push(phrase)
+  }
+  return out
+}
+
+/** The lexicon medications a question names, in the order it names them. */
+export function medicationNames(query: string, lexicon: readonly string[]): string[] {
+  const lower = query.toLowerCase()
+  const out: string[] = []
+  for (const term of lexicon) {
+    const t = term.trim()
+    if (!t || !isMedicationTerm(t)) continue
+    if (new RegExp(`(?:^|[^a-z0-9])${escape(t.toLowerCase())}(?=$|[^a-z0-9])`).test(lower)) {
+      if (!out.includes(t)) out.push(t)
+    }
+  }
+  return out
+}
+
+/**
+ * A scope this wide is the collection, not a scope: constraining retrieval
+ * to it changes nothing and costs a filter the platform has to carry.
+ */
+export const MAX_SCOPE_RESOURCES = 60
+
+/**
+ * The papers a medication or condition scopes: every article whose title or
+ * generated summary names it. Unlike a pin this is deliberately generous -
+ * a drug scopes a clause, it never pins an answer - and it resolves to
+ * nothing when it reaches more papers than a scope can usefully hold.
+ */
+export function scopeResources(
+  terms: readonly string[],
+  catalogue: readonly ResourceSummary[],
+): string[] {
+  if (terms.length === 0) return []
+  const articles = catalogue.filter((r) => !isAttachmentTitle(r.title))
+  const out: string[] = []
+  for (const term of terms) {
+    const name: QuestionName = { text: term, kind: 'term', words: words(term) }
+    if (name.words.length === 0) continue
+    const matched = articles.filter((r) =>
+      carriesPhrase(r.title, name) || carries(r.title, name) ||
+      carriesPhrase(r.summary ?? '', name) || carries(r.summary ?? '', name)
+    )
+    if (matched.length === 0 || matched.length > MAX_SCOPE_RESOURCES) continue
+    for (const r of matched) if (!out.includes(r.id)) out.push(r.id)
+  }
+  return out.slice(0, MAX_SCOPE_RESOURCES)
 }
