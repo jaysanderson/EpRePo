@@ -31,6 +31,34 @@ D3-02 regression, D8-01, part of D8-04, and D8-18; How this works is rewritten t
 checks. Left: D8-03, D8-06, D8-12, D8-13, D8-14 (clause decomposition and composition, batch m1),
 D8-07 to D8-10, D8-15 to D8-17, D8-19, D8-20.
 
+## PR (this loop) - 6 September 2026 - D'Souza loop 8 (m1): clause pinning - a question is answered one paper at a time
+
+For the reader: ask "if I am powering an add-on trial, what placebo responder rate should I assume,
+and from how many patients is that estimate drawn?" and the portal answers 23.6% of 1,674, from the
+pooled placebo analysis - the same figure it gives when you name that analysis. It used to answer
+22% of 1,674 under a High confidence badge, pairing a mixture-model subgroup's rate with the whole
+cohort's denominator while the paper's own contradicting sentence sat in the evidence list three
+centimetres below. Ask it to compare brivaracetam and perampanel and each drug's retention rate now
+sits under its own heading, cited to its own paper, instead of a perampanel extension's 74.6%
+printed under a heading that said Brivaracetam.
+
+What changed: a question that asks for a quantity, compares two treatments, or weighs a drug in a
+condition is now broken into clauses BEFORE retrieval; each clause is resolved to one paper - by the
+names it uses, then by the medications and conditions that scope it (a drug scopes a clause and
+never pins an answer), then by retrieval, with a clause that has no subject of its own staying with
+the clause before it; each clause is answered as a one-paper ask, exactly as document chat is
+constrained; and the answers are composed so that every sentence carries exactly one citation
+marker. No sentence can draw on two papers, because no generation ever saw two. A clause that
+resolves to nothing, or whose paper answers nothing, is declined by name and the rest of the answer
+stands; when no clause is answered at all the ordinary retrieval runs instead, so clause pinning
+never turns an answerable question into a refusal. The framing a question carries for the portal
+("for a registrar teaching session:") is stripped before the corpus sees it, and the paper for a
+clause is chosen by the phrase it shares with the question rather than by a semantic score that
+puts a paediatric lacosamide trial one point above the pooled placebo analysis. Deleted with it:
+the per-entity retrieval pin of D2-03, which existed so that "one drug's figure is never read off
+the other drug's paper" and demonstrably did not achieve it. Closes D8-01, D8-14, D8-13, D8-06 and
+the D8-03 substitution; improves D8-04, D8-05 and PA1a.
+
 ## PR (this loop) - 6 September 2026 - D'Souza loop 7 (l1): retrieval is pinned to what the question names
 
 For the reader: ask "in anti-LGI1 antibody encephalitis, what proportion of patients relapsed, and

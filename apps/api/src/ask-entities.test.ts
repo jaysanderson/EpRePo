@@ -3,7 +3,6 @@ import { expect } from '@std/expect'
 import type { ScoredResource } from '@research-portal/core'
 import {
   comparisonEntities,
-  entityPins,
   entityQuery,
   isConferenceTitle,
   pickEntityPaper,
@@ -96,40 +95,6 @@ describe('pickEntityPaper', () => {
   it('falls back to a passage mention and returns nothing when neither matches', () => {
     expect(pickEntityPaper(results.slice(0, 2), 'perampanel')?.id).toBe('brv')
     expect(pickEntityPaper(results, 'cenobamate')).toBeUndefined()
-  })
-})
-
-describe('entityPins', () => {
-  it('runs one search per entity not already pinned and merges the top paper for each', async () => {
-    const searched: string[] = []
-    const pins = await entityPins(
-      'retention for perampanel versus brivaracetam',
-      ['perampanel', 'brivaracetam'],
-      [{ id: 'exp', title: 'EXPERIENCE: brivaracetam pooled analysis' }],
-      (text) => {
-        searched.push(text)
-        return Promise.resolve([scored('per', 'PERMIT study: perampanel in routine practice')])
-      },
-    )
-    expect(searched).toEqual(['perampanel: retention for perampanel'])
-    expect(pins.map((p) => ({ entity: p.entity, id: p.id, title: p.title }))).toEqual([{
-      entity: 'perampanel',
-      id: 'per',
-      title: 'PERMIT study: perampanel in routine practice',
-    }])
-    expect(pins[0]?.paper.id).toBe('per')
-  })
-  it('needs two entities and survives a failed search', async () => {
-    expect(await entityPins('perampanel retention', ['perampanel'], [], () => Promise.reject()))
-      .toEqual([])
-    expect(
-      await entityPins(
-        'a vs b',
-        ['perampanel', 'brivaracetam'],
-        [],
-        () => Promise.reject(new Error('x')),
-      ),
-    ).toEqual([])
   })
 })
 

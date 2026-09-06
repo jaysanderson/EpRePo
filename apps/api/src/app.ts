@@ -19,6 +19,7 @@ import {
   TypographyChoiceSchema,
 } from '@research-portal/core'
 import type {
+  AskEvent,
   Citation,
   FacetCounts,
   MigrationEvent,
@@ -81,10 +82,16 @@ import {
   wordCount,
 } from './intent-router.ts'
 import { isAttachmentTitle, matchStudies } from './study-guard.ts'
+import {
+  answerByClause,
+  clauseAddendum,
+  clausePinningApplies,
+  medicationPapers,
+  medicationsInResults,
+} from './clause-pin.ts'
 import { type NamePin, pinAddendum, resolvePin } from './name-pin.ts'
 import {
   comparisonEntities,
-  entityPins,
   isConferenceTitle,
   isDemographicQuestion,
   pinnedAddendum,
@@ -3861,27 +3868,19 @@ export function buildApp(opts: BuildAppOptions): Hono {
       // The papers a cohort designator matched: the cohort's own papers for
       // the question-level guard, whatever their titles carry (D4-01).
       const cohortIds = pinned.filter((p) => p.kind === 'cohort').map((p) => p.id)
-      // Grows with the top paper per named entity (below); read after the
-      // entity pins resolve, so every later use sees the full set.
       const pinnedIds = pinned.map((p) => p.id)
       const pinnedTitles = pinned.map((p) => p.title)
-      // A comparison names two or more drugs or studies: each gets its own
-      // pass on the routed configuration and its top paper joins the
-      // grounding set (D2-03), so one drug's figure is never read off the
-      // other drug's paper. Runs beside the probe below.
+      // The entity pin of D2-03 - one retrieval pass per named drug, whose
+      // top paper joined the grounding set - is gone. It was there so that
+      // "one drug's figure is never read off the other drug's paper", and
+      // loop 8 shows it did not achieve that: with both entity papers in one
+      // grounding pool, U7 still printed the perampanel extension's 74.6%
+      // under a heading that said Brivaracetam (D8-14). Clause pinning below
+      // answers each drug from its own paper in its own generation, which is
+      // the same guarantee made structural, so the extra passes bought
+      // nothing but latency. `comparisonEntities` stays: it still tells the
+      // rest of the route that the question names more than one thing.
       const entities = !documentScope && firstTurn ? comparisonEntities(query, lexicon) : []
-      const entityPinsPending = entities.length >= 2
-        ? entityPins(
-          query,
-          entities,
-          pinned,
-          (text) =>
-            provider.search(config, text, {
-              ...(askOpts.intent ? { intent: askOpts.intent } : {}),
-              pageSize: 6,
-            }).then((found) => found.resources),
-        )
-        : Promise.resolve([])
       // The pinned papers as the portal's own retrieval found them: a pinned
       // paper grounds and is cited through its prequery even when the
       // platform's retrieval item omits it, and the rail must still show it.
@@ -3907,8 +3906,13 @@ export function buildApp(opts: BuildAppOptions): Hono {
       const evidenceSeeking =
         /\b(evidence|safe|safety|risk|risks|effect|effects|impact|impacts|compare|comparison|versus|\bvs\b|harm|cause|caused)\b/i
           .test(query)
+      // A question clause pinning will take (a comparison, a quantity, a drug
+      // in a condition) is decomposed into clauses instead, and the clauses
+      // are asked one paper at a time: the sub-question decomposition would
+      // be seven seconds of dead time before a path that never uses it.
       const decompositionPending =
         evidenceSeeking && !isResultsQuestion(query) && !askOpts.prequeries?.length && firstTurn &&
+          !clausePinningApplies(query, lexicon) &&
           decomposable(query) && opts.management
           ? Promise.race([
             opts.management.askStructured(
@@ -3978,13 +3982,6 @@ export function buildApp(opts: BuildAppOptions): Hono {
         intentDef = intents.find((i) => i.id === decision.intent)
         askOpts.intent = decision.intent
         await send({ type: 'route', decision })
-      }
-      for (const pin of await entityPinsPending) {
-        if (!pinnedIds.includes(pin.id)) {
-          pinnedIds.push(pin.id)
-          pinnedTitles.push(pin.title)
-          pinnedPreview.push(pin.paper)
-        }
       }
       // A two-part question about a pinned paper runs each clause against
       // it as its own retrieval pass (D2-05, D2-08).
@@ -4771,6 +4768,170 @@ export function buildApp(opts: BuildAppOptions): Hono {
         topicPinId: topicPinId(),
         pinScoped: pinIds.length > 0,
       })
+      // CLAUSE PINNING (clause-pin.ts; docs/persona-reports/dsouza-loop8.md
+      // section 6). The loop 7 pin works only where the question names
+      // something the catalogue resolves - about one clinician question in
+      // six - and the failures cluster in the other five: a mixture-model
+      // subgroup's rate paired with the pooled analysis set's n, a neonatal
+      // cohort's sex split offered as the sub-scalp trial's, a perampanel
+      // extension's figure under a heading that says Brivaracetam. So the
+      // pin is applied one level down. A question that asks for a quantity,
+      // compares two drugs, or weighs a drug in a condition is decomposed
+      // into clauses BEFORE retrieval; each clause is resolved to one paper
+      // (its own names first, then the medications and conditions that scope
+      // it, then retrieval, and a clause with no subject of its own stays
+      // with the clause before it); each is answered as a one-paper ask on
+      // `resource_filters` with `rag_strategies: full_resource`, exactly as
+      // document chat is constrained; and the answers are composed with one
+      // resource id per sentence, so no sentence can draw on two papers. A
+      // clause that resolves to nothing is declined by name and the rest of
+      // the answer stands. Nothing resolving, or every one-paper ask coming
+      // back empty, falls through to the ordinary attempts below.
+      let clauseAnswered = false
+      // A question that names a study no catalogued title carries is the
+      // coverage decline's question, not a clause question: answering its
+      // nearest neighbour by clause would undo D7-08.
+      const namesAbsentStudy = (() => {
+        const named = documentScope ? null : namedStudy(query)
+        const head = named?.split(' ')[0] ?? ''
+        if (!named || !head) return false
+        const pattern = new RegExp(`\\b${head.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i')
+        return !catalogue.some((r) => pattern.test(r.title))
+      })()
+      if (
+        !documentScope && firstTurn && !reformat && opts.management && !namesAbsentStudy &&
+        clausePinningApplies(query, lexicon)
+      ) {
+        /** A clause needs a paper this much better before it leaves the clause before it. */
+        const CLAUSE_SWITCH_MARGIN = 0.2
+        let clauseEventsForwarded = false
+        let clauseQuality: AskEvent | null = null
+        const findFor = (text: string, resourceIds?: readonly string[]) =>
+          provider.search(config, text, {
+            pageSize: 8,
+            ...(resourceIds && resourceIds.length > 0 ? { resourceIds: [...resourceIds] } : {}),
+          }).then((found) => found.resources, () => [] as ScoredResource[])
+        try {
+          const composed = await answerByClause(query, {
+            catalogue,
+            lexicon,
+            floor: GROUNDING_FLOOR,
+            margin: CLAUSE_SWITCH_MARGIN,
+            find: findFor,
+            pin: (text) => resolvePin(text, merchandisedCatalogue, lexicon),
+            categoryMembers: async () =>
+              medicationsInResults(
+                await findFor(query, medicationPapers(catalogue, lexicon)),
+                lexicon,
+              ),
+            askOne: async (group) => {
+              // The first clause's own progress and quality events are the
+              // answer's: the reader watches one set of stages, and the
+              // platform's REMi scores ride with the composed answer rather
+              // than being dropped on the floor (they are sent after `done`,
+              // where the surface expects them).
+              const lead = !clauseEventsForwarded
+              clauseEventsForwarded = true
+              let text = ''
+              let refused = false
+              let found: ScoredResource[] = []
+              // Document chat's own extra context: the paper's pipe tables
+              // and key-resources block, which paragraph retrieval misses and
+              // which carry the n a figure sits beside.
+              let blocks: string[] = []
+              if (opts.management) {
+                try {
+                  blocks = documentContextBlocks(
+                    await extractionText(opts.management, config, group.resourceId),
+                  )
+                } catch {
+                  // The paper's own retrieval still grounds the clause.
+                }
+              }
+              for await (
+                const event of provider.ask(config, group.query, {
+                  ...(blocks.length > 0 ? { extraContext: blocks } : {}),
+                  // Exactly the shape document chat runs in - one resource on
+                  // `resource_filters`, the default neighbouring-paragraph
+                  // expansion, no intent configuration and no prequeries.
+                  // Measured on this build: `rag_strategies: full_resource`
+                  // here was both slower (117 s against 9 s on the same
+                  // question) and less accurate - it answered the UMPIRE
+                  // cohort's age from the eligibility criteria rather than
+                  // the reported mean - because the whole paper crowds out
+                  // the passages that carry the figure.
+                  resourceId: group.resourceId,
+                  promptAddendum: clauseAddendum(group),
+                  noRefusalRetry: true,
+                  ...(settings.ask ? { systemPrompt: settings.ask } : {}),
+                })
+              ) {
+                if (event.type === 'delta') {
+                  if (!text.trim() && looksLikeProviderDecline(event.text)) continue
+                  text += event.text
+                } else if (event.type === 'sources') found = event.resources
+                else if (event.type === 'done') {
+                  refused = Boolean(event.refused)
+                  if (event.text) text = event.text
+                } else if (event.type === 'usage') record.durationSec = event.totalSec ?? null
+                else if (event.type === 'quality') {
+                  record.answerRelevance = event.answerRelevance
+                  record.groundedness = event.groundedness
+                  record.contextRelevance = event.contextRelevance
+                  if (lead) clauseQuality = event
+                } else if (event.type === 'error') record.failed = true
+                else if (lead && (event.type === 'stage' || event.type === 'learning')) {
+                  await send(event)
+                }
+              }
+              return { text: refused ? '' : text, sources: found }
+            },
+            onPlan: async ({ groups, declined }) => {
+              // The clauses as the reader would write them - never the ask
+              // text, which carries the portal's own instructions to the
+              // generator and has no business on the page.
+              const shown = [...groups.flatMap((g) => g.clauses), ...declined]
+                .map((c) => c.entity ?? c.label)
+              if (shown.length > 1) await send({ type: 'searched', queries: shown })
+            },
+            onBlock: async (delta) => {
+              const out = stripFenceLines(sentinels.push(delta))
+              if (out) await send({ type: 'delta', text: out })
+            },
+          })
+          if (composed && composed.text.trim()) {
+            heldCitations = composed.citations
+            answerText = composed.text
+            const shaped = merchandiseSources(
+              enrichments,
+              config.slug,
+              withoutReferencePassages(composed.sources),
+            )
+            if (shaped.length > 0) {
+              lastSources = shaped
+              bestRelevance = shaped.reduce((m, r) => Math.max(m, r.relevance), 0)
+              warmTexts(shaped)
+              await send({ type: 'sources', resources: shaped })
+            }
+            await finishAnswered(composed.text)
+            // The platform's own quality scores follow the answer, as they do
+            // on the ordinary path.
+            if (finished && clauseQuality) await send(clauseQuality)
+            // The audit may still send the answer back for the one retry it
+            // is entitled to; only a finished answer skips the ordinary path.
+            if (finished) clauseAnswered = true
+            else {
+              retry = null
+              answerText = ''
+              heldCitations = []
+            }
+          }
+        } catch {
+          // Clause pinning is best-effort: a platform failure inside it
+          // leaves the ordinary retrieval below to answer the question.
+        }
+      }
+      if (clauseAnswered) attempts.length = 0
       for (let attempt = 0; attempt < attempts.length; attempt++) {
         current = attempts[attempt]!
         answerText = ''

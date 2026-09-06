@@ -177,7 +177,7 @@ export const DOC_PAGES: DocPage[] = [
       },
       {
         heading: 'How a question is answered',
-        body: 'Three things happen between the question and the answer:\n\n' +
+        body: 'Four things happen between the question and the answer:\n\n' +
           '1. **The question is routed.** The portal reads the question and chooses the retrieval ' +
           'configuration that suits it: an identifier or a bare term is an exact lookup that ' +
           'lists the documents; a question about choosing or dosing a treatment is a clinical ' +
@@ -201,7 +201,19 @@ export const DOC_PAGES: DocPage[] = [
           'the names resolved to, the paper that does answer it joins them. When the collection ' +
           'does not hold a study the question names, the answer says so rather than answering ' +
           'from a paper that only cites it.\n' +
-          '3. **The answer is written only from those passages.** Nothing is drawn from general ' +
+          '3. **A question that asks for a number is answered one paper at a time.** A question ' +
+          'that asks for a rate, a proportion, an age or a comparison is first broken into its ' +
+          'clauses - "compare brivaracetam and perampanel" is two questions, "how old were the ' +
+          'participants and how many were female" is two clauses about one study - and each ' +
+          'clause is resolved to the one paper that answers it, using the names it uses and the ' +
+          'medications and conditions it mentions. Each clause is then answered from that paper ' +
+          'alone, the way a question about a single document is answered, and the answers are ' +
+          'put together so that **every sentence carries exactly one citation**: no sentence ' +
+          'draws on two papers, because no part of the answer was written with two papers in ' +
+          'front of it. Where a clause has no paper, the answer says so for that clause and ' +
+          'answers the rest. Questions that ask what the evidence is for something, rather than ' +
+          'for a number, are still answered across papers.\n' +
+          '4. **The answer is written only from those passages.** Nothing is drawn from general ' +
           'knowledge or from the internet. Every sentence that states a finding carries a ' +
           'citation to the passage it came from (an item in a list takes the citation of the ' +
           'paragraph it belongs to), and opening the citation shows that passage in the paper. ' +
