@@ -394,7 +394,41 @@ function quoteBlocks(text: string): string[] {
  * D6-09).
  */
 export function textCarriesQuote(quote: string, text: string): boolean {
-  return resolveByQuote(quote, { source: quoteBlocks(text) }) === 'source'
+  if (resolveByQuote(quote, { source: quoteBlocks(text) }) !== 'source') return false
+  // Word overlap resolves a quote to a paper; only a verbatim run proves it
+  // (docs/persona-reports/dsouza-loop7.md D7-11). A machine-written page
+  // summary reuses the paper's own vocabulary, so a bag-of-words check
+  // passed a sentence that appears nowhere in the paper - and the reader
+  // was shown it in quotation marks as the paper's own words.
+  return carriesVerbatimRun(quote, text)
+}
+
+/** The longest run of consecutive words a quote and a text share. */
+export function verbatimRun(quote: string, text: string): number {
+  const words = quote.toLowerCase().match(/[a-z0-9][a-z0-9.%-]*/g) ?? []
+  if (words.length === 0) return 0
+  const haystack = ` ${text.toLowerCase().replace(/[^a-z0-9.%-]+/g, ' ').trim()} `
+  let best = 0
+  for (let start = 0; start < words.length; start++) {
+    let run = 0
+    for (let end = start; end < words.length; end++) {
+      const phrase = words.slice(start, end + 1).join(' ')
+      if (!haystack.includes(` ${phrase} `)) break
+      run = end - start + 1
+    }
+    if (run > best) best = run
+  }
+  return best
+}
+
+/**
+ * Whether a text carries the quote as the paper's own words: a run of at
+ * least eight consecutive words, or the whole quote when it is shorter.
+ */
+export function carriesVerbatimRun(quote: string, text: string): boolean {
+  const words = quote.toLowerCase().match(/[a-z0-9][a-z0-9.%-]*/g) ?? []
+  if (words.length === 0) return false
+  return verbatimRun(quote, text) >= Math.min(8, words.length)
 }
 
 /**
@@ -539,8 +573,14 @@ export function attributeQuiz(
         : {}),
       source_resource_id: match?.resourceId ?? null,
       source_title: match?.title ?? null,
-      // The model's own label and quote, kept for audit only - never shown as an attribution.
-      source_label: label || null,
+      // The model's own quote, kept for audit only - never shown as an
+      // attribution. Its label is kept only where it names the same paper
+      // the quote resolved to: a label naming a different paper beside a
+      // resolved id is two attributions for one question, and the reader
+      // has no way to tell which is the source (D7-11).
+      source_label: label && match && resolveSource(label, sources)?.resourceId === match.resourceId
+        ? label
+        : null,
       source_quote: quote || null,
     }
   })

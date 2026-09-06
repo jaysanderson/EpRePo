@@ -1851,6 +1851,44 @@ describe('POST /api/t/:slug/ask sentence-level binding and audit', () => {
     ])
   })
 
+  it('refuses an answer that asserts a finding with no citation at all (D7-08)', async () => {
+    // Loop 7 Z2: "The RANSOM study found that nonadherence ... is associated
+    // with increased mortality" went out with no citation event, no source
+    // and no figure - and a figure in the text was the only trigger for the
+    // uncited refusal, so the prose sailed through under a banner claiming
+    // second-hand sources that did not exist.
+    class UncitedProvider extends StubProvider {
+      override async *ask(): AsyncIterable<AskEvent> {
+        yield { type: 'sources', resources: [{ ...resourceTwo, relevance: 0.4, citedCount: 0 }] }
+        yield {
+          type: 'delta',
+          text:
+            'The RANSOM study found that nonadherence to antiepileptic drugs is associated with increased mortality.',
+        }
+        yield {
+          type: 'done',
+          text:
+            'The RANSOM study found that nonadherence to antiepileptic drugs is associated with increased mortality.',
+        }
+      }
+    }
+    const app = buildApp({
+      provider: new UncitedProvider(),
+      tenants: freshTenants(),
+      management: fakeManagement({ 'res-2': TRIAL_TEXT }),
+    })
+    const response = await app.request('/api/t/eprepo/ask', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ query: 'What did the RANSOM study find about nonadherence?' }),
+    })
+    const events = await sseEvents(response)
+    const done = events.find((e) => e.type === 'done')
+    expect(done && done.type === 'done' ? done.refused : false).toBe(true)
+    const text = done && done.type === 'done' ? done.text ?? '' : ''
+    expect(text).not.toContain('nonadherence to antiepileptic drugs is associated')
+  })
+
   it('fires the safety prequeries for a medication on a treatment question, never for an antigen', async () => {
     const app = makeApp()
     const searched = async (query: string) => {

@@ -53,6 +53,11 @@ export function buildAssessmentQuery(topicLabel: string): string {
   return `${topic}: the findings, figures, outcomes, comparisons and methods reported in the results of the sources on ${topic}.`
 }
 
+/** How many spare questions to ask for, so `count` survive the source checks (D7-11). */
+export function spareQuestions(count: number): number {
+  return Math.max(3, Math.ceil(count / 2))
+}
+
 /** The writing brief for the quiz: how many questions, how deep, and how varied. */
 export function buildAssessmentBrief(
   topicLabel: string,
@@ -61,10 +66,13 @@ export function buildAssessmentBrief(
 ): string {
   const meta = DEPTH_BY_ID.get(depth) ?? DEPTH_OPTIONS[0]!
   const topic = topicLabel.trim()
-  // Two more than the reader asked for: the portal discards any question
-  // whose quote it cannot find in the paper it is attributed to, and the
-  // server trims what survives back to `count` (D6-09).
-  return `Generate ${count + 2} multiple-choice questions at ${meta.label.toLowerCase()} depth, ` +
+  // More than the reader asked for: the portal discards any question whose
+  // quote it cannot find verbatim in the paper it is attributed to, and the
+  // server trims what survives back to `count` (D6-09). Two spare was not
+  // enough - loop 7 asked for six and was shown one (D7-11).
+  return `Generate ${
+    count + spareQuestions(count)
+  } multiple-choice questions at ${meta.label.toLowerCase()} depth, ` +
     `of which at least ${count} must be answerable from a passage you quote verbatim. ` +
     `${meta.instruction} Cover a spread of sub-topics within ${topic} rather than repeating the ` +
     'same idea.'

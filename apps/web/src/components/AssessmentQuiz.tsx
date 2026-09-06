@@ -26,6 +26,8 @@ export type AssessmentObject = {
   omitted_questions?: number
   omitted_secondhand?: number
   omitted_unsourced?: number
+  /** How many questions were asked for, when fewer survived the source checks. */
+  requested?: number
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -112,6 +114,15 @@ export function AssessmentQuiz({
         </div>
       )}
 
+      {(data.requested ?? 0) > data.questions.length
+        ? (
+          <p className='mb-4 text-xs leading-relaxed text-ink-3' role='note'>
+            {data.questions.length === 1 ? 'One' : data.questions.length} of the {data.requested}
+            {' '}
+            questions asked for survived the source check.
+          </p>
+        )
+        : null}
       {(data.omitted_questions ?? 0) > 0
         ? (
           <p className='mb-4 text-xs leading-relaxed text-ink-3' role='note'>

@@ -243,9 +243,18 @@ export const DOC_PAGES: DocPage[] = [
           'sentence is removed and the answer says so. Reference lists are cut out of every ' +
           'paper before the check reads it, so a title in a bibliography can never stand in for ' +
           'a finding.\n' +
-          '- **Years and contraindications.** A year must come from a cited resource. A ' +
-          'medication the answer calls contraindicated must be called that by a cited passage, ' +
-          'and a medication the cited sources flag is never dropped silently.\n\n' +
+          '- **Years and safety verbs.** A year must come from a cited resource. A ' +
+          'medication the answer calls contraindicated must be called that, by name, in a cited ' +
+          'passage: the verb is read with the medication nearest it, so a passage calling a ' +
+          'different drug contraindicated is not support, and a passage that only calls the drug ' +
+          '"not recommended", or says it may aggravate seizures, does not carry the stronger ' +
+          'word. Where the sources say something weaker, the answer says so and quotes what they ' +
+          'do say. The same holds for "should be avoided", a boxed warning and "first-line", ' +
+          'and a medication the cited sources flag is never dropped silently.\n' +
+          '- **What rested on a removed sentence goes with it.** When a sentence is removed, the ' +
+          'conclusion drawn from it goes too, and so does the opening answer when nothing else ' +
+          'left in the answer stands behind it. An answer left with nothing but the notes the ' +
+          'check wrote is declined, with the closest matches, rather than shown.\n\n' +
           'While the answer is still streaming, its text is shown as unchecked (muted, with a ' +
           '"still streaming, the check follows" mark), its first complete sentence is checked ' +
           'against the papers retrieval found and, when it passes, the paper that carries it is ' +
@@ -480,8 +489,11 @@ export const DOC_PAGES: DocPage[] = [
           'A denominator the answer paired with a figure is part of the figure: a pairing the ' +
           'paper contradicts is removed and said so, never rewritten, and a denominator is only ' +
           "ever added from the figure's own bracket or table cell. A year must come from a " +
-          'cited resource, and a medication called contraindicated must be called that by a ' +
-          'cited passage.\n\n' +
+          'cited resource, and a medication called contraindicated must be called that, by name, ' +
+          'in a cited passage: the verb is read with the medication nearest it, and a passage ' +
+          'that only calls the drug "not recommended" does not carry the stronger word. When a ' +
+          'sentence is removed, the conclusion that rested on it goes with it, and an answer ' +
+          'with nothing left to cite is declined rather than shown.\n\n' +
           'While the answer streams, its text is shown as unchecked, in muted ink with an ' +
           '"Unchecked - still streaming, the check follows" mark, so nothing on screen reads as ' +
           'the answer before it has been checked. Its first complete sentence is checked against ' +

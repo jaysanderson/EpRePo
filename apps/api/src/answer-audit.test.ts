@@ -20,12 +20,15 @@ import {
   populationQualifier,
   prepareSource,
   proportions,
+  safetyClaims,
+  safetySupport,
   statesDenominator,
-  stripUnsupportedContraindications,
+  stripUnsupportedSafetyClaims,
   studyDesignOf,
   termForms,
   timepointConflict,
   timepointsInMonths,
+  verbBindings,
   verifyFigures,
   yearsInAnswer,
   yearsUnsupported,
@@ -131,31 +134,143 @@ describe('answer audit - claim verification', () => {
       'Yes, vigabatrin is contraindicated in Dravet syndrome as it is a sodium channel blocker [1]. ' +
       'Lamotrigine should be avoided in Dravet syndrome [2]. Verify before acting.'
     const texts = [
-      'Participants must be on stable therapy; vigabatrin was a concomitant medication.',
-      'Sodium channel blockers should be avoided. Lamotrigine is contraindicated in children with DS.',
+      { text: 'Participants must be on stable therapy; vigabatrin was a concomitant medication.' },
+      {
+        text:
+          'Sodium channel blockers should be avoided. Lamotrigine is contraindicated in children with DS.',
+      },
     ]
-    const result = stripUnsupportedContraindications(answer, texts, ['vigabatrin', 'lamotrigine'])
+    const result = stripUnsupportedSafetyClaims(answer, texts, ['vigabatrin', 'lamotrigine'])
     expect(result.unsupported).toEqual(['vigabatrin'])
     expect(result.text).toBe(
-      '*The cited sources do not state that vigabatrin is contraindicated or should be avoided here.* ' +
+      '*The cited sources do not state that vigabatrin is contraindicated here.* ' +
         'Lamotrigine should be avoided in Dravet syndrome [2]. Verify before acting.',
     )
   })
 
   it('matches a drug class across hyphenation', () => {
-    const answer = 'Sodium channel-blocking medications are contraindicated in Dravet syndrome.'
-    const result = stripUnsupportedContraindications(answer, [
-      'Sodium channel blockers should be avoided in Dravet syndrome.',
+    const answer = 'Sodium channel-blocking medications should be avoided in Dravet syndrome.'
+    const result = stripUnsupportedSafetyClaims(answer, [
+      { text: 'Sodium channel blockers should be avoided in Dravet syndrome.' },
     ], ['lamotrigine'])
     expect(result).toEqual({ text: answer, unsupported: [] })
   })
 
   it('leaves a supported contraindication alone', () => {
     const answer = 'Lamotrigine is contraindicated in Dravet syndrome [1].'
-    const result = stripUnsupportedContraindications(answer, [
-      'Lamotrigine is contraindicated in children with DS.',
+    const result = stripUnsupportedSafetyClaims(answer, [
+      { text: 'Lamotrigine is contraindicated in children with DS.' },
     ], ['lamotrigine'])
     expect(result).toEqual({ text: answer, unsupported: [] })
+  })
+})
+
+describe('answer audit - a safety verb binds to its medication (D7-03)', () => {
+  const lexicon = ['carbamazepine', 'valproate', 'levetiracetam', 'lamotrigine', 'phenytoin']
+
+  it('binds a verb to the medication nearest it, not to the sentence', () => {
+    const bindings = verbBindings(
+      'Valproate is now contraindicated in women of childbearing potential, and carbamazepine ' +
+        'was the fourth most commonly tried medication.',
+      lexicon,
+    )
+    expect(bindings.map((b) => `${b.drug}:${b.verb}`)).toEqual(['valproate:prohibited'])
+  })
+
+  it('does not let a contraindication for one drug vouch for another', () => {
+    const texts = [{
+      index: 1,
+      text: 'Valproate is now contraindicated in women of childbearing potential without ' +
+        'special precautions. Carbamazepine emerged as the fourth most commonly tried AED.',
+    }]
+    expect(
+      safetySupport({ drug: 'carbamazepine', verb: 'prohibited', family: 'safety' }, texts, lexicon)
+        .supported,
+    ).toBe(false)
+    expect(
+      safetySupport({ drug: 'valproate', verb: 'prohibited', family: 'safety' }, texts, lexicon)
+        .supported,
+    ).toBe(true)
+  })
+
+  it('will not call a drug contraindicated on a passage that only discourages it', () => {
+    // The loop 7 P0: "carbamazepine is contraindicated in JME" over a paper
+    // that says only that it is not recommended for JME.
+    const answer = 'Yes, carbamazepine is contraindicated in juvenile myoclonic epilepsy.[1]'
+    const texts = [{
+      index: 1,
+      text:
+        'Carbamazepine, which is not recommended for treatment of JME, emerged as the fourth most commonly tried AED.',
+    }]
+    const result = stripUnsupportedSafetyClaims(answer, texts, lexicon)
+    expect(result.unsupported).toEqual(['carbamazepine'])
+    expect(result.text).toContain('do not state that carbamazepine is contraindicated here')
+    expect(result.text).toContain('What the cited sources do say')
+    expect(result.text).toContain('not recommended for treatment of JME')
+    expect(result.text).toContain('[1]')
+  })
+
+  it('accepts the weaker claim the passage does support', () => {
+    const answer = 'Carbamazepine should be avoided in juvenile myoclonic epilepsy.[1]'
+    const texts = [{
+      index: 1,
+      text: 'Carbamazepine is not recommended for treatment of JME.',
+    }]
+    expect(stripUnsupportedSafetyClaims(answer, texts, lexicon)).toEqual({
+      text: answer,
+      unsupported: [],
+    })
+  })
+
+  it('will not let aggravation stand in for a prohibition', () => {
+    const texts = [{ index: 2, text: 'Carbamazepine may exacerbate myoclonic seizures.' }]
+    expect(
+      safetySupport({ drug: 'carbamazepine', verb: 'prohibited', family: 'safety' }, texts, lexicon)
+        .supported,
+    ).toBe(false)
+    expect(
+      safetySupport(
+        { drug: 'carbamazepine', verb: 'aggravates', family: 'aggravation' },
+        texts,
+        lexicon,
+      ).supported,
+    ).toBe(true)
+  })
+
+  it('binds a first-line claim to its own medication and its own family', () => {
+    const claims = safetyClaims('Levetiracetam is first-line for JME.', lexicon)
+    expect(claims).toEqual([{
+      drug: 'levetiracetam',
+      verb: 'firstline',
+      family: 'firstline',
+      sentence: 'Levetiracetam is first-line for JME.',
+    }])
+    const texts = [{
+      index: 1,
+      text: 'Valproate was used as first-line treatment for JME. Levetiracetam is contraindicated.',
+    }]
+    expect(safetySupport(claims[0]!, texts, lexicon).supported).toBe(false)
+    expect(
+      safetySupport({ drug: 'valproate', verb: 'firstline', family: 'firstline' }, texts, lexicon)
+        .supported,
+    ).toBe(true)
+  })
+
+  it('carries the subject forward over a back reference', () => {
+    const answer =
+      'The cited sources indicate that carbamazepine and oxcarbazepine are not used for primary ' +
+      'generalised epilepsy due to poor efficacy. Therefore, these medications are effectively ' +
+      'contraindicated in idiopathic generalised epilepsy.'
+    const claims = safetyClaims(answer, [...lexicon, 'oxcarbazepine'])
+    expect(claims.map((c) => `${c.drug}:${c.verb}`).sort()).toEqual([
+      'carbamazepine:prohibited',
+      'oxcarbazepine:prohibited',
+    ])
+  })
+
+  it('reads a negated verb as no claim at all', () => {
+    expect(verbBindings('Levetiracetam did not worsen myoclonus.', lexicon)).toEqual([])
+    expect(safetyClaims('Levetiracetam is not contraindicated in JME.', lexicon)).toEqual([])
   })
 })
 

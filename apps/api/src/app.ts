@@ -162,6 +162,8 @@ import {
   documentContextBlocks,
   extractionText,
   figureCount,
+  leadSentence,
+  namedStudy,
   publicationYearsContext,
   withoutReferencePassages,
 } from './ask-grounding.ts'
@@ -1657,7 +1659,18 @@ export function buildApp(opts: BuildAppOptions): Hono {
       // retrieval text: an instruction retrieves reference lists and
       // methodology chatter, a topic retrieves its results (D1-20).
       const guidance = parsed.data.guidance?.trim()
-      const instructions = guidance ? `${base ?? ''}${base ? ' ' : ''}${guidance}` : base
+      // A caller that asks for a count but writes no brief of its own still
+      // gets the over-ask: the portal discards every question whose quote it
+      // cannot find in the paper it names, so the model must write spares or
+      // the reader is handed one question where six were asked (D7-11).
+      const overask = parsed.data.kind === 'assessment' && parsed.data.count && !guidance
+        ? `Write ${parsed.data.count + Math.max(3, Math.ceil(parsed.data.count / 2))} questions, ` +
+          `of which at least ${parsed.data.count} must be answerable from a passage you quote ` +
+          'verbatim: the portal discards every question whose quote it cannot find in the paper ' +
+          'it names.'
+        : undefined
+      const brief = [guidance, overask].filter((part): part is string => Boolean(part)).join(' ')
+      const instructions = brief ? `${base ?? ''}${base ? ' ' : ''}${brief}` : base
       // Only the portal's own topics can scope retrieval; anything else is ignored.
       const topicIds = (parsed.data.topics ?? []).filter((id) =>
         config.topics.some((topic) => topic.id === id)
@@ -1954,9 +1967,13 @@ export function buildApp(opts: BuildAppOptions): Hono {
           // that the count survives these checks; the extras are trimmed
           // here rather than handed to the reader (D6-09).
           const wanted = parsed.data.count
+          const questions = wanted && kept.length > wanted ? kept.slice(0, wanted) : kept
           result.object = {
             ...quiz,
-            questions: wanted && kept.length > wanted ? kept.slice(0, wanted) : kept,
+            questions,
+            // What the reader asked for, so a shortfall is stated plainly
+            // rather than left to be counted (D7-11).
+            ...(wanted && questions.length < wanted ? { requested: wanted } : {}),
             omitted_secondhand: omittedSecondhand,
             omitted_unsourced: omittedUnsourced,
           }
@@ -4046,14 +4063,30 @@ export function buildApp(opts: BuildAppOptions): Hono {
       const sendDecline = async (fallback: ScoredResource[], bestPct?: number) => {
         const near = await closestMatches()
         const shown = near ? (near.noCloseMatch ? [] : near.resources) : fallback
+        // A study the question names that no catalogued title carries: the
+        // decline says so rather than leaving the reader to infer coverage
+        // from silence (docs/persona-reports/dsouza-loop7.md D7-08).
+        const named = documentScope ? null : namedStudy(query)
+        const head = named?.split(' ')[0] ?? ''
+        const missingStudy = named &&
+            !catalogue.some((r) =>
+              new RegExp(`\\b${head.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(r.title)
+            )
+          ? named
+          : undefined
         // The closest matches are already ranked by overlap with the
         // question (rankClosest): the decline names them in that order,
         // not by score (D4-23).
         const text = near
           ? corpusDecline(near.resources.slice(0, 3).map((r) => r.title), bestPct, {
             noCloseMatch: near.noCloseMatch,
+            ...(missingStudy ? { missingStudy } : {}),
           })
-          : corpusDecline(nearestTitles(fallback), bestPct)
+          : corpusDecline(
+            nearestTitles(fallback),
+            bestPct,
+            missingStudy ? { missingStudy } : {},
+          )
         // The panel always agrees with the text: the semantic closest
         // matches, or nothing when none is close.
         await send({ type: 'sources', resources: shown })
@@ -4409,10 +4442,12 @@ export function buildApp(opts: BuildAppOptions): Hono {
           // (D2-08, D4-09), the same one extra ask a generator refusal
           // gets (D3-05).
           await warmSettled()
-          if (
-            (isWholeDecline(text) || /\d/.test(text)) &&
-            nextRetry(retryContext(), 'uncited') === 'pinned'
-          ) {
+          // Whether anything is being asserted at all: the portal's own
+          // notes ("*The cited sources do not state ...*") are italic lines
+          // that `leadSentence` skips, and they are a finding, not a claim
+          // needing a source.
+          const asserts = leadSentence(text) !== ''
+          if (asserts && nextRetry(retryContext(), 'uncited') === 'pinned') {
             finished = false
             retry = 'pinned'
             void closestMatches()
@@ -4426,7 +4461,14 @@ export function buildApp(opts: BuildAppOptions): Hono {
             await send({ type: 'done', refused: true, text })
             return
           }
-          if (/\d/.test(text)) {
+          // Nothing is cited and the answer is not a decline, yet it still
+          // asserts something: an assertion with no source behind it is
+          // exactly what How this works says the portal never shows
+          // (docs/persona-reports/dsouza-loop7.md D7-08 - loop 7 Z2
+          // asserted what the RANSOM study found with no citation and no
+          // source at all). A figure in the text was the only trigger
+          // before, so a prose assertion sailed through.
+          if (asserts) {
             await finishRefused()
             return
           }

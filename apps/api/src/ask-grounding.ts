@@ -18,7 +18,7 @@ import {
   populationQualifier,
   type PreparedSource,
   qualifierForFigure,
-  stripUnsupportedContraindications,
+  stripUnsupportedSafetyClaims,
   studyDesignOf,
   timepointsInMonths,
   verifyFigures,
@@ -56,6 +56,8 @@ import {
   stripReferenceSection,
 } from './citation-binding.ts'
 import {
+  CONCLUSION,
+  CONNECTIVE,
   designLead,
   effectSizeNote,
   effectSizesFor,
@@ -63,6 +65,7 @@ import {
   markUnverifiableCells,
   removalNote,
   rowKey,
+  stripConnective,
   tableCellHeadings,
 } from './answer-gate.ts'
 import { correctAttributions, type NamedAuthor } from './ask-author.ts'
@@ -285,6 +288,7 @@ export function stripUnheldStudyClaims(
 ): { text: string; removed: string[] } {
   if (studies.length === 0) return { text: answer, removed: [] }
   const removed: string[] = []
+  const notes: string[] = []
   let text = answer
   for (const study of studies) {
     const head = study.split(' ')[0]!
@@ -295,15 +299,170 @@ export function stripUnheldStudyClaims(
         if (!new RegExp(`\\b${head}\\b`).test(plain)) continue
         if (!text.includes(sentence)) continue
         removed.push(plain)
-        text = text.replace(
-          sentence,
-          `*A sentence naming ${study} was removed: this collection holds no paper reporting ` +
-            'that study, and no cited source states the finding.*',
-        )
+        const note = `*A sentence naming ${study} was removed: this collection holds no paper ` +
+          'reporting that study, and no cited source states the finding.*'
+        notes.push(note)
+        text = text.replace(sentence, note)
       }
     }
   }
-  return { text, removed }
+  // A removal takes its dependants with it (docs/persona-reports/
+  // dsouza-loop7.md D7-07): the figure gate already drops a conclusion that
+  // rested on a removed sentence, and a sentence removed here - a finding
+  // this collection holds no paper for - must take the same dependants.
+  const dependants = removeDependants(text, removed, notes)
+  return { text: dependants.text, removed: [...removed, ...dependants.removed] }
+}
+
+/** Words a sentence is about: long enough to carry meaning, lower case. */
+function contentTerms(sentence: string): Set<string> {
+  const stop = new Set([
+    'about',
+    'above',
+    'after',
+    'among',
+    'associated',
+    'because',
+    'been',
+    'being',
+    'between',
+    'could',
+    'cited',
+    'found',
+    'from',
+    'given',
+    'other',
+    'people',
+    'reported',
+    'sources',
+    'study',
+    'studies',
+    'their',
+    'there',
+    'these',
+    'this',
+    'those',
+    'which',
+    'while',
+    'with',
+    'within',
+    'would',
+  ])
+  return new Set(
+    (sentence.toLowerCase().match(/[a-z][a-z-]{4,}/g) ?? [])
+      .map((w) => w.replace(/(?:s|es|ed|ing)$/, ''))
+      .filter((w) => w.length >= 4 && !stop.has(w)),
+  )
+}
+
+/** How many content terms two sentences share. */
+function sharedTerms(a: Set<string>, b: Set<string>): number {
+  let hits = 0
+  for (const term of a) if (b.has(term)) hits++
+  return hits
+}
+
+/**
+ * The sentences that depended on a removed one, removed with it (D7-07):
+ * the conclusion that rested on it ("This suggests ..."), the connective
+ * that tied the next sentence to it, and the answer's opening assertion
+ * when the removed sentence was the only thing standing behind it. Loop 7
+ * J9 removed the fabricated RANSOM finding and kept both "Yes, medication
+ * adherence is associated with mortality" and "This suggests that
+ * adherence ... is crucial", neither of which any source stated.
+ */
+export function removeDependants(
+  answer: string,
+  removed: readonly string[],
+  notes: readonly string[],
+): { text: string; removed: string[] } {
+  if (removed.length === 0) return { text: answer, removed: [] }
+  const isNote = (sentence: string) =>
+    notes.some((n) => sentence.includes(n)) || /^\s*\*/.test(sentence)
+  // A note ends "...finding.*", which the sentence splitter does not read
+  // as a sentence end, so the notes are cut out of the line first and the
+  // prose either side split normally.
+  const splitWithNotes = (line: string): string[] => {
+    let parts = [line]
+    for (const note of notes) {
+      const next: string[] = []
+      for (const part of parts) {
+        if (part === note || !part.includes(note)) {
+          next.push(part)
+          continue
+        }
+        const pieces = part.split(note)
+        pieces.forEach((piece, i) => {
+          if (piece.trim()) next.push(piece.trim())
+          if (i < pieces.length - 1) next.push(note)
+        })
+      }
+      parts = next
+    }
+    return parts.flatMap((part) => notes.includes(part) ? [part] : splitSentences(part))
+  }
+  const alsoRemoved: string[] = []
+  const lines = answer.split('\n')
+  // A conclusion anywhere after a removal rested on it, the way the figure
+  // gate already reads one; a connective only ties a sentence to the one
+  // immediately before it.
+  let anyRemoved = false
+  const out = lines.map((line) => {
+    if (/^\s*[|#>]/.test(line)) return line
+    let justRemoved = false
+    const kept: string[] = []
+    for (const sentence of splitWithNotes(line)) {
+      const plain = sentence.replace(/\s*\[\d{1,3}\]/g, '').trim()
+      if (isNote(sentence)) {
+        justRemoved = true
+        anyRemoved = true
+        kept.push(sentence)
+        continue
+      }
+      if (anyRemoved && CONCLUSION.test(plain) && !/\d/.test(plain)) {
+        alsoRemoved.push(plain)
+        continue
+      }
+      if (justRemoved && CONNECTIVE.test(sentence)) {
+        kept.push(stripConnective(sentence))
+        justRemoved = false
+        continue
+      }
+      justRemoved = false
+      kept.push(sentence)
+    }
+    return kept.join(' ')
+  })
+  let text = out.join('\n')
+  // The opening assertion goes when the removed sentence was its only
+  // support: no other sentence left in the answer speaks to the same
+  // claim. A sentence that states a figure of its own stands on that.
+  const lead = leadSentence(text)
+  if (lead && !/\d/.test(lead)) {
+    const leadTerms = contentTerms(lead)
+    const supported = removed.some((r) => sharedTerms(leadTerms, contentTerms(r)) >= 2)
+    if (supported) {
+      const others = text
+        .split('\n')
+        .filter((l) => !/^\s*[|#>*]/.test(l))
+        .flatMap((l) => splitSentences(l))
+        .map((sentence) => sentence.replace(/\s*\[\d{1,3}\]/g, '').trim())
+        .filter((sentence) => sentence.length > 0 && sentence !== lead && !isNote(sentence))
+      const stillSupported = others.some((o) => sharedTerms(leadTerms, contentTerms(o)) >= 2)
+      if (!stillSupported) {
+        alsoRemoved.push(lead)
+        text = text
+          .split('\n')
+          .map((l) =>
+            /^\s*[|#>]/.test(l) ? l : splitWithNotes(l)
+              .filter((sentence) => sentence.replace(/\s*\[\d{1,3}\]/g, '').trim() !== lead)
+              .join(' ')
+          )
+          .join('\n')
+      }
+    }
+  }
+  return { text, removed: alsoRemoved }
 }
 
 /** The first sentence of an answer's body: the first line that is not a heading or an italic note. */
@@ -319,6 +478,25 @@ export function leadSentence(text: string): string {
 }
 
 /**
+ * Whether a token can be a study name at all (docs/persona-reports/
+ * dsouza-loop7.md D7-12). The extraction glues a reference marker to the
+ * word before it, so "SUDEP1" and "JME1 2" reach the answer looking like
+ * acronyms; the portal then told the reader it held no such study while
+ * citing the very paper the sentence above came from. A study name is at
+ * least four characters, and a condition abbreviation with a citation
+ * marker stuck to it ("SUDEP" + "1") is not one.
+ */
+export function isStudyAcronym(token: string, next = ''): boolean {
+  if (token.length < 4) return false
+  const base = token.replace(/[0-9]+$/, '')
+  if (base.length >= 2 && base !== token && NOT_A_STUDY.test(base)) return false
+  // A trailing digit followed by a bare numeral is a run of reference
+  // markers ("JME1 2"), never a study and its edition.
+  if (/[0-9]$/.test(token) && /^\d{1,3}$/.test(next)) return false
+  return true
+}
+
+/**
  * A study, trial or register the question names by acronym ("SANAD II",
  * "the BREATHS trial", "PERMIT pooled analysis"): an all-caps token of
  * three letters or more that either carries a numeral or sits beside a
@@ -330,6 +508,7 @@ export function namedStudy(query: string): string | null {
     const raw = words[i]!.replace(/[^A-Za-z0-9-]/g, '')
     if (!/^[A-Z][A-Z0-9-]{2,}$/.test(raw) || NOT_A_STUDY.test(raw)) continue
     const next = (words[i + 1] ?? '').replace(/[^A-Za-z0-9]/g, '')
+    if (!isStudyAcronym(raw, next)) continue
     const numeral = /^(?:II|III|IV|V|2|3|4)$/.test(next)
     const near = words.slice(Math.max(0, i - 2), i + 4).join(' ').toLowerCase()
     const studyWord =
@@ -358,6 +537,7 @@ export function namedStudies(text: string): string[] {
     const raw = words[i]!.replace(/[^A-Za-z0-9-]/g, '')
     if (!/^[A-Z][A-Z0-9-]{2,}$/.test(raw) || NOT_A_STUDY.test(raw)) continue
     const next = (words[i + 1] ?? '').replace(/[^A-Za-z0-9]/g, '')
+    if (!isStudyAcronym(raw, next)) continue
     const numeral = /^(?:II|III|IV|V|2|3|4)$/.test(next)
     const near = words.slice(Math.max(0, i - 2), i + 4).join(' ').toLowerCase()
     const studyWord =
@@ -375,6 +555,8 @@ export function unheldStudyNote(
   catalogueTitles: readonly string[],
   /** The gated answer: a study the answer itself introduces is bounded too (loop 6 D6-02). */
   answer?: string,
+  /** Whether any cited text actually refers to the study (D7-08). */
+  citedTextsMention = true,
 ): string | undefined {
   const named = namedStudy(query)
   const introduced = answer ? namedStudies(answer) : []
@@ -390,6 +572,13 @@ export function unheldStudyNote(
   if (catalogueTitles.some(carries)) {
     return `*This collection holds ${study} itself, but the answer above did not cite it: the ` +
       'statements come from sources that refer to it. Search the Library for the study to read it directly.*'
+  }
+  // "The statements above come from sources that cite it second-hand" is
+  // only true when there are such sources: loop 7 Z2 printed it over an
+  // answer with no citation and no source at all (D7-08).
+  if (citedTitles.length === 0 || !citedTextsMention) {
+    return `*This collection does not hold ${study}, and no source cited above refers to it. ` +
+      'Nothing here reports what that study found.*'
   }
   return `*This collection does not hold ${study} itself. The statements above come from ` +
     'sources that cite it second-hand; verify against the original before relying on them.*'
@@ -1123,7 +1312,7 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
     ).filter((t) => t.length > 0)
     : []
   // The gate renumbered what it kept: the texts follow the new numbering.
-  const citations = gated.citations
+  let citations = gated.citations
   for (const citation of citations) {
     const old = oldIndexByResource.get(citation.resourceId) ??
       candidates.find((c) => c.resourceId === citation.resourceId)?.index
@@ -1211,6 +1400,23 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
         if (!raw) continue
         const found = ownFigureSentence(raw, cue)
         if (!found || found.score < 4) continue
+        // A figure the gate removed is never printed back verbatim two
+        // lines under its own removal notice (docs/persona-reports/
+        // dsouza-loop7.md D7-10: "the figures 3.6, 2.9, 4.4 could not be
+        // verified", then the same three quoted from the same paper). If
+        // the paper does carry the sentence, the fix is to rebind and keep
+        // it, not to contradict the notice.
+        if (removed.figures.some((f) => figurePattern(f).test(found.sentence))) continue
+        // The offered sentence must be about what the question asked, not
+        // only about the same outcome noun: a lacosamide retention rate is
+        // not an answer under a question about implanted devices (D7-10).
+        if (
+          terms.length > 0 &&
+          !terms.some((t) => {
+            const re = new RegExp(`\\b${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i')
+            return re.test(found.sentence) || re.test(raw.slice(0, 4000))
+          })
+        ) continue
         if (!outcomeFamilies(found.sentence).some((o) => questionOutcomes.includes(o))) continue
         if (timepoints.length > 0) {
           const have = timepointsInMonths(normaliseFigures(found.sentence))
@@ -1386,7 +1592,15 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
   // or any treatment-decision question).
   let contraindicationsUnsupported: string[] = []
   if (variant === 'safety' || isTreatmentDecisionQuestion(query)) {
-    const stripped = stripUnsupportedContraindications(text, allTexts, medications)
+    // The cited papers whole, in the answer's own numbering: a safety verb
+    // binds to the medication nearest it in the passage, so the check
+    // reads the resource rather than grepping for the word, and the note
+    // can cite the passage that speaks of the drug more weakly (D7-03).
+    const stripped = stripUnsupportedSafetyClaims(
+      text,
+      [...textsByNew.entries()].map(([index, t]) => ({ index, text: t })),
+      medications,
+    )
     text = stripped.text
     contraindicationsUnsupported = stripped.unsupported
   }
@@ -1485,11 +1699,25 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
   })
   const strippedStudies = stripUnheldStudyClaims(text, unheldIntroduced)
   text = strippedStudies.text
+  // A citation whose only sentence went with the removal leaves the answer
+  // with it: the chips and the "n cited" count describe the text the reader
+  // is shown (D7-07).
+  if (strippedStudies.removed.length > 0) {
+    const used = new Set([...text.matchAll(/\[(\d{1,3})\]/g)].map((m) => Number(m[1])))
+    citations = citations.filter((c) => used.has(c.index))
+  }
   const boundary = strippedStudies.removed.length > 0 ? undefined : unheldStudyNote(
     query,
     citedTitles,
     (input.catalogue ?? []).map((r) => r.title),
     text,
+    (() => {
+      const study = questionStudy ?? namedStudies(text)[0]
+      if (!study) return true
+      const head = study.split(' ')[0]!
+      const re = new RegExp(`\\b${head.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i')
+      return [...textsByNew.values()].some((t) => re.test(t))
+    })(),
   )
 
   const scoped = input.authors && input.authors.length > 0
@@ -1510,6 +1738,15 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
   // describes it (docs/persona-reports/dsouza-loop6.md D6-16a).
   const unreadableCells = markUnverifiableCells(text)
   text = unreadableCells.text
+
+  // A study-claim removal that leaves nothing but its own notes is not an
+  // answer (docs/persona-reports/dsouza-loop7.md D7-07, D7-08): the honest
+  // decline, with the closest matches, stands in its place rather than a
+  // page of removal notices. A table still counts as a body, so a reformat
+  // answer is not declined; a check's own note about what the sources do
+  // not say is an answer in itself and is left alone.
+  const bodyRemains = leadSentence(text) !== '' || /^\s*\|/m.test(text)
+  const emptiedByRemoval = strippedStudies.removed.length > 0 && !bodyRemains
 
   if (text.trim()) {
     text += auditAddendum({
@@ -1564,7 +1801,7 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
     text,
     citations,
     sources,
-    emptied: gated.removed.length > 0 && gated.sentences.length === 0,
+    emptied: (gated.removed.length > 0 && gated.sentences.length === 0) || emptiedByRemoval,
     audit: {
       type: 'audit',
       figuresChecked: checks.length,
