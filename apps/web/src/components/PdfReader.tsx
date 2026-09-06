@@ -154,7 +154,7 @@ interface PositionedRun {
 const PASSAGE_SCAN_LIMIT = 80
 
 export function PdfReader(
-  { fileUrl, title, initialPage, highlight = null }: {
+  { fileUrl, title, initialPage, highlight = null, onLoadError }: {
     fileUrl: string
     title: string
     initialPage: number | null
@@ -164,6 +164,12 @@ export function PdfReader(
      * the document for the page that carries it.
      */
     highlight?: string | null
+    /**
+     * The document could not be opened or rendered, so this viewer is showing
+     * an error rather than the file. The page above uses it to fall back to
+     * the extracted text, which is then the only reading available.
+     */
+    onLoadError?: () => void
   },
 ) {
   const [libFailed, setLibFailed] = useState(false)
@@ -181,6 +187,7 @@ export function PdfReader(
   const renderTaskRef = useRef<RenderTask | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const containerRef = useRef<HTMLDivElement | null>(null)
+  const rootRef = useRef<HTMLDivElement | null>(null)
   const [containerWidth, setContainerWidth] = useState(0)
   /** The scale the current page was last rendered at - the source of truth
    * for "current zoom" when the user zooms in/out from fit-width, since
@@ -198,6 +205,22 @@ export function PdfReader(
   const [scanOutcome, setScanOutcome] = useState<'idle' | 'searching' | 'not-found'>('idle')
   /** Guards the one-off passage scan so paging never re-triggers it. */
   const scannedForRef = useRef<string | null>(null)
+  /**
+   * The page+passage the viewer has already scrolled to. A cited passage
+   * halfway down an A4 page sits below the fold of this pane, so landing on
+   * the right page is not enough - the highlight itself has to be brought
+   * into view, once, without fighting the reader's own scrolling afterwards
+   * (a zoom or a resize re-renders the same page and must not yank it back).
+   */
+  const scrolledToHighlightRef = useRef<string | null>(null)
+  /**
+   * The file+passage the page itself has already been scrolled to. The viewer
+   * pane sits below the title and the quoted passage, so a cited passage can
+   * be perfectly placed inside the pane and still be off the bottom of the
+   * window - the page has to come to the reader once, on arrival. Paging back
+   * to the cited page later must not yank the window again.
+   */
+  const scrolledPageToReaderRef = useRef<string | null>(null)
 
   // Load the document whenever the file or retry token changes.
   useEffect(() => {
@@ -232,6 +255,7 @@ export function PdfReader(
         }
         setErrorMessage(err instanceof Error ? err.message : 'This PDF could not be opened.')
         setStatus('error')
+        onLoadError?.()
       })
 
     return () => {
@@ -346,7 +370,11 @@ export function PdfReader(
             setHighlightRects(rects)
             setHighlightPage(pageNumber)
             setHighlightMissing(false)
-            if (rects.length > 0) setAnnouncement(`Cited passage highlighted on page ${pageNumber}`)
+            const firstRect = rects[0]
+            if (firstRect) {
+              setAnnouncement(`Cited passage highlighted on page ${pageNumber}`)
+              scrollHighlightIntoView(canvas, firstRect, `${fileUrl}::${pageNumber}::${highlight}`)
+            }
           } else {
             setHighlightRects([])
             setHighlightPage(null)
@@ -365,6 +393,7 @@ export function PdfReader(
         if (!cancelled && !isCancellation) {
           setErrorMessage(err instanceof Error ? err.message : 'This page could not be rendered.')
           setStatus('error')
+          onLoadError?.()
         }
       }
     })
@@ -416,6 +445,53 @@ export function PdfReader(
     }
   }, [status, initialPage, scanRequested, highlight, numPages, getPage, fileUrl])
 
+  /**
+   * Brings the first highlighted run into view inside the viewer's own scroll
+   * pane. Scrolls the pane, never the page: the reader arrived here to see the
+   * document, so the document is what moves. Runs once per page+passage.
+   */
+  function scrollHighlightIntoView(canvas: HTMLCanvasElement, rect: HighlightRect, key: string) {
+    const scroller = containerRef.current
+    if (!scroller || scrolledToHighlightRef.current === key) return
+    scrolledToHighlightRef.current = key
+    const reducedMotion = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches ===
+      true
+
+    const canvasBox = canvas.getBoundingClientRect()
+    const scrollBox = scroller.getBoundingClientRect()
+    const top = scroller.scrollTop + (canvasBox.top - scrollBox.top) + rect.top
+    const left = scroller.scrollLeft + (canvasBox.left - scrollBox.left) + rect.left
+    const overflowsHorizontally = scroller.scrollWidth - scroller.clientWidth > 1
+    scroller.scrollTo({
+      // A quarter of the pane above the passage, so it reads in context rather
+      // than pinned to the very top edge.
+      top: Math.max(0, top - scroller.clientHeight * 0.25),
+      left: overflowsHorizontally ? Math.max(0, left - scroller.clientWidth * 0.25) : 0,
+      behavior: reducedMotion ? 'auto' : 'smooth',
+    })
+
+    // Then bring the viewer itself under the sticky header, once per arrival:
+    // the pane can be scrolled perfectly and still sit below the fold, since
+    // it opens under the title and the quoted passage. A frame later, and via
+    // scrollTo rather than scrollIntoView, because Chrome cancels a smooth
+    // scrollIntoView on the document when a nested box starts its own smooth
+    // scroll in the same task (measured, not assumed). The offset is the
+    // root's own scroll-margin, so the header height stays a token.
+    const arrivalKey = `${fileUrl}::${highlight}`
+    if (scrolledPageToReaderRef.current !== arrivalKey) {
+      scrolledPageToReaderRef.current = arrivalKey
+      requestAnimationFrame(() => {
+        const root = rootRef.current
+        if (!root) return
+        const margin = Number.parseFloat(getComputedStyle(root).scrollMarginTop) || 0
+        globalThis.scrollTo({
+          top: Math.max(0, globalThis.scrollY + root.getBoundingClientRect().top - margin),
+          behavior: reducedMotion ? 'auto' : 'smooth',
+        })
+      })
+    }
+  }
+
   function goToPage(n: number) {
     setPageNumber(Math.min(Math.max(1, n), Math.max(1, numPages)))
   }
@@ -463,7 +539,10 @@ export function PdfReader(
   const zoomPercent = zoomMode === 'fit-width' ? null : Math.round(zoomMode.scale * 100)
 
   return (
-    <div className='overflow-hidden rounded-[var(--rp-radius)] border border-line bg-surface'>
+    <div
+      ref={rootRef}
+      className='scroll-mt-[calc(var(--rp-header-h,_4rem)_+_var(--spacing)_*_2)] overflow-hidden rounded-[var(--rp-radius)] border border-line bg-surface'
+    >
       <div className='flex flex-wrap items-center gap-1 border-b border-line bg-surface-2 px-2 py-1.5'>
         <ToolbarButton
           label='Previous page'
@@ -645,6 +724,7 @@ export function PdfReader(
                 <div
                   key={i}
                   aria-hidden='true'
+                  data-pdf-highlight=''
                   className='pointer-events-none absolute rounded-[2px]'
                   style={{
                     left: rect.left - 1,
