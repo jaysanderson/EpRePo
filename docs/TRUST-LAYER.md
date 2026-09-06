@@ -330,7 +330,13 @@ Every rule below exists because a reviewer found the defect it prevents. The ids
   model's figure differs from it (loop 5 D5-14; PR #20): the consortium paper's "At 12 months, a
   favourable mRS (≤ 2) occurred in 154 (67%) patients" after an "80% (n = 231)" no paper carries,
   as an italic line naming the paper, cited, never as a substitute for the removed sentence, at
-  most two per answer.
+  most two per answer. **It never restates a figure the gate just removed** (loop 7 D7-10; PR
+  this loop): loop 7 printed "its figures (3.6, 2.9, 4.4) could not be verified" and, two lines
+  below, the same three quoted from the same paper. An offer that carries any removed figure is
+  now skipped - where the cited paper does carry the sentence, the answer is to rebind and keep
+  it, never to contradict the notice. The offering paper must also carry one of the question's
+  cohort terms, so a lacosamide retention rate is not offered under a question about implanted
+  devices.
 
 ### Reference lists and studies the collection does not hold
 - **A bibliography can never ground a sentence** (loop 6 D6-02). The reference cut was line-based,
@@ -347,6 +353,17 @@ Every rule below exists because a reviewer found the defect it prevents. The ids
   reporting that study, and no cited source states the finding.*" (`stripUnheldStudyClaims`). A
   study the question names keeps the softer banner, because the statements do come from sources
   that cite it.
+- **A removal takes its dependants with it** (loop 7 D7-07; PR this loop). The figure gate
+  already dropped a conclusion that rested on a sentence it removed, but a study-claim removal
+  runs after the gate, so loop 7 J9 removed the fabricated RANSOM finding and kept both "Yes,
+  medication adherence is associated with mortality in people with epilepsy" and "This suggests
+  that adherence to medication regimens is crucial" - neither of which any source stated.
+  `removeDependants` now runs after `stripUnheldStudyClaims`: a conclusion anywhere after a
+  removal goes, a connective that tied the next sentence to it is stripped, and the opening
+  assertion goes too when no sentence left in the answer shares two content words with it. A
+  citation whose only sentence went with the removal leaves the answer with it, so the chips and
+  the "n cited" count describe the text on screen. If the removals leave nothing but the notes,
+  the answer is declined with the closest matches instead of shown as a page of notices.
 
 ### Second-hand figures and sections
 - **A figure the cited paper carries only in its Introduction or Discussion is that paper citing
@@ -384,8 +401,20 @@ Every rule below exists because a reviewer found the defect it prevents. The ids
   passages first and only falls back to the model's title, and the route then locates the quote in
   the bound paper's own extracted text, rebinding to whichever retrieved paper carries it. A
   question whose quote no retrieved paper carries is dropped and counted (`omitted_unsourced`,
-  said on the page). The brief asks for two more questions than the reader wanted and the route
+  said on the page). The brief asks for more questions than the reader wanted and the route
   trims what survives back to the requested `count`, so the checks cost the reader nothing.
+- **A quiz quote is the paper's own words, checked as a run, not as a bag of words** (loop 7
+  D7-11; PR this loop). Overlap of content words resolves a quote to a paper; only a verbatim run
+  proves it, because a generated page summary reuses the paper's own vocabulary - loop 7 was
+  shown "anti-LGI1 antibody-mediated encephalitis was associated with better recovery" in
+  quotation marks as a paper's own words when that sentence appears only in a `da-pagesummary`
+  field. `textCarriesQuote` now also requires a run of at least eight consecutive words (or the
+  whole quote when it is shorter) in the paper's extracted text (`carriesVerbatimRun`). The
+  model's own `source_label` is kept only when it names the same paper the quote resolved to;
+  otherwise it is dropped, so one question never carries two attributions. The over-ask is now
+  `count + max(3, count / 2)`, the server adds it for an API caller that sends a `count` and no
+  brief of its own, and when fewer than `count` survive the object carries `requested` and both
+  quiz surfaces say "N questions of the M asked for survived the source check".
 
 ### Denominators, effect sizes, designs, years, drugs, authors
 - **Every proportion carries its n and analysis set** by prompt rule, and the audit lists the
@@ -432,6 +461,29 @@ Every rule below exists because a reviewer found the defect it prevents. The ids
   sources flag is never dropped from a which-drug answer (R3, R5; P1-01, P3-13; PR #6). A
   drug-safety prequery fires only for a medication entity on a treatment-decision question, so
   "NMDAR", "LGI1" and "JAMA" are not drugs (P9-14, P9-15; PR #6).
+- **A safety verb binds to its medication, and to its own strength** (loop 7 D7-03; PR this
+  loop). The check used to pass on the word being somewhere within 150 characters of the drug,
+  which let "carbamazepine is contraindicated in JME" stand on a paper whose only occurrence of
+  the word is "Valproate is now contraindicated in women of childbearing potential", and let a
+  paper that says only "Carbamazepine, which is not recommended for treatment of JME" carry the
+  much stronger claim. Now (`answer-audit.ts` `verbBindings`, `safetyClaims`, `safetySupport`,
+  `stripUnsupportedSafetyClaims`):
+  - Every safety verb in a passage is **bound to the medication nearest it**, subject before
+    object, within 120 characters; a verb with no medication near it binds to nothing.
+  - Verbs carry a **strength**: `prohibited` (contraindicated, a black box or boxed warning,
+    must not be used) outranks `discouraged` (should be avoided, not recommended, avoid X). A
+    claim is supported only by a binding at its own strength or higher, on the same drug.
+  - `aggravates` (worsens, exacerbates, precipitates) and `firstline` (first-line, drug of
+    choice) are **families of their own**, not weaker prohibitions: "not recommended" does not
+    say a drug worsens seizures, and neither says anything about first-line use.
+  - Only **prose** binds: a table row ("Generally avoided | Eslicarbazepine | Good") has a verb
+    in a cell and no subject, so nothing is bound in it and it is never quoted back.
+  - A claim with no drug of its own ("Therefore, these medications are effectively
+    contraindicated") takes the medications named earlier **in the same paragraph**.
+  - The note now says what the sources do say: "*The cited sources do not state that
+    carbamazepine is contraindicated here. What the cited sources do say: "Carbamazepine, which
+    is not recommended for treatment of JME" [1].*" The check reads the whole cited resource,
+    not a retrieved snippet.
 - **"X and colleagues" over a paper X did not write is rewritten** to the paper's first author,
   and a named author scopes retrieval to that author's articles (D1-05, D2-23; PRs #8, #11).
 - **An author review lists one item per paper** (loop 6 D6-10; PR this loop): every author-scoped
@@ -444,7 +496,13 @@ Every rule below exists because a reviewer found the defect it prevents. The ids
   past-tense enrolment claim over a citation to a protocol ("The study enrolled approximately 450
   participants"), not only on planning wording.
 - **A study the question names that no held title carries gets a boundary sentence** ("This
-  collection does not hold SANAD II itself ...") (D1-16; PR #8).
+  collection does not hold SANAD II itself ...") (D1-16; PR #8). The banner fires only on
+  something that can be a study name (loop 7 D7-12; PR this loop): at least four characters, and
+  never a condition abbreviation with a reference marker glued to it by the extraction - "SUDEP1"
+  and "JME1 2" told the reader the collection held no SUDEP or JME paper while citing one
+  (`isStudyAcronym`). Its wording is conditional too: "the statements above come from sources
+  that cite it second-hand" is only written when there are cited sources and one of them refers
+  to the study; otherwise it reads "and no source cited above refers to it" (D7-08).
 
 ### The decline
 - **A refusal always shows the closest matches, labelled not used**, named in the text, from a
@@ -454,6 +512,16 @@ Every rule below exists because a reviewer found the defect it prevents. The ids
   #11, #13, #16).
 - **An answer that states figures with every marker stripped, or that the gate emptied, is
   withheld** with the figures named, never shown as bare prose (D1-02, D2-12; PRs #7, #12).
+- **An answer with no citation at all is withheld, whether or not it states a figure** (loop 7
+  D7-08; PR this loop). Loop 7 Z2 asserted "The RANSOM study found that nonadherence ... is
+  associated with increased mortality" with no citation event, no source and no figure, and a
+  figure in the text was the only trigger for the uncited refusal, so prose sailed through. The
+  test is now whether the answer asserts anything at all: `leadSentence` skips the check's own
+  italic notes, so an answer that is only "*The cited sources do not state ...*" still stands -
+  that is a finding, not an unsourced claim - while an assertion with nothing behind it is
+  replaced by the decline.
+- **A decline names a study the question named that the collection does not hold** (loop 7
+  D7-08): "This collection holds no paper reporting RANSOM." (`corpusDecline` `missingStudy`).
 
 ### Confidence
 - **Confidence is led by the check, not the platform score.** Loop 1 found groundedness 1 on a

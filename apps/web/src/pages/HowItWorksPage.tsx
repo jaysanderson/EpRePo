@@ -681,11 +681,15 @@ export function HowItWorksPage() {
                 enrolment.
               </Bullet>
               <Bullet>
-                <strong className='font-semibold text-ink'>Years and contraindications.</strong>
-                {' '}
+                <strong className='font-semibold text-ink'>Years and safety verbs.</strong>{' '}
                 A year must come from a cited resource. A medication the answer calls
-                contraindicated must be called that by a cited passage, and a medication the cited
-                sources flag is never dropped silently.
+                contraindicated must be called that, by name, in a cited passage: the verb is read
+                with the medication nearest it, so a passage calling a different drug
+                contraindicated is not support, and a passage that only calls the drug "not
+                recommended" or says it may aggravate seizures does not carry the stronger word.
+                Where the sources say something weaker, the answer says so and quotes what they do
+                say. The same holds for "should be avoided", a boxed warning and "first-line", and a
+                medication the cited sources flag is never dropped silently.
               </Bullet>
             </ul>
             <P>
@@ -723,11 +727,17 @@ export function HowItWorksPage() {
           <Section id='limits'>
             <ul className='space-y-2 pl-1'>
               <Bullet>
-                It never answers without a source. An answer with nothing to cite is not shown.
+                It never answers without a source. An answer with nothing to cite is not shown: it
+                is replaced by the portal's own decline and the closest passages it found.
               </Bullet>
               <Bullet>
                 It says plainly when the collection does not hold something, and shows the closest
-                passages it found, rather than filling the gap.
+                passages it found, rather than filling the gap. A study the question names that no
+                paper here reports is named in the decline.
+              </Bullet>
+              <Bullet>
+                When a sentence is removed, what rested on it goes too: the conclusion drawn from
+                it, and the opening answer when nothing else left in the answer stands behind it.
               </Bullet>
               <Bullet>
                 It does not browse the internet. Every answer comes from the collection alone.

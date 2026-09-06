@@ -7,6 +7,28 @@ ten-persona evaluation (`docs/EPREPO-ROADMAP.md`, `docs/persona-reports/p1.md` t
 (`docs/persona-reports/dsouza-loop1.md` to `loop5.md`). Dates are the merge dates (UTC).
 The architecture of the answer trust layer these entries built is in `docs/TRUST-LAYER.md`.
 
+## PR (this loop) - 6 September 2026 - D'Souza loop 7 (l2): safety verbs bound to their medication, removals that take their dependants
+
+For the reader: the portal will no longer tell you a medication is contraindicated because the
+word appears somewhere near it. A safety verb is now read with the medication nearest it, and at
+its own strength: a paper that says "Carbamazepine, which is not recommended for treatment of
+JME" no longer carries "carbamazepine is contraindicated in JME", and the answer says so and
+quotes what the paper does say. The same holds for "should be avoided", a boxed warning,
+"aggravates" and "first-line". When a sentence is removed because the collection holds no paper
+for the study it names, what rested on it goes too - the conclusion drawn from it and the opening
+answer, when nothing left in the answer stands behind them - and an answer with nothing left to
+cite is declined with the closest matches rather than shown. An answer that asserts a finding
+with no citation at all is never shown, whether or not it states a figure, and a decline names
+the study the collection does not hold. The "this collection does not hold X" banner no longer
+fires on "SUDEP1" or "JME1 2", the citation-marker fragments the extraction leaves behind. A
+figure the check removed is never quoted back verbatim two lines below its own removal notice. A
+knowledge check quotes the paper's own words, verified as a run of eight consecutive words rather
+than a bag of them, so a machine-written page summary can no longer be shown as a paper's
+sentence; a question's second attribution is dropped when it names a different paper; and when
+fewer questions survive the source check than were asked for, the page says so.
+
+Closes D7-03 (P0), D7-07, D7-08, D7-10 (the removal-then-quote half), D7-11, D7-12.
+
 ## PR #22 - 6 September 2026 - D'Souza loop 6 (k1): the population clause, exact outcomes, bibliographies, a paper's own words
 
 For the reader: a figure now belongs to the group the paper reports it for. Asked what the
