@@ -289,6 +289,16 @@ describe('a figure belongs to the arm its own phrase names (D8-02)', () => {
     expect(verdict.reason).toBe('population')
   })
 
+  it('reads no arm out of a phrase that allocates nothing', () => {
+    const placebo = prepareSource(PLACEBO)
+    const claim = 'In the pooled analysis of placebo arms in randomised add-on epilepsy trials, ' +
+      'the 50% responder rate was 23.6% among 1,674 participants, with 395 participants ' +
+      'achieving this response.'
+    expect(
+      figureSupportedBy('23.6%', claimFeatures(claim, ['placebo'], ['placebo']), placebo).supported,
+    ).toBe(true)
+  })
+
   it("accepts the arm's own number from the same sentence", () => {
     expect(
       check(

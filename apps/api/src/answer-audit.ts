@@ -795,7 +795,7 @@ export function qualifierForFigure(figure: string, text: PreparedSource): string
  * placebo arm's 22.1%).
  */
 const ALLOCATION =
-  /\b(?:received|receiving|randomi[sz]ed to|randomi[sz]ed into|allocated to|assigned to|treated with|switched to|converted to|on)\s+(?:the\s+)?([a-z][a-z-]{3,})/gi
+  /\b(?:received|receiving|randomi[sz]ed to|randomi[sz]ed into|allocated to|assigned to|treated with|switched to|converted to)\s+(?:the\s+)?([a-z][a-z-]{3,})/gi
 
 /** The arm nearest a position in a sentence: the first after it, else the last before it. */
 export function allocationArm(sentence: string, at = 0): string | undefined {
