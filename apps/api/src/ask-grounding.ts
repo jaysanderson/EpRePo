@@ -61,6 +61,7 @@ import {
   effectSizesFor,
   gateFigures,
   markUnverifiableCells,
+  reconcileRemovals,
   removalNote,
   rowKey,
   stripConnective,
@@ -1719,6 +1720,15 @@ export async function bindAndAudit(raw: BindAndAuditInput): Promise<BindAndAudit
   const bodyRemains = leadSentence(text) !== '' || /^\s*\|/m.test(text)
   const emptiedByRemoval = strippedStudies.removed.length > 0 && !bodyRemains
 
+  // Removal is real (docs/persona-reports/dsouza-loop8.md D8-02). The gate
+  // has already swept every unverified repeat out of the text; what is
+  // still printed here is a figure that passed its own check in the
+  // sentence that carries it, so the notice stops naming it and the audit
+  // reports only what actually left the answer. The body is read before
+  // the addendum is appended, because the notice itself names them.
+  const removedForNote = reconcileRemovals(gated.removed, text)
+  const figuresRemovedFromText = [...new Set(removedForNote.flatMap((r) => r.figures))]
+
   if (text.trim()) {
     text += auditAddendum({
       missingDrugs,
@@ -1728,7 +1738,7 @@ export async function bindAndAudit(raw: BindAndAuditInput): Promise<BindAndAudit
       designs,
       attributions: attributed.fixes,
       notes: [
-        removalNote(gated.removed, {
+        removalNote(removedForNote, {
           foundIn,
           replaced: replaced.length,
         }),
@@ -1784,7 +1794,7 @@ export async function bindAndAudit(raw: BindAndAuditInput): Promise<BindAndAudit
       denominatorsMissing: denominators.map((d) => d.figure),
       attributionsCorrected,
       sentencesRemoved: gated.removed.length + strippedStudies.removed.length,
-      figuresRemoved,
+      figuresRemoved: figuresRemovedFromText,
       figuresRescued: [...new Set(rescued.flatMap((r) => r.figures))],
       sentencesReplaced: replaced.length,
       foundIn,
