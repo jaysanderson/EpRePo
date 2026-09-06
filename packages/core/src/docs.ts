@@ -177,7 +177,7 @@ export const DOC_PAGES: DocPage[] = [
       },
       {
         heading: 'How a question is answered',
-        body: 'Three things happen between the question and the answer:\n\n' +
+        body: 'Four things happen between the question and the answer:\n\n' +
           '1. **The question is routed.** The portal reads the question and chooses the retrieval ' +
           'configuration that suits it: an identifier or a bare term is an exact lookup that ' +
           'lists the documents; a question about choosing or dosing a treatment is a clinical ' +

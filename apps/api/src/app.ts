@@ -3906,8 +3906,13 @@ export function buildApp(opts: BuildAppOptions): Hono {
       const evidenceSeeking =
         /\b(evidence|safe|safety|risk|risks|effect|effects|impact|impacts|compare|comparison|versus|\bvs\b|harm|cause|caused)\b/i
           .test(query)
+      // A question clause pinning will take (a comparison, a quantity, a drug
+      // in a condition) is decomposed into clauses instead, and the clauses
+      // are asked one paper at a time: the sub-question decomposition would
+      // be seven seconds of dead time before a path that never uses it.
       const decompositionPending =
         evidenceSeeking && !isResultsQuestion(query) && !askOpts.prequeries?.length && firstTurn &&
+          !clausePinningApplies(query, lexicon) &&
           decomposable(query) && opts.management
           ? Promise.race([
             opts.management.askStructured(
