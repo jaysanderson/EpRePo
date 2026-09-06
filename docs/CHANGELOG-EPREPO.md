@@ -484,3 +484,16 @@ with its year, journal and design, and answers "what sample size did they enrol"
 each paper's own sentence, with a protocol's number named as planned recruitment. Dates the API
 writes use the portal's timezone; every route sets its own page title; the search field's input is
 a full-height control on a phone. Closes D6-08, D5-13, D6-09, D6-10, D6-13, D6-14, D6-15, D6-16a.
+
+## The PDF is the reader's default view, and the extracted text waits behind a switch (p1)
+Arriving at a PDF from a citation now moves the document, not the page: the viewer opens at the
+cited page, paints the highlight, scrolls the passage into its own pane and brings the pane up
+under the header, so the cited sentence is on screen without a scroll. The extracted text - the
+machine reading the portal searches - no longer springs open under the viewer when a passage, a
+search match or a summary match is present; it sits behind an explicit "Show extracted text"
+switch (a real button with aria-expanded and aria-controls, the house focus ring, and a label that
+states the action in both states). The fallbacks are unchanged in intent and stronger in practice:
+when the PDF cannot be loaded or fails to open, the extracted text is shown outright with no
+control to find, and a jump from the "Matches in this document" list or a citation in the document
+chat opens the text and lands on the block. The summary-match notice still finds its summary under
+its own heading, which is now rendered outside the collapsed region.
