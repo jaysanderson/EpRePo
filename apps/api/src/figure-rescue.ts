@@ -101,6 +101,34 @@ export function cohortTerms(
 }
 
 /**
+ * The multi-word names a question designates a cohort by, lower-cased:
+ * "australian autoimmune encephalitis consortium" from "the Australian
+ * autoimmune encephalitis consortium cohort". `cohortTerms` reduces such a
+ * designator to its opening word, which is a country, not a study: the
+ * LGI1 sub-study is Australian too (loop 6 D6-07). The phrase is used to
+ * narrow the cohort's papers, never to require a name in a cited text.
+ */
+export function cohortPhrases(query: string): string[] {
+  const out: string[] = []
+  for (const m of query.matchAll(DESIGNATOR)) {
+    const phrase = m[1]!.trim().replace(/\s+/g, ' ')
+    if (phrase.split(' ').length < 2) continue
+    // A designator that carries an acronym or a gene-like symbol is already
+    // specific enough by that token ("the EXPERIENCE pooled analysis"), and
+    // its full phrase is a description the titles need not repeat. Only a
+    // designator with no such token needs its whole phrase.
+    if (
+      /\b[a-z]+-[A-Z][A-Z0-9]+\b/.test(phrase) || /\b(?:anti-)?[A-Z][A-Z0-9-]{2,}\b/.test(phrase)
+    ) {
+      continue
+    }
+    const lower = phrase.toLowerCase()
+    if (!out.includes(lower)) out.push(lower)
+  }
+  return out
+}
+
+/**
  * A question that asks what to assume, plan for or expect: "what 12-month
  * retention rate should I assume", "what placebo responder rate should I
  * plan for". Its lead figure must be a paper's own result, never a ceiling
@@ -187,9 +215,22 @@ export function cohortPapers(
    * paper about "valproic acid (VPA)" is a valproate paper (loop 5 N03).
    */
   textOf: (id: string) => string | undefined = () => undefined,
+  /** The multi-word cohort names the question used: they narrow the set where a single word cannot. */
+  phrases: readonly string[] = [],
 ): Set<string> {
   const out = new Set<string>()
   if (terms.length === 0) return out
+  // A cohort named in full identifies its own papers: "the Australian
+  // autoimmune encephalitis consortium" is one study, "Australian" is a
+  // country (loop 6 D6-07).
+  if (phrases.length > 0) {
+    const byPhrase = new Set(
+      resources.filter((r) =>
+        phrases.some((t) => carriesCohortTerm(`${r.title}\n${r.summary ?? ''}`, t))
+      ).map((r) => r.id),
+    )
+    if (byPhrase.size > 0 && byPhrase.size < resources.length) return byPhrase
+  }
   for (const r of resources) {
     const haystack = `${r.title}\n${r.summary ?? ''}`
     if (terms.some((t) => carriesCohortTerm(haystack, t))) {

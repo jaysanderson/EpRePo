@@ -433,17 +433,62 @@ export function stripReferenceSection(text: string): string {
       !/^\s*(?:#+\s*)?(?:\d+\.?\s*)?(?:references|bibliography|literature cited|works cited|reference list)\s*:?\s*$/i
         .test(lines[i]!)
     ) continue
-    const following = lines.slice(i + 1, i + 25).map((l) => l.trim()).filter((l) => l.length > 0)
+    // A PDF extraction wraps one entry over three or four lines ("7. Faught
+    // RE, Weiner JR, ... / Impact of nonadherence ... / Epilepsia.
+    // 2009;50(3):501-9."), so no single line reads as an entry and a
+    // line-by-line test never cut the bibliography at all: the RANSOM
+    // reference title was then read as a finding (loop 6 D6-02). The
+    // following lines are joined into blank-line blocks first.
+    const following = blocksAfter(lines, i, 40)
     const entries = following.filter(looksLikeBibliographyEntry).length
     if (entries >= 2 || (following.length > 0 && entries / following.length >= 0.3)) {
       cutAt = i
       break
     }
   }
-  return lines
-    .slice(0, cutAt)
-    .filter((line) => !looksLikeBibliographyEntry(line))
-    .join('\n')
+  const kept = lines.slice(0, cutAt)
+  // A bibliography entry anywhere else (a footnote block, an endnote the
+  // extraction moved) goes too, whether it sits on one line or is wrapped
+  // over several.
+  const out: string[] = []
+  let block: { text: string; from: number }[] = []
+  const flush = () => {
+    if (block.length === 0) return
+    const joined = block.map((b) => b.text.trim()).join(' ').replace(/\s+/g, ' ')
+    if (!looksLikeBibliographyEntry(joined)) {
+      for (const b of block) if (!looksLikeBibliographyEntry(b.text)) out.push(b.text)
+    }
+    block = []
+  }
+  for (const line of kept) {
+    if (line.trim().length === 0) {
+      flush()
+      out.push(line)
+      continue
+    }
+    block.push({ text: line, from: out.length })
+  }
+  flush()
+  return out.join('\n')
+}
+
+/** The blank-line-separated blocks after a line, joined onto one line each. */
+function blocksAfter(lines: readonly string[], from: number, count: number): string[] {
+  const out: string[] = []
+  let current: string[] = []
+  for (let i = from + 1; i < lines.length && out.length < count; i++) {
+    const line = lines[i]!
+    if (line.trim().length === 0) {
+      if (current.length > 0) out.push(current.join(' ').replace(/\s+/g, ' ').trim())
+      current = []
+      continue
+    }
+    current.push(line.trim())
+  }
+  if (current.length > 0 && out.length < count) {
+    out.push(current.join(' ').replace(/\s+/g, ' ').trim())
+  }
+  return out.filter((b) => b.length > 0)
 }
 
 // ---------------------------------------------------------------------------

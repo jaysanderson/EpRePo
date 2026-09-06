@@ -152,14 +152,92 @@ export function inTableOrLegend(text: string, offset: number): boolean {
   return false
 }
 
-/** Whether the sentence around an offset attributes its figure to earlier work. */
-export function citesEarlierWork(text: string, offset: number): boolean {
+/**
+ * Whether the sentence around an offset speaks of the paper's own work:
+ * "our cohort", "this trial", "we found", "the present study", "in this
+ * analysis". Section is not provenance (loop 6 D6-04, D6-07): a Discussion
+ * sentence whose subject is the paper itself reports the paper's own
+ * finding, wherever the extraction placed it.
+ */
+export function speaksOfOwnWork(text: string, offset: number): boolean {
+  const sentence = ownWorkSentence(text, offset)
+  if (/\bet al\.?/i.test(sentence)) return false
+  return /\b(?:our|we)\s+(?:[a-z-]+\s+){0,3}(?:cohort|study|series|trial|analysis|analyses|data|results?|findings?|patients|participants|sample|population|observations?)\b|\bwe (?:found|observed|report|reported|showed|show|noted|identified|demonstrated)\b|\b(?:this|the present|the current) (?:study|trial|cohort|analysis|series|report|paper|investigation)\b|\bin (?:this|our) (?:study|trial|cohort|analysis|series)\b/i
+    .test(sentence)
+}
+
+/**
+ * The whole sentence around an offset, bounded by a full stop or a blank
+ * line but never by a single line break: a PDF extraction wraps
+ * "Consistent with this observation, our cohort had / an 80% favorable
+ * mRS score at 12 months." over two lines, and the subject sits on the
+ * first of them (loop 6 D6-07).
+ */
+function ownWorkSentence(text: string, offset: number): string {
+  const lines = lineBoundsAround(text, offset)
+  const before = text.slice(lines.start, offset)
+  const start = lines.start + Math.max(0, before.lastIndexOf('. ') + 1)
+  const rest = text.slice(offset, lines.end)
+  const stop = rest.search(/\.\s/)
+  return text.slice(start, offset + (stop === -1 ? rest.length : stop + 1))
+}
+
+/** Whether a line is a section heading rather than prose. */
+function isHeadingLine(line: string): boolean {
+  const re = new RegExp(HEADING.source, 'i')
+  return re.test(`\n${line}\n`)
+}
+
+/**
+ * The bounds of the block of prose lines around an offset: its own line
+ * plus one line each side, stopping at a blank line or a section heading.
+ * A PDF extraction wraps one sentence over several lines, so a single line
+ * break is not a sentence end; a heading is.
+ */
+function lineBoundsAround(text: string, offset: number): { start: number; end: number } {
+  let start = text.lastIndexOf('\n', offset - 1) + 1
+  let end = text.indexOf('\n', offset)
+  if (end === -1) end = text.length
+  const previousEnd = start - 1
+  if (previousEnd > 0) {
+    const previousStart = text.lastIndexOf('\n', previousEnd - 1) + 1
+    const previous = text.slice(previousStart, previousEnd)
+    if (previous.trim().length > 0 && !isHeadingLine(previous)) start = previousStart
+  }
+  const nextStart = end + 1
+  if (nextStart < text.length) {
+    let nextEnd = text.indexOf('\n', nextStart)
+    if (nextEnd === -1) nextEnd = text.length
+    const next = text.slice(nextStart, nextEnd)
+    if (next.trim().length > 0 && !isHeadingLine(next)) end = nextEnd
+  }
+  return { start, end }
+}
+
+/** The sentence around an offset, bounded by a full stop or a line break. */
+function sentenceAround(text: string, offset: number): string {
   const start = Math.max(0, text.lastIndexOf('. ', offset) + 1, text.lastIndexOf('\n', offset) + 1)
   const endDot = text.indexOf('. ', offset)
   const endLine = text.indexOf('\n', offset)
   const ends = [endDot, endLine].filter((e) => e !== -1)
   const end = ends.length > 0 ? Math.min(...ends) : text.length
-  const sentence = text.slice(start, end)
+  return text.slice(start, end)
+}
+
+/**
+ * Whether a sentence ends on a numbered citation ("... to over 22% after
+ * 2020.[6, 7]"): the paper is quoting other work, whatever section the
+ * sentence sits in, and its own abstract cannot clear the figure (D5-15).
+ */
+export function endsWithReferenceMarker(sentence: string): boolean {
+  return /(?:[.!?]|\d\s?%|\d)\s*\[\s*\d{1,3}(?:\s*[,;\u2010-\u2015-]\s*\d{1,3})*\s*\]/.test(
+    sentence,
+  )
+}
+
+/** Whether the sentence around an offset attributes its figure to earlier work. */
+export function citesEarlierWork(text: string, offset: number): boolean {
+  const sentence = sentenceAround(text, offset)
   return /\b(?:previous|prior|earlier|published|historical)\b[^.]{0,60}\b(?:stud(?:y|ies)|data|report|reports|literature|cohort|estimate|estimates|series|work)\b|\b(?:according to|as reported|reported by|reported in|derived from|taken from|based on (?:the )?(?:previous|prior|earlier|published))\b|\bet al\.?/i
     .test(sentence)
 }
@@ -225,9 +303,11 @@ export function secondhandFigures(
         const sectioned = hasBodyHeadings(spans)
         const sections = new Set(
           offsets.map((o) =>
-            inTableOrLegend(text, o)
+            inTableOrLegend(text, o) || speaksOfOwnWork(text, o)
               ? 'results'
-              : citesEarlierWork(text, o)
+              // A sentence that carries a numbered citation is quoting
+              // other work whatever section it sits in (D5-15).
+              : citesEarlierWork(text, o) || endsWithReferenceMarker(ownWorkSentence(text, o))
               ? 'discussion'
               : sectioned
               ? sectionAt(spans, o)
@@ -235,6 +315,20 @@ export function secondhandFigures(
           ),
         )
         if ([...sections].some((s) => OWN.has(s))) continue
+        const quoted = at >= 0 &&
+          (citesEarlierWork(text, at) || endsWithReferenceMarker(ownWorkSentence(text, at)))
+        if (
+          sectioned && at >= 0 && !quoted &&
+          figureOffsets(figure, text).some((o) =>
+            o !== at && !citesEarlierWork(text, o) && sectionAt(spans, o) === 'abstract'
+          )
+        ) continue
+        // Check the abstract before declaring anything second-hand: a
+        // Discussion sentence restating a figure the paper's own abstract
+        // reports is that paper's finding (loop 6 D6-04, the lacosamide
+        // trial's own placebo 50% responder rate of 46.3%). Only the
+        // abstract counts: a number a Results sentence happens to share
+        // with an Introduction figure is a different quantity (D5-15).
         const key = `${figure}:${index}`
         if (seen.has(key)) continue
         seen.add(key)

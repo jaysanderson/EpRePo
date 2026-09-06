@@ -205,19 +205,30 @@ export const DOC_PAGES: DocPage[] = [
           'located in the cited paper, and the sentence or table row that carries it there ' +
           "must share the claim's own quantity - its outcome, the noun the figure measures or " +
           'the name the question asked about - about the same outcome, at the same follow-up, ' +
-          'with the same responder threshold and the same denominator. A figure the cited ' +
+          'with the same responder threshold and the same denominator. The outcome must match ' +
+          'exactly wherever the paper itself is exact: where a paper reports both "seizure ' +
+          'freedom" and "continuous seizure freedom", one does not stand for the other. A ' +
+          'figure the cited ' +
           'passage does not carry is looked for in the full text of the retrieved papers: where ' +
           'one of them carries it beside the same claim, the sentence is cited to that paper ' +
           'instead; where the figure is there but cannot be tied to the claim as the answer ' +
           "stated it, the sentence is removed and that paper's own sentence on the outcome you " +
           'asked about is quoted in its place. A figure found nowhere means the sentence is ' +
           'removed, and the answer says that it was.\n' +
-          '- **Populations.** When the question names a cohort, trial or study, every sentence ' +
-          'with a figure must cite a paper about that cohort, and a figure the cited paper only ' +
-          'quotes from other studies is removed rather than annotated, so a figure from a ' +
-          'different population cannot be passed off as the one you asked about. Where the ' +
-          'question names no cohort, such a figure is kept but marked as second-hand, with the ' +
-          "paper's own finding beside it, so you can see what it rests on.\n" +
+          '- **Populations.** A figure is bound to the group the paper reports it for. Where ' +
+          'the passage a figure was found in names a group of its own, the group your question ' +
+          'asked about must be that group or narrower: a rate the paper reports for "patients ' +
+          'with psychiatric comorbidity" is not the rate for "patients who switched from ' +
+          'levetiracetam to brivaracetam", and a sentence that points back ("of these ' +
+          'patients") is checked against the group the sentence before it named. When the ' +
+          'question names a cohort, trial or study, every sentence with a figure must also cite ' +
+          'a paper about that cohort, and a figure the cited paper only quotes from other ' +
+          'studies is removed rather than annotated. Where the question names no cohort, such a ' +
+          "figure is kept but marked as second-hand, with the paper's own finding beside it - " +
+          'and the marked sentence never leads the answer. What counts as second-hand is ' +
+          'judged by the words, not the section: a figure a paper states in its own voice ' +
+          '("our cohort", "this trial", "we found"), or reports in its own abstract, is that ' +
+          "paper's finding wherever the extraction placed it.\n" +
           '- **Named studies.** A sentence cited to the wrong paper is replaced by the named ' +
           "paper's own sentence only when that sentence carries the same figure at the same " +
           'time point, quoted verbatim and cited; otherwise the sentence is removed, and a named ' +
@@ -227,7 +238,11 @@ export const DOC_PAGES: DocPage[] = [
           "denominator is only ever added from the figure's own bracket or table cell. When " +
           'the papers that answer one question describe different populations, each sentence ' +
           "says which paper it comes from; a protocol's planned recruitment is named as such " +
-          "beside the results paper's enrolment.\n" +
+          "beside the results paper's enrolment. A study the answer names that this collection " +
+          'holds no paper for, and that no cited paper mentions, has nothing behind it: that ' +
+          'sentence is removed and the answer says so. Reference lists are cut out of every ' +
+          'paper before the check reads it, so a title in a bibliography can never stand in for ' +
+          'a finding.\n' +
           '- **Years and contraindications.** A year must come from a cited resource. A ' +
           'medication the answer calls contraindicated must be called that by a cited passage, ' +
           'and a medication the cited sources flag is never dropped silently.\n\n' +
@@ -238,9 +253,11 @@ export const DOC_PAGES: DocPage[] = [
           "follow-up in the same conversation carries the earlier answers' cited papers with " +
           'it: a question about "that study" is answered from those papers, with their own ' +
           'paragraphs and tables in front of the generator, and a request to put the earlier ' +
-          'answers in a table keeps every row, with any cell the check could not verify - a ' +
-          "figure it could not tie to that row's source, or an analysis set name where the " +
-          'column asked for a figure - marked "not verified" rather than the row dropped. Chat ' +
+          'answers in a table keeps every row: each cell is checked under the column heading ' +
+          'above it, so a figure filed under the wrong outcome is caught, and any cell the ' +
+          "check could not verify - a figure it could not tie to that row's source, or an " +
+          'analysis set name where the column asked for a figure - is marked "not verified" ' +
+          'rather than the row dropped. Chat ' +
           'with a document runs the same check ' +
           "against that document's own text and shows the same badge.\n\n" +
           'These checks are plain text comparisons against the extracted text of the papers, ' +

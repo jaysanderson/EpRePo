@@ -513,6 +513,7 @@ export interface FigureCheck {
     | 'entity'
     | 'cohort'
     | 'pvalue'
+    | 'population'
     | 'secondhand'
 }
 
@@ -782,6 +783,252 @@ export function qualifierForFigure(figure: string, text: PreparedSource): string
   return qualifier
 }
 
+// ---------------------------------------------------------------------------
+// The population clause (loop 6 D6-01): a located figure is bound to the
+// group the sentence it lives in reports it for, not only to its outcome
+// noun. "In patients with psychiatric comorbidity, seizure freedom was
+// 16.0%" does not carry "in patients with psychiatric comorbidity who
+// switched from levetiracetam to brivaracetam" - the paper gives that
+// subgroup 13.9%, in the very next paragraph.
+// ---------------------------------------------------------------------------
+
+/** The nouns a population frame names a group of people by. */
+const POPULATION_NOUN =
+  '(?:patients?|people|participants?|adults?|children|subjects?|individuals?|persons?|pwe|women|men|cases|controls|infants?|neonates?|those)'
+
+/** The words that open a qualifier narrowing a population. */
+const POPULATION_QUALIFIER_INTRO =
+  '(?:with|without|who|whose|aged|receiving|taking|treated|switching|switched|on|under|having)'
+
+/** "these patients", "this group", "of them": a population named by the sentence before it. */
+const ANAPHORIC_POPULATION =
+  /\b(?:these|those|this|the same|such)\s+(?:patients?|participants?|people|subjects?|individuals?|persons?|women|men|group|groups|cohort|subgroup)\b|\bof (?:these|them)\b|\bin (?:this|that) (?:group|subgroup|cohort)\b/
+
+/** Words a population qualifier never narrows on. */
+const POPULATION_STOP = new Set([
+  'and',
+  'the',
+  'a',
+  'an',
+  'of',
+  'from',
+  'to',
+  'in',
+  'at',
+  'for',
+  'or',
+  'who',
+  'whose',
+  'with',
+  'without',
+  'were',
+  'was',
+  'had',
+  'has',
+  'have',
+  'their',
+  'other',
+  'both',
+  'all',
+  'any',
+  'least',
+  'more',
+  'than',
+  'over',
+  'under',
+  'after',
+  'before',
+  'during',
+  'months',
+  'month',
+  'years',
+  'year',
+  'weeks',
+  'week',
+  'days',
+  'day',
+  'patients',
+  'patient',
+  'people',
+  'participants',
+  'adults',
+  'children',
+  'subjects',
+  'individuals',
+  'persons',
+  'women',
+  'men',
+  'cases',
+  'controls',
+  'pwe',
+  'respectively',
+])
+
+export interface ClaimPopulation {
+  /** The qualifier as written, lower-cased ("with psychiatric comorbidity who switched from lev to brv"). */
+  qualifier: string
+  /** Its distinctive words, stemmed as claim terms are. */
+  words: string[]
+  /** The claim points back at a group the sentence before it named ("of these patients"). */
+  anaphoric: boolean
+}
+
+/** The distinctive words of a population qualifier, stemmed as claim terms are. */
+export function populationWords(qualifier: string): string[] {
+  const out: string[] = []
+  for (const w of qualifier.toLowerCase().match(/[a-z][a-z-]{1,}/g) ?? []) {
+    const parts = w.includes('-') ? [w, ...w.split('-')] : [w]
+    for (const part of parts) {
+      if (part.length < 3 || POPULATION_STOP.has(part) || STOP.has(part)) continue
+      const stem = part.replace(/s$/, '')
+      if (!out.includes(stem)) out.push(stem)
+    }
+  }
+  return out
+}
+
+/**
+ * The population a claim states its figure for: the frame that opens the
+ * clause ("In patients with psychiatric comorbidity who switched from LEV
+ * to BRV, ...") or the one that follows the figure ("16.0% of patients
+ * with psychiatric comorbidity who switched from LEV to BRV"). A
+ * comparison of two groups ("with and without psychiatric comorbidity")
+ * names neither and qualifies nothing. Undefined when the clause names no
+ * population.
+ */
+export function claimPopulation(clause: string): ClaimPopulation | undefined {
+  const text = clause.replace(/\s+/g, ' ').toLowerCase()
+  if (ANAPHORIC_POPULATION.test(text)) {
+    return { qualifier: '', words: [], anaphoric: true }
+  }
+  const re = new RegExp(
+    `\\b(?:in|among|of|for)\\s+(?:the\\s+)?(?:\\d[\\d.,]*\\s*%?\\s+(?:of\\s+)?)?${POPULATION_NOUN}\\s+(${POPULATION_QUALIFIER_INTRO}\\b[^.;,()]*)`,
+  )
+  const m = re.exec(text)
+  if (!m) return undefined
+  // The qualifier ends where the predicate resumes: at the first comma or
+  // bracket, never running on into what the sentence says about the group.
+  let qualifier = m[1]!.trim()
+  // "with and without X" is a contrast of two populations, not one.
+  if (/\bwith and without\b|\bwithout and with\b/.test(qualifier)) return undefined
+  qualifier = qualifier.replace(/\s+$/, '')
+  const words = populationWords(qualifier)
+  if (words.length === 0) return undefined
+  return { qualifier, words, anaphoric: false }
+}
+
+/**
+ * Whether a passage frames its figures with a population of its own ("in
+ * patients with psychiatric comorbidity ...", "of patients who switched
+ * from LEV to BRV ..."). Only such a passage can contradict a claim's
+ * population; a passage that names no group says nothing about which
+ * group its figure is for. A contrast of two groups ("with and without
+ * psychiatric comorbidity") does frame a population, unlike a claim.
+ */
+export function statesPopulation(passage: string): boolean {
+  const re = new RegExp(
+    `\\b(?:in|among|of|for)\\s+(?:the\\s+)?(?:\\d[\\d.,]*\\s*%?\\s+(?:of\\s+)?)?${POPULATION_NOUN}\\s+${POPULATION_QUALIFIER_INTRO}\\b`,
+  )
+  return re.test(passage.replace(/\s+/g, ' ').toLowerCase())
+}
+
+// ---------------------------------------------------------------------------
+// Exact outcomes (loop 6 D6-03): "continuous seizure freedom" is not
+// "seizure freedom". A modifier the paper itself uses to tell two figures
+// apart tells the claim apart from the figure too.
+// ---------------------------------------------------------------------------
+
+/** Modifiers that make an outcome a different outcome from the same family. */
+const OUTCOME_MODIFIERS: [string, RegExp][] = [
+  ['continuous', /\bcontinuous(?:ly)?\b/],
+  ['sustained', /\bsustained\b/],
+  ['complete', /\bcomplete(?:ly)?\b/],
+  ['all-cause', /\ball[-\s]cause\b/],
+  ['drug-related', /\b(?:drug|treatment)[-\s]related\b/],
+  ['serious', /\bserious\b/],
+  ['definite', /\bdefinite\b/],
+  ['probable', /\bprobable\b/],
+]
+
+/** The outcome modifiers a phrase names. */
+export function outcomeModifiers(text: string): string[] {
+  const lower = text.toLowerCase()
+  return OUTCOME_MODIFIERS.filter(([, re]) => re.test(lower)).map(([name]) => name)
+}
+
+/**
+ * The clause of a located sentence that carries a position: its segments
+ * split on semicolons and " and " outside brackets, so "seizure freedom
+ * rates were ... 14.9% (n = 1111); and continuous seizure freedom rates
+ * were ... 11.7% (n = 1111)" gives each figure its own outcome.
+ */
+export function clauseAround(sentence: string, at: number): string {
+  const bounds: number[] = [0]
+  let depth = 0
+  for (let i = 0; i < sentence.length; i++) {
+    const ch = sentence[i]!
+    if (ch === '(' || ch === '[') depth++
+    else if (ch === ')' || ch === ']') depth = Math.max(0, depth - 1)
+    else if (depth === 0 && ch === ';') bounds.push(i + 1)
+  }
+  bounds.push(sentence.length)
+  for (let i = 0; i < bounds.length - 1; i++) {
+    if (at >= bounds[i]! && at < bounds[i + 1]!) {
+      return sentence.slice(bounds[i]!, bounds[i + 1]!)
+    }
+  }
+  return sentence
+}
+
+/**
+ * Whether a located occurrence measures a different outcome from the claim
+ * because one of them carries a modifier the other does not, in a passage
+ * where the paper itself uses that modifier to tell two figures apart.
+ * A paper that only ever writes "all-cause mortality" contradicts nothing
+ * when the answer says "mortality"; a paper that reports seizure freedom
+ * and continuous seizure freedom in one sentence does.
+ */
+export function outcomeModifierConflict(
+  claimModifiers: readonly string[],
+  occurrenceClause: string,
+  distinguishes: (modifier: string) => boolean,
+): boolean {
+  const found = outcomeModifiers(occurrenceClause)
+  const extra = found.filter((m) => !claimModifiers.includes(m))
+  const missing = claimModifiers.filter((m) => !found.includes(m))
+  if (extra.length === 0 && missing.length === 0) return false
+  return [...extra, ...missing].some(distinguishes)
+}
+
+/**
+ * Whether a paper itself uses a modifier to tell two figures of the same
+ * outcome family apart: it states that family with a figure both with the
+ * modifier and without it. A paper that only ever writes "all-cause
+ * mortality" tells nothing apart, so an answer that says "mortality" is
+ * not contradicted; a paper that reports seizure freedom and continuous
+ * seizure freedom side by side does (loop 6 D6-03).
+ */
+export function distinguishesModifier(
+  text: string,
+  families: readonly string[],
+  modifier: string,
+): boolean {
+  if (families.length === 0) return false
+  const re = OUTCOME_MODIFIERS.find(([name]) => name === modifier)?.[1]
+  if (!re) return false
+  let withIt = false
+  let withoutIt = false
+  for (const clause of text.split(/;|(?<=[.!?])\s+|\n/)) {
+    if (!/\d/.test(clause)) continue
+    const lower = clause.toLowerCase()
+    if (!families.every((f) => outcomeFamilies(lower).includes(f))) continue
+    if (re.test(lower)) withIt = true
+    else withoutIt = true
+    if (withIt && withoutIt) return true
+  }
+  return false
+}
+
 /**
  * The bracket a position sits inside, when it does: the unmatched "(" or
  * "[" within 300 characters before it and its closer after it. A semicolon
@@ -898,6 +1145,8 @@ export interface LocatedFigure {
   at: number
   /** The sentence that carries the figure (lower-cased), or the table row with its label and column headings. */
   sentence: string
+  /** The figure's offset within `sentence`. */
+  sentenceAt: number
   /** The same span of the original-case text. */
   sentenceOriginal: string
   /** The sentence and up to three before it within the paragraph (a table row's block is its own window), lower-cased. */
@@ -911,6 +1160,8 @@ export interface LocatedFigure {
   countRow: boolean
   /** The window's own paragraph up to the figure (a row's block): where an n paired with the figure may sit. */
   paragraph: string
+  /** The whole paragraph the figure sits in (a row's whole block): where the frame naming its population sits. */
+  paragraphFull: string
 }
 
 /** A paragraph of the normalised text: its bounds and its trimmed content. */
@@ -1038,9 +1289,14 @@ export function locateFigure(figure: string, text: PreparedSource): LocatedFigur
         ` ${PARAGRAPH_MARK} `,
       )
       seen.add(at)
+      const rowRaw = text.lower.slice(paragraph.start, paragraph.end)
+      const rowTrimmed = rowRaw.trim()
+      const rowStart = lower.lastIndexOf(rowTrimmed)
+      const inRow = at - paragraph.start - (rowRaw.length - rowRaw.trimStart().length)
       out.push({
         at,
         sentence: lower,
+        sentenceAt: rowStart >= 0 ? rowStart + Math.max(0, inRow) : 0,
         sentenceOriginal: original,
         window: lower,
         windowOriginal: original,
@@ -1048,6 +1304,7 @@ export function locateFigure(figure: string, text: PreparedSource): LocatedFigur
         label: block.label,
         countRow: COUNT_LABEL.test(block.label),
         paragraph: lower,
+        paragraphFull: lower,
       })
       return
     }
@@ -1061,6 +1318,7 @@ export function locateFigure(figure: string, text: PreparedSource): LocatedFigur
     out.push({
       at,
       sentence: text.lower.slice(own.start, own.end),
+      sentenceAt: at - own.start,
       sentenceOriginal: text.original.slice(own.start, own.end),
       window: text.lower.slice(window.start, window.end),
       windowOriginal: text.original.slice(window.start, window.end),
@@ -1068,6 +1326,7 @@ export function locateFigure(figure: string, text: PreparedSource): LocatedFigur
       label: '',
       countRow: false,
       paragraph: text.lower.slice(paragraphStart, window.end),
+      paragraphFull: text.lower.slice(paragraph.start, paragraph.end),
     })
   }
   const re = figurePattern(figure, 'g')
@@ -1201,6 +1460,12 @@ export interface QuantityPhrase {
   threshold: boolean
   /** The n the claim pairs with the figure in its own bracket ("14.9% (n = 1111)", "64.2% (2698/4201)"). */
   pairedNs: string[]
+  /** The analysis set the claim names beside the figure ("FAS", "mFAS", "safety population"), lower-cased. */
+  analysisSet?: string
+  /** The population the claim states the figure for, when its clause names one (D6-01). */
+  population?: ClaimPopulation
+  /** The outcome modifiers the claim's clause names ("continuous", "all-cause") (D6-03). */
+  modifiers: string[]
 }
 
 /**
@@ -1229,10 +1494,16 @@ export function quantityPhrase(
     families: [],
     threshold: false,
     pairedNs: [],
+    modifiers: outcomeModifiers(sentence),
   }
   if (!m) return empty
   const at = m.index
   const after = at + m[0].length
+  // A range's or a confidence interval's upper bound says what it measures
+  // before its lower bound, never between the two: "(95% CI: 1.07-4.68)",
+  // "a range of 23 to 71 years" (loop 6 D6-05, D6-06). The phrase is read
+  // from the lower bound, so both endpoints carry the same quantity.
+  const phraseAt = rangeLowerBound(sentence, at) ?? at
   let clauseStart = 0
   let clauseEnd = sentence.length
   for (const b of sentence.matchAll(CLAUSE_BREAK)) {
@@ -1262,9 +1533,9 @@ export function quantityPhrase(
   // The bracket the figure sits in, when it does: an n's label is the
   // analysis set after it; a statistic's label is the name before it.
   let phrase = ''
-  const span = bracketSpan(sentence, at)
+  const span = bracketSpan(sentence, phraseAt)
   if (span && span.open >= clauseStart) {
-    const inside = sentence.slice(span.open + 1, at)
+    const inside = sentence.slice(span.open + 1, phraseAt)
     if (/^\s*n\s*=\s*$/.test(inside)) {
       phrase = sentence.slice(after, span.close).replace(/^[\s,;]+/, '')
     } else if (/[a-z]{3,}/.test(inside)) {
@@ -1284,7 +1555,7 @@ export function quantityPhrase(
   // The subject before the figure's verb: "the adverse-event
   // discontinuation rate was 33.6%", "the safety population included 1216".
   const subject = (): string => {
-    const before = sentence.slice(clauseStart, at)
+    const before = sentence.slice(clauseStart, phraseAt)
     const link = PHRASE_LINK.exec(before)
     if (!link) return ''
     const words = before.slice(0, link.index).replace(DESIGNATOR_PHRASE, ' ').trim().split(/\s+/)
@@ -1296,9 +1567,10 @@ export function quantityPhrase(
     const candidates = ofNoun ? [following(), subject()] : [subject(), following()]
     phrase = candidates.find((c) => distinctive(c).length > 0) ?? ''
     if (!phrase) {
-      const tail = sentence.slice(clauseStart, at).replace(DESIGNATOR_PHRASE, ' ').trim().split(
-        /\s+/,
-      ).slice(-4).join(' ')
+      const tail = sentence.slice(clauseStart, phraseAt).replace(DESIGNATOR_PHRASE, ' ').trim()
+        .split(
+          /\s+/,
+        ).slice(-4).join(' ')
       if (distinctive(tail).length > 0) phrase = tail
     }
   }
@@ -1313,6 +1585,8 @@ export function quantityPhrase(
     : outcomeFamilies(clause).length > 0
     ? outcomeFamilies(clause)
     : outcomeFamilies(stripped)
+  const own = claimPopulation(rawClause) ?? claimPopulation(sentence)
+  const population = own === undefined || own.anaphoric ? (claim.inheritedPopulation ?? own) : own
   return {
     rawClause,
     clause,
@@ -1321,7 +1595,64 @@ export function quantityPhrase(
     families,
     threshold: figure.endsWith('%') && isThresholdAt(sentence, at, after),
     pairedNs: figure.endsWith('%') ? pairedNsAfter(sentence.slice(after)) : [],
+    ...(analysisSetIn(sentence.slice(after, after + 60)) !== undefined
+      ? { analysisSet: analysisSetIn(sentence.slice(after, after + 60))! }
+      : {}),
+    ...(population ? { population } : {}),
+    modifiers: outcomeModifiers(rawClause),
   }
+}
+
+/**
+ * The position of the lower bound of the range or interval a figure closes,
+ * when it closes one: the number immediately before it across a dash or
+ * "to" ("1.07- 4.68", "23 to 71"). Undefined otherwise.
+ */
+export function rangeLowerBound(sentence: string, at: number): number | undefined {
+  const from = Math.max(0, at - 24)
+  const before = sentence.slice(from, at)
+  const m = /(?<![\d.,])(\d[\d.,]*%?)\s*(?:[-\u2010-\u2015]|\bto)\s*$/.exec(before)
+  return m ? from + m.index : undefined
+}
+
+/**
+ * The other endpoint of the range a figure closes or opens in a claim
+ * ("a range of 23 to 71 years" pairs 23 with 71), or undefined when the
+ * claim states no range around it.
+ */
+export function rangePartnerOf(sentence: string, figure: string): string | undefined {
+  const m = figurePattern(figure).exec(sentence)
+  if (!m) return undefined
+  const at = m.index
+  const after = at + m[0].length
+  const lowerAt = rangeLowerBound(sentence, at)
+  if (lowerAt !== undefined) {
+    const lower = /^(\d[\d.,]*%?)/.exec(sentence.slice(lowerAt))
+    if (lower) return lower[1]!.replace(/[.,%]+$/, '')
+  }
+  const upper = /^\s*(?:[-\u2010-\u2015]|to)\s*(\d[\d.,]*%?)/.exec(sentence.slice(after))
+  if (upper) return upper[1]!.replace(/[.,%]+$/, '')
+  return undefined
+}
+
+/** Whether a passage writes two figures as one range, in the claim's order. */
+export function rangeInSentence(passage: string, figure: string, partner: string): boolean {
+  const a = figurePattern(figure).source
+  const b = figurePattern(partner).source
+  const join = '\\s*(?:[-\\u2010-\\u2015]|to|and)\\s*'
+  return new RegExp(`${b}${join}${a}|${a}${join}${b}`).test(passage)
+}
+
+/** The analysis set named in a fragment ("FAS", "mFAS", "full analysis set", "safety population"). */
+export function analysisSetIn(fragment: string): string | undefined {
+  const lower = fragment.toLowerCase()
+  if (/\bmfas\b|\bmodified full analysis set\b/.test(lower)) return 'mfas'
+  if (/\bfas\b|\bfull analysis set\b/.test(lower)) return 'fas'
+  if (/\bsafety (?:population|set)\b|\btolerability population\b/.test(lower)) return 'safety'
+  if (/\bretention population\b/.test(lower)) return 'retention'
+  if (/\bitt\b|\bintention[- ]to[- ]treat\b/.test(lower)) return 'itt'
+  if (/\bper[- ]protocol\b/.test(lower)) return 'pp'
+  return undefined
 }
 
 /**
@@ -1396,12 +1727,16 @@ export interface ClaimFeatures {
   figures: string[]
   /** The sentence as normalised, for the figure-plus-noun check. */
   normalised: string
+  /** The population an earlier sentence named, when this one only points back at it. */
+  inheritedPopulation?: ClaimPopulation
 }
 
 export function claimFeatures(
   sentence: string,
   lexicon: readonly string[],
   questionEntities: readonly string[] = [],
+  /** The population an earlier sentence named, when this one only points back at it. */
+  inheritedPopulation?: ClaimPopulation,
 ): ClaimFeatures {
   // "Thirteen participants" reads "13 participants" on the answer's side
   // too, so the count is checked and the word is not a claim term.
@@ -1413,6 +1748,7 @@ export function claimFeatures(
     words,
     content,
     mandatory: anchors.filter((a) => question.has(a)),
+    ...(inheritedPopulation ? { inheritedPopulation } : {}),
     outcomes: outcomeFamilies(sentence),
     timepoints: timepointsInMonths(normaliseFigures(digits)),
     figures: extractNumbers(sentence),
@@ -1497,6 +1833,23 @@ export function figureSupportedBy(
   const claimTimepoints = quantity.clause === claim.normalised
     ? claim.timepoints
     : timepointsInMonths(quantity.clause)
+  // The other endpoint of the range the claim states this figure in.
+  const rangePartner = rangePartnerOf(claim.normalised, figure)
+  // Whether this paper uses an outcome modifier to tell two figures apart,
+  // computed once per claim and cached.
+  const distinguishing = new Map<string, boolean>()
+  const distinguishes = (modifier: string): boolean => {
+    let known = distinguishing.get(modifier)
+    if (known === undefined) {
+      known = distinguishesModifier(text.lower, quantity.families, modifier)
+      distinguishing.set(modifier, known)
+    }
+    return known
+  }
+  // The population the claim states the figure for: the located sentence's
+  // own population must cover it (loop 6 D6-01).
+  const population = quantity.population?.anaphoric === false ? quantity.population : undefined
+  const populationForms = (population?.words ?? []).map((w) => termForms(w, text.pairs))
   let reason: FigureCheck['reason'] = 'absent'
   for (const occ of locateFigure(figure, text)) {
     const lower = occ.window
@@ -1589,6 +1942,16 @@ export function figureSupportedBy(
       beside = true
     }
     if (!beside && named && occ.row && countWithShare(claim, figure, ownSentence)) beside = true
+    // A range the claim states ("a range of 23 to 71 years") is placed by
+    // the same two numbers written as a range in the located sentence
+    // ("(range = 23-71)"): two specific numbers in the same order is not a
+    // coincidence (loop 6 D6-06).
+    if (
+      !beside && named && rangePartner !== undefined &&
+      rangeInSentence(ownSentence, figure, rangePartner)
+    ) {
+      beside = true
+    }
     if (!beside && sampleSize && isCountOfPeople(figure, ownSentence)) {
       // A count the answer states as a sample size ("n = 1644") is placed
       // by the paper writing it as a count of people too ("1644 adults",
@@ -1619,13 +1982,48 @@ export function figureSupportedBy(
       if (reason === 'absent') reason = 'terms'
       continue
     }
+    // The claim's population must be entailed by the population the located
+    // passage reports the figure for: "patients with psychiatric
+    // comorbidity" does not carry "patients with psychiatric comorbidity
+    // who switched from LEV to BRV", whose figure the paper gives in the
+    // next paragraph (loop 6 D6-01). The passage is the located sentence
+    // and the ones before it in its own paragraph, so a population the
+    // paper frames a paragraph with still counts.
+    if (result && populationForms.length > 0 && statesPopulation(occ.paragraphFull)) {
+      // The frame that opens a paragraph names the population of every
+      // figure in it, so the whole paragraph is what must cover the claim.
+      // A passage that frames no population of its own contradicts none.
+      const where = `${lower} ${occ.paragraphFull} ${occ.label}`
+      const whereOriginal = `${original} ${occ.paragraphFull} ${occ.label}`
+      const covered = populationForms.every((forms) =>
+        forms.some((re) => re.test(where) || re.test(whereOriginal))
+      )
+      if (!covered) {
+        reason = 'population'
+        continue
+      }
+    }
+    // The outcome test is exact where the paper itself is exact:
+    // "continuous seizure freedom" does not answer "seizure freedom" in a
+    // paper that reports both (loop 6 D6-03).
+    if (
+      result &&
+      outcomeModifierConflict(
+        quantity.modifiers,
+        clauseAround(ownSentence, occ.sentenceAt),
+        distinguishes,
+      )
+    ) {
+      reason = 'outcome'
+      continue
+    }
     // The statistic's own qualifier travels with the figure: an "adjusted"
     // ratio is placed only by a passage that says adjusted (or names the
     // multivariable model), and a median by a passage that says median,
     // never by a table's univariable column or a sentence about the mean
     // (D4-18). The claim's terms are otherwise satisfied, so the reason
     // stays 'terms'.
-    if (result && statisticQualifierConflict(claim, lower)) {
+    if (result && statisticQualifierConflict(claim, lower, quantity.rawClause)) {
       if (reason === 'absent') reason = 'terms'
       continue
     }
@@ -1670,9 +2068,16 @@ export function figureSupportedBy(
         // (loop 5 TFA, TDE; D4-05).
         if (quantity.pairedNs.length > 0) {
           const paired = pairedNsAt(text.lower, occ, length)
+          // A paper that names the analysis set beside the figure and its
+          // size elsewhere ("Analyses included 1644 adults ... BRV
+          // retention was ... 71.1% ... (FAS; Fig. 1d)") pairs that n with
+          // the figure just as surely as a bracket would (loop 6 D6-06).
+          const sameSet = quantity.analysisSet !== undefined &&
+            analysisSetIn(ownSentence) === quantity.analysisSet
           const agrees = paired.length > 0
             ? quantity.pairedNs.some((n) => paired.includes(n))
-            : quantity.pairedNs.some((n) => figurePattern(n).test(occ.paragraph))
+            : quantity.pairedNs.some((n) => figurePattern(n).test(occ.paragraph)) ||
+              (sameSet && quantity.pairedNs.some((n) => isCountOfPeople(n, text.lower)))
           if (!agrees) {
             if (reason === 'absent') reason = 'terms'
             continue
@@ -1732,8 +2137,13 @@ export function countWithShare(claim: ClaimFeatures, figure: string, row: string
  * adjusted or multivariable; the claim says "median" and the window gives a
  * mean but no median, or the other way round.
  */
-export function statisticQualifierConflict(claim: ClaimFeatures, window: string): boolean {
-  const sentence = claim.normalised
+export function statisticQualifierConflict(
+  claim: ClaimFeatures,
+  window: string,
+  /** The clause the figure sits in: a "median" elsewhere in the sentence qualifies another figure. */
+  clause?: string,
+): boolean {
+  const sentence = clause ?? claim.normalised
   if (
     /\badjusted\b|\ba(?:hr|or|rr|irr)\b/.test(sentence) &&
     !/\badjust|\bmultivaria|\ba(?:hr|or|rr|irr)\b/.test(window)
@@ -1829,7 +2239,12 @@ export function pValueListConflict(
  * it are reported so the sentence can inherit a marker.
  */
 export function verifyFigures(
-  sentences: readonly { text: string; texts: readonly string[] }[],
+  sentences: readonly {
+    text: string
+    texts: readonly string[]
+    /** For a table row, the column heading above each of its figures: the outcome the cell reports (D6-03). */
+    headings?: ReadonlyMap<string, string>
+  }[],
   allTexts: readonly string[],
   lexicon: readonly string[] = [],
   questionEntities: readonly string[] = [],
@@ -1844,13 +2259,30 @@ export function verifyFigures(
     }
     return v
   }
+  // A sentence that points back at the group the sentence before it named
+  // ("continuous seizure freedom was achieved in 13.7% of these patients")
+  // is checked against that group, not against no group at all (D6-01).
+  let carried: ClaimPopulation | undefined
   for (const sentence of sentences) {
     const figures = extractNumbers(sentence.text)
-    if (figures.length === 0) continue
-    const claim = claimFeatures(sentence.text, lexicon, questionEntities)
+    const stated = claimPopulation(sentence.text)
+    if (stated && !stated.anaphoric) carried = stated
+    if (figures.length === 0) {
+      if (!stated) carried = undefined
+      continue
+    }
+    const inherit = stated?.anaphoric === true ? carried : undefined
+    const claim = claimFeatures(sentence.text, lexicon, questionEntities, inherit)
     const texts = (sentence.texts.length > 0 ? sentence.texts : allTexts).map(prepare)
     const pList = pValueListClaim(sentence.text)
     for (const figure of figures) {
+      // A table cell says what it reports in the column heading above it,
+      // and nowhere else: the heading is read as part of the claim so the
+      // cell is checked against the outcome it is filed under (D6-03).
+      const heading = sentence.headings?.get(figure)
+      const cellClaim = heading
+        ? claimFeatures(`${sentence.text} ${heading}`, lexicon, questionEntities, inherit)
+        : claim
       const supportedBy: number[] = []
       let passage: string | undefined
       let reason: FigureCheck['reason'] | undefined
@@ -1861,7 +2293,7 @@ export function verifyFigures(
           reason = 'pvalue'
           return
         }
-        const verdict = figureSupportedBy(figure, claim, text)
+        const verdict = figureSupportedBy(figure, cellClaim, text)
         if (verdict.supported) {
           supportedBy.push(i)
           if (passage === undefined) passage = verdict.passage

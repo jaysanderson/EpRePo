@@ -14,6 +14,8 @@ import type { Citation } from '@research-portal/core'
 import type { BindResult, BoundSentence } from './citation-binding.ts'
 import { renderBound } from './citation-binding.ts'
 import {
+  claimTerms,
+  extractNumbers,
   type FigureCheck,
   normaliseSource,
   outcomeFamilies,
@@ -47,6 +49,51 @@ export interface BlankedRow {
 
 /** What a blanked table cell reads. */
 export const BLANKED_CELL = 'not verified'
+
+/**
+ * The column heading above each figure of each Markdown table row in an
+ * answer, keyed by the row's text and then by the figure. A cell states no
+ * outcome of its own - "11.7% (FAS)" - so without its heading the check has
+ * nothing to match, and a continuous seizure freedom rate passed under a
+ * seizure freedom heading (loop 6 D6-03).
+ */
+export function rowKey(row: string): string {
+  return row.replace(/\s*\[\d{1,3}\]/g, '').replace(/\s+/g, ' ').trim()
+}
+
+export function tableCellHeadings(answer: string): Map<string, Map<string, string>> {
+  const out = new Map<string, Map<string, string>>()
+  const cells = (line: string) =>
+    line.trim().replace(/^\||\|$/g, '').split('|').map((c) => c.trim())
+  let headings: string[] | undefined
+  for (const raw of answer.split('\n')) {
+    const line = raw.trim()
+    // The generator puts a row's markers after its closing pipe
+    // ("| ... | 14.9% |[1]"): they are not a cell.
+    const bare = line.replace(/(?:\s*\[\d{1,3}\])+$/, '').trim()
+    if (!/^\|.*\|$/.test(bare)) {
+      headings = undefined
+      continue
+    }
+    const parts = cells(bare)
+    if (parts.every((c) => /^:?-+:?$/.test(c) || c.length === 0)) continue
+    if (!headings) {
+      headings = parts
+      continue
+    }
+    const byFigure = new Map<string, string>()
+    parts.forEach((cell, i) => {
+      const heading = headings![i]
+      if (!heading || heading.length < 3) return
+      const label = heading.replace(/\s*\[\d{1,3}\]/g, '').trim()
+      for (const figure of extractNumbers(cell)) {
+        if (!byFigure.has(figure)) byFigure.set(figure, label)
+      }
+    })
+    if (byFigure.size > 0) out.set(rowKey(line), byFigure)
+  }
+  return out
+}
 
 /** A bound sentence that is a Markdown table row with a body (not a header or a rule). */
 export function isTableRow(text: string): boolean {
@@ -462,6 +509,15 @@ export function effectSizesFor(
     }
   }
   const outcomes = outcomeFamilies(query)
+  // The effect must be an effect of what the answer is about: an aHR for
+  // lamotrigine offered under an answer about tonic-clonic seizure
+  // frequency answers a different question, and no effect size is better
+  // than the wrong one (loop 6 D6-05). The exposure words are the answer's
+  // own distinctive words, less the terms the question already names.
+  const body = answer.replace(/^\s*\*.*$/gm, ' ').replace(/\s*\[\d{1,3}\]/g, ' ')
+  const exposure = claimTerms(body, lexicon).words
+    .filter((w) => w.length >= 5 && !terms.some((t) => t.startsWith(w.slice(0, 5))))
+    .slice(0, 12)
   const out: EffectSize[] = []
   for (const { index, text } of texts) {
     const source = normaliseSource(text)
@@ -471,6 +527,9 @@ export function effectSizesFor(
       const named = terms.some((t) => sentenceLower.includes(t)) ||
         (outcomes.length > 0 && outcomeFamilies(sentence).some((o) => outcomes.includes(o)))
       if (!named) continue
+      if (
+        exposure.length > 0 && !exposure.some((w) => sentenceLower.includes(w.slice(0, 5)))
+      ) continue
       const hit = new RegExp(EFFECT_SIZE.source, 'i').exec(sentence)
       if (!hit) continue
       // A covariate list ("age; OR 1.02 ... diagnosis; OR 1.64 ...") is a

@@ -27,6 +27,7 @@ import {
 import {
   carriesQualifier,
   cohortPapers,
+  cohortPhrases,
   cohortTerms,
   figuresFoundIn,
   generatedText,
@@ -51,6 +52,7 @@ import {
   bindSentences,
   looksLikeReferencePassage,
   namedEntities,
+  splitSentences,
   stripReferenceSection,
 } from './citation-binding.ts'
 import {
@@ -60,6 +62,8 @@ import {
   gateFigures,
   markUnverifiableCells,
   removalNote,
+  rowKey,
+  tableCellHeadings,
 } from './answer-gate.ts'
 import { correctAttributions, type NamedAuthor } from './ask-author.ts'
 import { choosePassage, paragraphsOf } from './evidence-passages.ts'
@@ -269,6 +273,52 @@ const NOT_A_STUDY =
   /^(?:EEG|ECG|EMG|MRI|PET|CT|SPECT|ASM|ASMS|AED|AEDS|SUDEP|PNES|IGE|JME|CAE|JAE|GGE|DRE|TLE|FLE|MTLE|QOL|QALY|PRO|PROS|RCT|RCTS|CI|HR|OR|RR|SD|IQR|AUC|FDA|TGA|PBS|NHS|WHO|ILAE|SEEG|RFTC|LITT|VNS|DBS|RNS|LGS|CBD|THC|GWAS|DNA|RNA|PCR|CSF|NMDAR|LGI1|CASPR2|GABA|MOG|AQP4|GTCS|FBTCS|FS|HS|TBI|ICU|ED|GP|MDT|AI|ML|API|PDF|USA|UK|EU|II|III|IV)$/
 
 /**
+ * The answer with every sentence naming one of the given studies replaced
+ * by a note saying the collection holds no such study and no cited source
+ * states the claim. Used only for a study the answer introduced that no
+ * cited text mentions: with reference lists cut, such a sentence has
+ * nothing behind it at all (loop 6 D6-02).
+ */
+export function stripUnheldStudyClaims(
+  answer: string,
+  studies: readonly string[],
+): { text: string; removed: string[] } {
+  if (studies.length === 0) return { text: answer, removed: [] }
+  const removed: string[] = []
+  let text = answer
+  for (const study of studies) {
+    const head = study.split(' ')[0]!
+    for (const line of text.split('\n')) {
+      if (/^\s*[*|]/.test(line)) continue
+      for (const sentence of splitSentences(line)) {
+        const plain = sentence.replace(/\s*\[\d{1,3}\]/g, '').trim()
+        if (!new RegExp(`\\b${head}\\b`).test(plain)) continue
+        if (!text.includes(sentence)) continue
+        removed.push(plain)
+        text = text.replace(
+          sentence,
+          `*A sentence naming ${study} was removed: this collection holds no paper reporting ` +
+            'that study, and no cited source states the finding.*',
+        )
+      }
+    }
+  }
+  return { text, removed }
+}
+
+/** The first sentence of an answer's body: the first line that is not a heading or an italic note. */
+export function leadSentence(text: string): string {
+  for (const line of text.split('\n')) {
+    const trimmed = line.trim()
+    if (trimmed.length === 0 || /^[*#|>-]/.test(trimmed)) continue
+    const stop = /[.!?]["'\u201d)]*(?:\s*\[\d{1,3}\])*(?=\s|$)/.exec(trimmed)
+    return (stop ? trimmed.slice(0, stop.index + stop[0].length) : trimmed)
+      .replace(/\s*\[\d{1,3}\]/g, '').trim()
+  }
+  return ''
+}
+
+/**
  * A study, trial or register the question names by acronym ("SANAD II",
  * "the BREATHS trial", "PERMIT pooled analysis"): an all-caps token of
  * three letters or more that either carries a numeral or sits beside a
@@ -296,12 +346,43 @@ export function namedStudy(query: string): string | null {
  * title carries its name; otherwise whether the collection holds it at all,
  * so the reader can tell coverage from evidence.
  */
+/**
+ * Every study, trial or register a text names by acronym, in order and
+ * without repeats. `namedStudy` returns the first; a generated answer may
+ * introduce one the question never mentioned.
+ */
+export function namedStudies(text: string): string[] {
+  const out: string[] = []
+  const words = text.split(/\s+/)
+  for (let i = 0; i < words.length; i++) {
+    const raw = words[i]!.replace(/[^A-Za-z0-9-]/g, '')
+    if (!/^[A-Z][A-Z0-9-]{2,}$/.test(raw) || NOT_A_STUDY.test(raw)) continue
+    const next = (words[i + 1] ?? '').replace(/[^A-Za-z0-9]/g, '')
+    const numeral = /^(?:II|III|IV|V|2|3|4)$/.test(next)
+    const near = words.slice(Math.max(0, i - 2), i + 4).join(' ').toLowerCase()
+    const studyWord =
+      /\b(?:trial|study|studies|protocol|analysis|analyses|cohort|register|registry|programme|program|consortium)\b/
+        .test(near)
+    const name = numeral ? `${raw} ${next}` : studyWord ? raw : undefined
+    if (name && !out.includes(name)) out.push(name)
+  }
+  return out
+}
+
 export function unheldStudyNote(
   query: string,
   citedTitles: readonly string[],
   catalogueTitles: readonly string[],
+  /** The gated answer: a study the answer itself introduces is bounded too (loop 6 D6-02). */
+  answer?: string,
 ): string | undefined {
-  const study = namedStudy(query)
+  const named = namedStudy(query)
+  const introduced = answer ? namedStudies(answer) : []
+  const study = named ?? introduced.find((s) => {
+    const head = s.split(' ')[0]!
+    const carries = (title: string) => new RegExp(`\\b${head}\\b`, 'i').test(title)
+    return !citedTitles.some(carries) && !catalogueTitles.some(carries)
+  })
   if (!study) return undefined
   const head = study.split(' ')[0]!
   const carries = (title: string) => new RegExp(`\\b${head}\\b`, 'i').test(title)
@@ -560,10 +641,13 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
   // or is removed too. What remains has passed.
   const markerOfText = [...usableTexts.keys()]
   const textsByNew = new Map<number, string>()
+  // A table cell is checked under the column heading above it (D6-03).
+  const headings = tableCellHeadings(stripTemplateLeaks(input.text))
   let checks = verifyFigures(
     bound.sentences.map((s) => ({
       text: s.text,
       texts: s.bound.map((n) => usableTexts.get(n)).filter((t): t is string => t !== undefined),
+      ...(headings.has(rowKey(s.text)) ? { headings: headings.get(rowKey(s.text))! } : {}),
     })),
     allTexts,
     lexicon,
@@ -612,7 +696,7 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
   }
   const cohortBase = (input.cohortResourceIds ?? []).length > 0
     ? new Set(input.cohortResourceIds)
-    : cohortPapers(terms, knownResources, textOf)
+    : cohortPapers(terms, knownResources, textOf, cohortPhrases(query))
   const cohort = cohortBase.size > 0 && !designated
     ? new Set([...cohortBase, ...(input.pinnedResourceIds ?? [])])
     : cohortBase
@@ -990,6 +1074,22 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
   // The gate runs whenever a cited text was read: a paper that never names
   // the question's cohort is judged like any other, never left to a
   // footnote (the loop 4 C4 replay: every cited text failed the name check).
+  // A marker is emitted only for a paper whose located passage carries the
+  // sentence's figures: the per-sentence check already knows which papers
+  // those are, and a sentence bound to three papers where one carries the
+  // figure reads as three sources for it (loop 6 D6-12).
+  for (const sentence of bound.sentences) {
+    if (sentence.bound.length < 2) continue
+    const own = checks.filter((c) => c.sentence === sentence.text)
+    if (own.length === 0 || own.some((c) => !c.supported)) continue
+    const withText = sentence.bound.filter((n) => usableTexts.has(n))
+    if (withText.length < 2) continue
+    const carrying = withText.filter((_, i) => own.every((c) => c.supportedBy.includes(i)))
+    if (carrying.length === 0 || carrying.length === sentence.bound.length) continue
+    // A marker whose text could not be read stays: unverifiable is not
+    // unsupported.
+    sentence.bound = sentence.bound.filter((n) => !usableTexts.has(n) || carrying.includes(n))
+  }
   const gateRan = texts.size > 0 || rescued.length > 0
   const gated = gateRan ? gateFigures(bound, checks, markerOfText, candidates) : {
     text: bound.text,
@@ -1267,7 +1367,13 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
         `${marked.text.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}((?:\\s*\\[\\d{1,3}\\])*)`,
       )
       if (!pattern.test(text)) continue
-      text = text.replace(pattern, (m) => `${m} ${quote}[${index}]`)
+      // A sentence the answer itself flags as second-hand never leads the
+      // answer: the paper's own finding takes its place at the front and
+      // the flagged sentence follows it (loop 6 D6-07).
+      const leads = leadSentence(text) === marked.text.trim()
+      text = leads
+        ? text.replace(pattern, (m) => `${quote}[${index}] ${m}`)
+        : text.replace(pattern, (m) => `${m} ${quote}[${index}]`)
       ownFindings.push(found.sentence)
       for (const f of extractNumbers(found.sentence)) stated.add(f)
     }
@@ -1364,10 +1470,26 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
 
   // The corpus boundary for a study the question names.
   const citedTitles = citations.map((c) => c.title)
-  const boundary = unheldStudyNote(
+  // A study the ANSWER introduced that neither the collection holds nor
+  // any cited text mentions has nothing behind it: with the bibliographies
+  // cut, a reference title can no longer ground it, and the sentence goes
+  // rather than standing uncited (loop 6 D6-02, the RANSOM Study).
+  const questionStudy = namedStudy(query)
+  const unheldIntroduced = namedStudies(text).filter((study) => {
+    if (study === questionStudy) return false
+    const head = study.split(' ')[0]!
+    const re = new RegExp(`\\b${head.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i')
+    return !citedTitles.some((t) => re.test(t)) &&
+      !(input.catalogue ?? []).some((r) => re.test(r.title)) &&
+      ![...textsByNew.values()].some((t) => re.test(t))
+  })
+  const strippedStudies = stripUnheldStudyClaims(text, unheldIntroduced)
+  text = strippedStudies.text
+  const boundary = strippedStudies.removed.length > 0 ? undefined : unheldStudyNote(
     query,
     citedTitles,
     (input.catalogue ?? []).map((r) => r.title),
+    text,
   )
 
   const scoped = input.authors && input.authors.length > 0
@@ -1453,7 +1575,7 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
       sentencesCited: gated.sentences.filter((s) => s.bound.length > 0).length,
       denominatorsMissing: denominators.map((d) => d.figure),
       attributionsCorrected,
-      sentencesRemoved: gated.removed.length,
+      sentencesRemoved: gated.removed.length + strippedStudies.removed.length,
       figuresRemoved,
       figuresRescued: [...new Set(rescued.flatMap((r) => r.figures))],
       sentencesReplaced: replaced.length,
