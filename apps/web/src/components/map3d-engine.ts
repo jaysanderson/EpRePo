@@ -1923,6 +1923,16 @@ export class KnowledgeMapEngine {
     this.positionPopup()
 
     // Territory captions above their volume, dimmed while something has focus.
+    // Kept inside the canvas and apart from each other: on a phone the
+    // clusters sit close enough that "RESEARCH STUDY" used to run off the
+    // left edge and print over "TECHNOLOGY".
+    const placedCaptions: {
+      caption: HTMLDivElement
+      x: number
+      y: number
+      w: number
+      h: number
+    }[] = []
     for (const territory of this.territories) {
       if (!territory.mesh.visible) continue
       this.labelVec.copy(territory.centre)
@@ -1934,12 +1944,29 @@ export class KnowledgeMapEngine {
         continue
       }
       const sx = (this.labelVec.x * 0.5 + 0.5) * this.width
-      const sy = (-this.labelVec.y * 0.5 + 0.5) * this.height
+      const sy = (-this.labelVec.y * 0.5 + 0.5) * this.height - 6
       territory.caption.style.display = 'block'
-      territory.caption.style.transform = `translate(-50%, -100%) translate(${sx.toFixed(1)}px, ${
-        (sy - 6).toFixed(1)
-      }px)`
       territory.caption.style.opacity = focus ? '0.3' : '0.9'
+      const w = territory.caption.offsetWidth || 120
+      const h = territory.caption.offsetHeight || 16
+      placedCaptions.push({ caption: territory.caption, x: sx, y: sy, w, h })
+    }
+    const pad = 8
+    placedCaptions.sort((a, b) => a.y - b.y)
+    for (let i = 0; i < placedCaptions.length; i++) {
+      const c = placedCaptions[i]!
+      // Inset: the caption is centred on x and sits above y.
+      c.x = Math.min(Math.max(c.x, c.w / 2 + pad), this.width - c.w / 2 - pad)
+      c.y = Math.max(c.y, c.h + pad)
+      for (let j = 0; j < i; j++) {
+        const o = placedCaptions[j]!
+        const overlapX = Math.abs(c.x - o.x) < (c.w + o.w) / 2 + 4
+        const overlapY = c.y > o.y - o.h - 2 && c.y - c.h < o.y + 2
+        if (overlapX && overlapY) c.y = o.y + c.h + 2
+      }
+      c.caption.style.transform = `translate(-50%, -100%) translate(${c.x.toFixed(1)}px, ${
+        c.y.toFixed(1)
+      }px)`
     }
 
     this.projectEdgeLabels()

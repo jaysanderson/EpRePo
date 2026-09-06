@@ -1,0 +1,40 @@
+# EpRePo Research Portal on Fly.io (docs/EPREPO.md). Deployed from the
+# developer machine with `fly deploy --remote-only`; the Cloudflare pipeline
+# in .github/workflows is corpuskit's and is not used by this fork.
+app = "eprepo-portal"
+primary_region = "syd"
+
+[build]
+
+[env]
+  PORT = "8787"
+  DATA_DIR = "/app/data"
+  BINDINGS_PATH = "/app/data/bindings.json"
+  TENANTS_PATH = "/app/data/tenants.json"
+  KG_PROPOSALS_PATH = "/app/data/kg-proposals.json"
+  BRANDING_PATH = "/app/data/branding"
+
+[http_service]
+  internal_port = 8787
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  # One machine stays up so the enrichment scheduler and saved-search checks
+  # run without waiting for a visitor.
+  min_machines_running = 1
+
+  # /api/health only returns 200 when the web bundle exists in the image.
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "30s"
+    method = "get"
+    path = "/api/health"
+
+[mounts]
+  source = "rp_data"
+  destination = "/app/data"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "1024mb"
