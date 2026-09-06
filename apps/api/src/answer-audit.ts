@@ -2213,10 +2213,24 @@ export function statesDenominator(sentence: string): boolean {
  * Percentages in the sentence: the figures that need a denominator. The
  * "95%" of a confidence interval is not a proportion, and a hazard ratio,
  * an odds ratio, a standardised mortality ratio or a p value never takes
- * one - a ratio has no n of its own to pair with.
+ * one - a ratio has no n of its own to pair with. Nor does a range or an
+ * interquartile range: "17.1% (range 13-28%)" states one prevalence with
+ * its spread, not three shares of three cohorts (docs/persona-reports/
+ * dsouza-loop6.md D6-08).
  */
 export function proportions(sentence: string): string[] {
-  const plain = sentence
+  // One spelling for the dashes first, so a range written with an en dash
+  // ("13-28%" as the extraction writes it) is read as one range here too.
+  const plain = normaliseFigures(sentence)
+    // An estimate the source qualifies with its spread rather than with an
+    // n - "17.1% (range 13-28%)", "45% (IQR 23-71)" - and the bounds of
+    // that spread: neither is a share of a cohort with an n of its own.
+    .replace(
+      /\b\d+(?:\.\d+)?\s?%\s*\(\s*(?:range|IQR|interquartile range)\b[^)]*\)/gi,
+      ' ',
+    )
+    .replace(/\(\s*(?:range|IQR|interquartile range)\b[^)]*\)/gi, ' ')
+    .replace(/\b\d+(?:\.\d+)?\s?%?\s?-\s?\d+(?:\.\d+)?\s?%/g, ' ')
     // A confidence interval and its bounds, an I-squared, a change: none is a share of a cohort.
     .replace(/\(?\b\d+(?:\.\d+)?\s?%\s?(?:CI\b|confidence interval)[^)]*\)?/gi, ' ')
     .replace(/\bI\s?[²2]\s*=\s*\d+(?:\.\d+)?\s?%/gi, ' ')
@@ -2314,15 +2328,27 @@ function denominatorInParenthesis(
       if (n?.[1]) return `n = ${n[1]}`
     }
   }
-  // "29 (48%) of 60 patients", "29 (48%) patients met", and a table's
-  // "38 (79%)": the count the share was taken of, with the whole when
-  // the same sentence gives it.
+  // "29 (48%) of 60 patients", "29 (48%) patients met", a table's
+  // "38 (79%)" and the "232 [39.8%]" a results sentence writes in square
+  // brackets (docs/persona-reports/dsouza-loop6.md D6-08): the count the
+  // share was taken of, with the whole when the same sentence gives it -
+  // in its own "of N" clause or in the "(n = N)" one clause further on.
   const before = text.slice(Math.max(0, at - 12), at)
-  const counted = /(\d[\d,]*) \($/.exec(before)
+  const counted = /(\d[\d,]*) [([]$/.exec(before)
   const { sentence } = sentenceAround(text, at)
-  if (counted?.[1] && /^\s*\)/.test(rest)) {
+  if (counted?.[1] && /^\s*[)\]]/.test(rest)) {
     const whole = /\b(?:of|among)\s+(?:the\s+)?(\d[\d,]{1,})\b/i.exec(sentence)
-    return whole?.[1] ? `${counted[1]} of ${whole[1]}` : `${counted[1]} (${figure})`
+    if (whole?.[1]) return `${counted[1]} of ${whole[1]}`
+    // One n in the sentence cannot be mis-paired: "... from LEV to BRV
+    // (n = 583), the most common reasons were lack of effectiveness
+    // (232 [39.8%])" gives 232 of 583.
+    const ns = [
+      ...new Set(
+        [...sentence.matchAll(/\bn\s*=\s*(\d(?:[\d,]*\d)?)/gi)].map((m) => m[1]!.replace(/,/g, '')),
+      ),
+    ]
+    if (ns.length === 1) return `${counted[1]} of ${ns[0]}`
+    return `${counted[1]} (${figure})`
   }
   // One share and one "(n = N)" in the sentence cannot be mis-paired:
   // "retention was 71.1% in the full analysis set (n = 1644)".
@@ -2343,14 +2369,70 @@ export interface DenominatorCheck {
   index?: number
 }
 
+/** A Markdown table row - "| Brivaracetam | EXPERIENCE | 1111 | 14.9% |". */
+function isTableRowText(text: string): boolean {
+  return /^\s*\|.*\|\s*$/.test(text.trim())
+}
+
+/**
+ * Whether a passage states this share as a fitted statistic rather than as
+ * a count over a cohort: "We found F1 = 0.8, suggesting that 80% of EDs in
+ * Group 1 were clustered during the sleep period" (docs/persona-reports/
+ * dsouza-loop6.md D6-08). An F score, an AUC, an R squared, a kappa or an
+ * intraclass correlation is fitted to the data and has no n of its own to
+ * pair with, so the addendum has nothing to ask for.
+ */
+export function isFittedStatistic(figure: string, texts: readonly string[]): boolean {
+  if (!figure.endsWith('%')) return false
+  const value = Number.parseFloat(figure)
+  if (!Number.isFinite(value)) return false
+  const wanted = new Set([
+    String(value / 100),
+    (value / 100).toFixed(2),
+    (value / 100).toFixed(3),
+  ])
+  const pattern =
+    /\b(?:F\d|F-?score|AUC|AUROC|R\s?[²2]|kappa|κ|ICC|c-?statistic)\b[^.]{0,20}?(0?\.\d+)/gi
+  for (const raw of texts) {
+    for (const m of normaliseText(raw).matchAll(pattern)) {
+      const decimal = m[1]!.startsWith('.') ? `0${m[1]}` : m[1]!
+      if (wanted.has(decimal) || wanted.has(String(Number.parseFloat(decimal)))) return true
+    }
+  }
+  return false
+}
+
+/**
+ * Whether the passage qualifies the share with its spread rather than with
+ * an n: "45% (IQR 23-71)", "17.1% (range 13-28%)". The paper has answered
+ * the question the addendum would ask.
+ */
+function qualifiedBySpread(figure: string, texts: readonly string[]): boolean {
+  const re = figurePattern(figure, 'g')
+  for (const raw of texts) {
+    const text = normaliseText(raw)
+    let m: RegExpExecArray | null
+    while ((m = re.exec(text)) !== null) {
+      if (
+        /^\s*[([]\s*(?:range|IQR|interquartile range)\b/i.test(
+          text.slice(m.index + m[0].length),
+        )
+      ) return true
+    }
+  }
+  return false
+}
+
 /**
  * Proportions the answer states in a sentence that carries no count of its
  * own, each with the denominator the located passage gives in the figure's
  * own parenthesis or table cell (docs/persona-reports/dsouza-loop5.md
  * D5-03, D5-13): only the sentence the audit verified the figure in is
  * read, never another occurrence of the same number elsewhere in the
- * paper. A quoted sentence, a figure the paper states as a decimal
- * proportion ("F1 = 0.8"), a confidence interval and an effect size take
+ * paper. A quoted sentence, a table row (the table has its own n column,
+ * loop 6 D6-08), a figure the paper states as a decimal proportion or as a
+ * fitted statistic ("F1 = 0.8"), a share the paper qualifies with a range
+ * or an interquartile range, a confidence interval and an effect size take
  * no denominator and are not listed.
  */
 export function denominatorsMissing(
@@ -2364,6 +2446,9 @@ export function denominatorsMissing(
   const seen = new Set<string>()
   for (const sentence of sentences) {
     if (/^\s*The paper(?:'s own finding| itself reports)/.test(sentence.text)) continue
+    // A table states its denominators in its own n column: the addendum
+    // under it would be asking the table for what the table is for.
+    if (isTableRowText(sentence.text)) continue
     const figures = proportions(sentence.text)
     if (figures.length === 0 || statesDenominator(sentence.text)) continue
     for (const figure of figures) {
@@ -2378,6 +2463,11 @@ export function denominatorsMissing(
           .test(normaliseText(l.passage))
       )
       if (asPercent.length === 0) continue
+      const passages = asPercent.map((l) => l.passage)
+      if (isFittedStatistic(figure, passages) || qualifiedBySpread(figure, passages)) {
+        seen.add(figure)
+        continue
+      }
       seen.add(figure)
       let found: DenominatorCheck = { figure }
       for (const place of asPercent) {

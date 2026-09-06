@@ -287,7 +287,9 @@ describe('answer audit - abbreviations, denominators and designs', () => {
             'We found F1 = 0.8, suggesting that 80% of EDs in Group 1 were clustered during the sleep period.',
         }],
       }]),
-    ).toEqual([{ figure: '80%' }])
+      // Loop 6 D6-08: the share is the fitted statistic ("F1 = 0.8"), so
+      // there is no denominator for the paper to have given.
+    ).toEqual([])
     expect(
       denominatorsMissing([{
         text: 'Just over a third (37%) occurred during sleep.',
