@@ -139,6 +139,35 @@ verify a sentence it removes it and says so rather than substituting; structured
 generation through `answer_json_schema` was trialled on twelve questions and not adopted (it
 fabricated a cohort figure the prose path declined and cannot carry paragraph citations).
 
+## Failure wording is the portal's own (decision, 6 September 2026)
+
+A platform failure is described in the portal's words, never the platform's. Loop 8 D8-07 caught
+a raw `Agentic RAG API 422 for https://<zone>.rag.progress.cloud/api/v1/kb/<uuid>/ask: {...}`
+rendered verbatim into the answer card on a bad document link - the vendor's name, its endpoint
+host and the knowledge-box id, on screen, in front of whoever was watching. That breaks the
+own-system framing the portal is built on (`CLAUDE.md`), so it is a defect regardless of how the
+answer itself behaved.
+
+The rule: every string a reader can be shown for a failure comes from
+`apps/api/src/public-error.ts`, and the upstream detail goes to the server log only.
+
+- `publicErrorMessage(err)` is the wording for a thrown error; nothing of the error's own message
+  passes through. A recognised failure gets specific wording - a rejected resource id becomes
+  "That document link is not valid.", platform back-pressure becomes "The answer service is busy
+  right now - please try again in a moment.", anything else keeps only the HTTP status.
+- `publicSseEvent(event, label)` wraps every stream a reader reads (Ask, document chat, the help
+  assistant, the estate ask). A provider that reports a failure as an `{ type: 'error' }` event
+  rather than by throwing is sanitised the same way, and the original is written to the log as
+  `[<label>] upstream error: ...`.
+- `leaksInternalDetail(text)` is the invariant: no endpoint URL, internal host, knowledge-box or
+  resource UUID, vendor name, internal API path, upstream validation body or stack frame in
+  anything user-facing. `apps/api/src/public-error.test.ts` asserts it over the real SSE payload
+  of a real ask, not only over the helper.
+
+Administration routes (`/api/admin/...`) are deliberately outside this rule: they are gated by the
+passcode and an operator needs the upstream detail to diagnose a box. They are not a reader
+surface, and nothing in the customer-facing portal renders their messages.
+
 ## Facet counts, sorting and example copy
 
 - `GET /api/t/:slug/facets` serves `topic`, `kind` and `format` together from one memoised

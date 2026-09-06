@@ -7,6 +7,21 @@ ten-persona evaluation (`docs/EPREPO-ROADMAP.md`, `docs/persona-reports/p1.md` t
 (`docs/persona-reports/dsouza-loop1.md` to `loop5.md`). Dates are the merge dates (UTC).
 The architecture of the answer trust layer these entries built is in `docs/TRUST-LAYER.md`.
 
+## PR (this loop) - 6 September 2026 - D'Souza loop 8 (n1): the portal describes its own failures
+
+For the reader: a platform failure is now told in the portal's own words. Follow a stale document
+link and the answer card says "That document link is not valid." where it used to print the
+vendor's name, its endpoint host, the knowledge-box id and the platform's raw validation body
+straight onto the screen; a busy platform says it is busy, anything else keeps only an HTTP status,
+and the detail goes to the server log. The same wording now covers Ask, document chat, the help
+assistant and the estate ask, whether the failure is thrown or reported as a stream event, and a
+test asserts over a real ask's payload that no host, UUID or vendor name can reach it. Beside it,
+an answer's opening claim no longer outlives its evidence: when a removal leaves nothing in the
+answer that speaks to the lead claim, the lead goes with it and the honest coverage decline stands
+in its place, instead of a bare assertion left standing under a paper that does not carry it.
+Closes D8-07 and D8-09. Administration screens keep their diagnostic messages by design; they are
+passcode-gated and are not a reader surface.
+
 ## PR (this loop) - 6 September 2026 - D'Souza loop 8 (m2): removal is real, and the paper is read before the refusal
 
 For the reader: an answer no longer prints a figure its own footnote says it removed. Ask to
