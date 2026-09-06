@@ -244,6 +244,24 @@ describe('resolveClauses', () => {
     expect(resolved[0]!.resourceId).toBe('jme2')
   })
 
+  it('never lets a clause with no subject of its own leave the clause before it', async () => {
+    const resolved = await resolveClauses(
+      decomposeQuestion(
+        'What proportion of people report depressive symptoms after a first seizure, and how many participants were enrolled?',
+        LEXICON,
+      ),
+      deps((text, ids) => {
+        if (ids) return Promise.resolve([scored(ids[0]!, 'scoped', 0.2)])
+        // A vagus-nerve-stimulation registry scores far higher for "how many
+        // participants were enrolled" than the first-seizure paper does.
+        if (/enrolled/i.test(text)) return Promise.resolve([scored('cbd', 'VNS registry', 0.95)])
+        return Promise.resolve([scored('umpire', CATALOGUE[6]!.title, 0.6)])
+      }),
+    )
+    expect(resolved.map((r) => r.resourceId)).toEqual(['umpire', 'umpire'])
+    expect(resolved[1]!.via).toBe('inherited')
+  })
+
   it('keeps a continuation clause with the paper the clause before it resolved to', async () => {
     const resolved = await resolveClauses(
       decomposeQuestion(
@@ -375,10 +393,11 @@ describe('composition', () => {
           relevance: 0.6,
         },
       ],
+      'What was the responder rate, and in how many participants?',
     )
     expect(declined).toEqual([])
     expect(groups).toHaveLength(1)
-    expect(groups[0]!.query).toBe('a; b')
+    expect(groups[0]!.query).toBe('What was the responder rate, and in how many participants?')
     expect(groups[0]!.heading).toBeUndefined()
   })
 

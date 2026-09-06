@@ -410,6 +410,23 @@ export function phraseOverlap(query: string, title: string): number {
   return shared
 }
 
+/**
+ * Whether a clause introduces a subject of its own: a name the catalogue can
+ * resolve, a medication, or a condition. "... and how many participants were
+ * enrolled" introduces none - its subject is the clause before it - and a
+ * clause like that must never go looking for a paper of its own. Loop 7 and
+ * loop 8 both answered it from an unrelated study's enrolment (D7-06, D8-03).
+ */
+export function introducesSubject(
+  clause: QuestionClause,
+  lexicon: readonly string[],
+  pin: (text: string) => NamePin | null,
+): boolean {
+  if (clause.entity) return true
+  if (clauseTerms(clause, lexicon).length > 0) return true
+  return pin(clause.text) !== null
+}
+
 /** The medications and conditions a clause names, which together scope it. */
 export function clauseTerms(clause: QuestionClause, lexicon: readonly string[]): string[] {
   const terms = [
@@ -470,6 +487,21 @@ export async function resolveClauses(
         continue
       }
     }
+    // A clause that introduces nothing of its own belongs to the clause
+    // before it, and no score may take it somewhere else: "and how many
+    // participants were enrolled" is about the study the first clause named,
+    // and answering it from whichever paper ranks next is D8-03 exactly.
+    if (previous?.resourceId && !introducesSubject(clause, deps.lexicon, deps.pin)) {
+      const kept = await deps.find(clause.text, [previous.resourceId])
+      out.push({
+        clause,
+        via: 'inherited',
+        resourceId: previous.resourceId,
+        title: previous.title,
+        relevance: bestArticle(kept, 0)?.relevance ?? previous.relevance,
+      })
+      continue
+    }
     const [wide, kept] = await Promise.all([
       deps.find(clause.text),
       previous?.resourceId
@@ -526,6 +558,8 @@ export interface ClauseGroup {
  */
 export function groupClauses(
   resolutions: readonly ClauseResolution[],
+  /** The question as it was asked, framing already stripped. */
+  query?: string,
 ): { groups: ClauseGroup[]; declined: QuestionClause[] } {
   const groups: ClauseGroup[] = []
   const declined: QuestionClause[] = []
@@ -546,11 +580,15 @@ export function groupClauses(
     }
   }
   for (const group of groups) {
-    // A paper is asked its own clauses, in the words the decomposition left
-    // them in: the framing a question carries for the portal ("for a
-    // registrar teaching session:") is not part of what the paper is asked,
-    // and a comparison's other drug is not either.
-    group.query = group.clauses.map((c) => c.ask ?? c.text).join('; ')
+    // One paper answering every clause is asked the question as it was
+    // written (minus the framing): the clauses are retrieval texts, and
+    // splitting "how often do patients relapse, and how soon after" into two
+    // of them costs the generator the sentence that carries both figures.
+    // A paper answering part of the question is asked only its own clauses,
+    // so a comparison's other drug is not in front of it.
+    group.query = query !== undefined && groups.length === 1 && declined.length === 0
+      ? query
+      : group.clauses.map((c) => c.ask ?? c.text).join('; ')
     if (groups.length > 1 && group.clauses.every((c) => c.kind === 'entity')) {
       group.heading = group.clauses.map((c) => c.label).join(' and ')
     }
@@ -759,7 +797,7 @@ export async function answerByClause(
   const clauses = decomposeQuestion(query, deps.lexicon, supplied)
   const resolutions = await resolveClauses(clauses, deps)
   if (!resolutions.some((r) => r.resourceId)) return null
-  const { groups, declined } = groupClauses(resolutions)
+  const { groups, declined } = groupClauses(resolutions, stripFraming(query))
   await deps.onPlan?.({ resolutions, groups, declined })
   const pending = groups.map((group) =>
     deps.askOne(group).catch(() => ({ text: '', sources: [] as readonly ScoredResource[] }))
