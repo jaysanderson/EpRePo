@@ -283,12 +283,6 @@ export function figurePresent(token: string, haystack: string): boolean {
   return figurePattern(token).test(haystack)
 }
 
-/** Figures in the answer that appear in none of the cited texts. */
-export function numbersMissing(answer: string, citedTexts: readonly string[]): string[] {
-  const haystack = citedTexts.map(normaliseText).join('\n')
-  return extractNumbers(answer).filter((token) => !figurePresent(token, haystack))
-}
-
 // ---------------------------------------------------------------------------
 // Figures checked beside their claim's own terms
 // ---------------------------------------------------------------------------
@@ -511,7 +505,6 @@ export interface FigureCheck {
     | 'outcome'
     | 'timepoint'
     | 'entity'
-    | 'cohort'
     | 'pvalue'
     | 'population'
     | 'secondhand'

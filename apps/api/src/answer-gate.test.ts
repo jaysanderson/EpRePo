@@ -344,9 +344,6 @@ describe('conclusions and connectives after a removal (D3-06, D3-15)', () => {
         'paper that carries the same figure at the same time point, quoted and cited. Ask about ' +
         'one paper to see the figures it reports.*',
     )
-    expect(removalNote([{ text: 'x', figures: ['0.11'], reason: 'cohort' }])).toContain(
-      'the cited paper is not the cohort or study the question asks about',
-    )
   })
 
   it('names the effect and skips a covariate list', () => {

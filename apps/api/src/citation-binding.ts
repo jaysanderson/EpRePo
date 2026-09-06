@@ -571,8 +571,6 @@ export interface BindInput {
    * is dropped, so a tau-pathology paper never carries a SANAD sentence.
    */
   requiredName?: string | readonly string[]
-  /** Citation indices that pass the name check whatever their text carries (a paper pinned for the cohort). */
-  alwaysNamed?: ReadonlySet<number>
   /**
    * Keep the provider's citation numbers rather than renumbering by first
    * appearance, for a caller that renumbers once more after its own pass
@@ -615,7 +613,7 @@ export function bindSentences(input: BindInput): BindResult {
       n,
     ) => n.toLowerCase()).filter((n) => n.length > 0)
   const carriesName = (index: number): boolean => {
-    if (required.length === 0 || input.alwaysNamed?.has(index)) return true
+    if (required.length === 0) return true
     const text = prepared.get(index)
     const title = input.citations.find((c) => c.index === index)?.title ?? ''
     return required.some((name) => {

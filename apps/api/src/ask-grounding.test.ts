@@ -71,7 +71,7 @@ const EXPERIENCE =
   'Retention was high.'
 
 describe('bindAndAudit over the loop 4 cases', () => {
-  it("removes a figure about another cohort on a question that names the cohort by designator, keeping the cohort paper's own sentence (D4-01)", async () => {
+  it("removes a figure whose paper the pin excluded, keeping the pinned paper's own sentence (D4-01 under the pin)", async () => {
     const result = await bindAndAudit({
       management: management({ dravet: DRAVET, vem: VEM }),
       config,
@@ -97,13 +97,11 @@ describe('bindAndAudit over the loop 4 cases', () => {
       variant: undefined,
       floor: 0.3,
       pinnedResourceIds: ['vem'],
-      cohortResourceIds: ['vem'],
+      pinScopeIds: ['vem'],
     })
     expect(result.text).toContain('2,709 adults')
     expect(result.text).not.toContain('25 of 205')
-    expect(result.text).toContain(
-      'the cited paper is not the cohort or study the question asks about',
-    )
+    expect(result.text).toContain('One sentence was removed from this answer')
     expect(result.audit.sentencesRemoved).toBe(1)
     expect(result.citations.map((c) => c.resourceId)).toEqual(['vem'])
   })
@@ -133,7 +131,7 @@ describe('bindAndAudit over the loop 4 cases', () => {
       lexicon: [],
       variant: undefined,
       floor: 0.3,
-      cohortResourceIds: ['genomics', 'vem'],
+      pinScopeIds: ['genomics', 'vem'],
     })
     expect(result.emptied).toBe(true)
     expect(result.audit.figuresSecondhandRemoved).toContain('5.9')
@@ -258,7 +256,7 @@ describe('bindAndAudit over the loop 4 cases', () => {
       floor: 0.3,
       pinnedTerms: ['rituximab'],
       pinnedResourceIds: ['lgi1', 'nmdar'],
-      cohortResourceIds: ['lgi1'],
+      pinScopeIds: ['lgi1'],
     })
     expect(result.text).not.toContain('0.11')
     expect(result.audit.sentencesReplaced).toBe(0)

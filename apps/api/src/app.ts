@@ -81,6 +81,7 @@ import {
   wordCount,
 } from './intent-router.ts'
 import { isAttachmentTitle, matchStudies } from './study-guard.ts'
+import { type NamePin, pinAddendum, resolvePin } from './name-pin.ts'
 import {
   comparisonEntities,
   entityPins,
@@ -3817,17 +3818,31 @@ export function buildApp(opts: BuildAppOptions): Hono {
       // study guard reads out of "that study" is those papers, not a
       // catalogue match on the phrase (D5-06: "strongest predictor in that
       // study" pinned a verbal-learning paper and the retry read it).
+      const merchandisedCatalogue = documentScope ? [] : merchandiseSummaries(
+        enrichments,
+        config.slug,
+        await provider.listResources(config).catch(() => []),
+      )
       const pinned = !documentScope
-        ? matchStudies(
-          query,
-          merchandiseSummaries(
-            enrichments,
-            config.slug,
-            await provider.listResources(config).catch(() => []),
-          ),
-          lexicon,
-        ).filter((p) => !(priorScoped && p.kind === 'cohort'))
+        ? matchStudies(query, merchandisedCatalogue, lexicon)
+          .filter((p) => !(priorScoped && p.kind === 'cohort'))
         : []
+      // THE RETRIEVAL PIN (docs/persona-reports/dsouza-loop7.md section 6,
+      // name-pin.ts). The cohorts, antibodies, conditions, trial acronyms,
+      // drugs and study names the question uses are resolved against the
+      // catalogue BEFORE retrieval, and when they resolve, retrieval is
+      // constrained to those resources on the platform's own
+      // `resource_filters` - exactly as document chat is constrained. An
+      // anti-LGI1 question then cannot be answered with the anti-NMDAR
+      // paper's figures, because that paper is not in the grounding set at
+      // all (D7-01); a consortium's outcome cannot be taken from a sub-study
+      // whose summary merely names the consortium (D7-02). When nothing
+      // resolves, retrieval is unchanged.
+      // Only a first turn pins: a follow-up is already scoped by the earlier
+      // turns' papers, and an author question by the author's articles.
+      const resolvedPin = !documentScope && firstTurn
+        ? resolvePin(query, merchandisedCatalogue, lexicon)
+        : null
       // The papers a cohort designator matched: the cohort's own papers for
       // the question-level guard, whatever their titles carry (D4-01).
       const cohortIds = pinned.filter((p) => p.kind === 'cohort').map((p) => p.id)
@@ -3910,10 +3925,31 @@ export function buildApp(opts: BuildAppOptions): Hono {
       }
       const probedIntent = askOpts.intent
       const probePending = !documentScope && firstTurn ? probe(probedIntent) : null
+      // The gate is best-effort and its real await is below, inside a try.
+      // A handler is attached here so a platform failure between the two
+      // (the pin's own find awaits in between) is never an unhandled
+      // rejection, which takes the whole server down.
+      probePending?.catch(() => {})
       const pinnedPending = pinnedIds.length > 0
         ? provider.search(config, query, { resourceIds: pinnedIds, pageSize: 8 }).then(
           (found) => found.resources,
           () => [] as ScoredResource[],
+        )
+        : null
+      // Does the pin actually hold? The names resolved to papers; whether
+      // those papers address the question is retrieval's judgement, not a
+      // string rule, so the whole question and each of its clauses are found
+      // INSIDE the pin. A clause is asked separately because a two-part
+      // question scores weakly as a whole and strongly on the half that
+      // names the study - which is exactly how "what does the BREATHS trial
+      // test" came back as "no source in the corpus comes close" (D7-09).
+      const pinClauses = resolvedPin ? questionClauses(query).slice(0, 2) : []
+      const pinFindPending = resolvedPin
+        ? Promise.all(
+          [query, ...pinClauses].map((text) =>
+            provider.search(config, text, { resourceIds: resolvedPin.resourceIds, pageSize: 8 })
+              .then((found) => found.resources, () => [] as ScoredResource[])
+          ),
         )
         : null
       if (classifierPending) {
@@ -3932,6 +3968,83 @@ export function buildApp(opts: BuildAppOptions): Hono {
       // A two-part question about a pinned paper runs each clause against
       // it as its own retrieval pass (D2-05, D2-08).
       const pinnedQueries = pinnedIds.length > 0 ? questionClauses(query) : []
+      // The pin holds when the papers the names resolved to actually carry
+      // passages for the question or one of its clauses. When they do not,
+      // the names matched a title and nothing else, and constraining
+      // retrieval to them would be worse than not pinning: the pin is
+      // dropped and retrieval is exactly what it was.
+      let pin: NamePin | null = null
+      let pinSources: ScoredResource[] = []
+      if (resolvedPin && pinFindPending) {
+        const perQuery = await pinFindPending
+        const inside = perQuery.flat()
+        const bestOf = (found: readonly ScoredResource[]) =>
+          found.reduce((m, r) => Math.max(m, r.relevance), 0)
+        if (bestOf(inside) >= GROUNDING_FLOOR) {
+          pin = resolvedPin
+          // A clause the pinned papers do not answer widens the pin rather
+          // than being silently dropped: "how often are functional seizures
+          // misdiagnosed, and what does the BREATHS trial test" pins the
+          // protocol for the second half and adds the paper that answers the
+          // first, so neither half is lost and neither is answered from a
+          // paper the question did not name (D7-09, D4-22). A clause that
+          // merely continues the subject ("and at what median time to first
+          // relapse") scores inside the pin already and widens nothing.
+          // Whether a clause is covered is retrieval's judgement, not a
+          // string rule: the clause is found inside the pin and again over
+          // the whole collection, and only a corpus match this much stronger
+          // than the pinned one means the pinned papers are not where that
+          // half of the question is answered.
+          const PIN_WIDEN_MARGIN = 0.2
+          const widened = await Promise.all(
+            pinClauses.slice(0, 2).map((clause, i) => {
+              const insideBest = bestOf(perQuery[i + 1] ?? [])
+              return provider.search(config, clause, { pageSize: 4 }).then(
+                (found) =>
+                  found.resources.filter((r) =>
+                    r.relevance >= GROUNDING_FLOOR &&
+                    (insideBest < GROUNDING_FLOOR ||
+                      r.relevance - insideBest >= PIN_WIDEN_MARGIN) &&
+                    !r.referenceChunk &&
+                    !isAttachmentTitle(r.title) && !pin!.resourceIds.includes(r.id)
+                  ).slice(0, 1),
+                () => [] as ScoredResource[],
+              )
+            }),
+          )
+          const extra = widened.flat()
+          if (extra.length > 0) {
+            pin = {
+              ...pin,
+              resourceIds: [...pin.resourceIds, ...extra.map((r) => r.id)],
+              titles: [...pin.titles, ...extra.map((r) => r.title)],
+            }
+            inside.push(...extra)
+          }
+          const seen = new Set<string>()
+          pinSources = merchandiseSources(
+            enrichments,
+            config.slug,
+            withoutReferencePassages(
+              [...inside].sort((a, b) => b.relevance - a.relevance).filter((r) =>
+                !seen.has(r.id) && seen.add(r.id)
+              ),
+            ),
+          )
+        }
+      }
+      const pinIds = pin?.resourceIds ?? []
+      // Every pinned paper leads the sources rail, whether or not the
+      // pinned find surfaced a passage from it.
+      for (const found of pinSources) {
+        if (!pinnedPreview.some((p) => p.id === found.id)) pinnedPreview.push(found)
+      }
+      for (const id of pinIds) {
+        if (!pinnedIds.includes(id)) {
+          pinnedIds.push(id)
+          pinnedTitles.push(pin?.titles[pinIds.indexOf(id)] ?? '')
+        }
+      }
       const variant = intentDef?.answer.promptVariant
       // An intent's mandatory sub-questions (a safety check for a treatment
       // decision, a recency probe) join whatever the caller sent - but only
@@ -3964,11 +4077,7 @@ export function buildApp(opts: BuildAppOptions): Hono {
       // about that author's papers: retrieval is scoped to them, and the
       // audit later forbids "X and colleagues" over a paper X did not write
       // (ask-author.ts). The catalogue read is cached by the provider.
-      const catalogue = documentScope ? [] : merchandiseSummaries(
-        enrichments,
-        config.slug,
-        await provider.listResources(config).catch(() => []),
-      )
+      const catalogue = merchandisedCatalogue
       // An author's papers are their articles: a supplement or a peer-review
       // file is neither counted nor retrieved as "authored by" (D2-23).
       const titleOf = new Map(catalogue.map((r) => [r.id, r.title]))
@@ -3982,6 +4091,19 @@ export function buildApp(opts: BuildAppOptions): Hono {
       const resourceIds = authorScope.length > 0 && authorScope.length <= 80
         ? authorScope
         : undefined
+      // The scope retrieval runs in. An author question is already pinned to
+      // that author's articles; when a question does both, the pin narrows
+      // the author's papers rather than replacing them, and an empty
+      // intersection means the pin named something outside the author's work,
+      // where the author scope is the honest one.
+      const pinScopeIds = pin
+        ? (resourceIds
+          ? (pin.resourceIds.filter((id) => resourceIds.includes(id)).length > 0
+            ? pin.resourceIds.filter((id) => resourceIds.includes(id))
+            : undefined)
+          : pin.resourceIds)
+        : undefined
+      const askScopeIds = pinScopeIds ?? resourceIds
       // A review over an author's forty papers needs more than twenty
       // paragraphs, or it sees four of them (D1-05).
       const authorTopK = resourceIds
@@ -4122,19 +4244,35 @@ export function buildApp(opts: BuildAppOptions): Hono {
             if (!pinnedPreview.some((p) => p.id === found.id)) pinnedPreview.push(found)
           }
           const pinnedBest = pinnedFound.reduce((m, r) => Math.max(m, r.relevance), 0)
-          const seen = new Set(pinnedFound.map((r) => r.id))
-          // The pinned papers, then the probe's closest matches: a preview
-          // of the grounding set, capped so it reads as a shortlist.
-          nearest = merchandiseSources(
-            enrichments,
-            config.slug,
-            withoutReferencePassages([
-              ...pinnedFound,
-              ...found.resources.filter((r) => !seen.has(r.id)),
-            ]),
-          ).slice(0, NEAREST_SHOWN)
+          const seen = new Set([...pinnedFound, ...pinSources].map((r) => r.id))
+          // Under a pin the grounding set IS the pinned papers, so they are
+          // the preview; otherwise the pinned papers lead and the probe's
+          // closest matches follow, capped so it reads as a shortlist.
+          nearest = pin
+            ? [
+              ...pinSources,
+              ...merchandiseSources(
+                enrichments,
+                config.slug,
+                withoutReferencePassages(pinnedFound.filter((r) => pinIds.includes(r.id))),
+              ).filter((r) => !pinSources.some((p) => p.id === r.id)),
+            ].slice(0, NEAREST_SHOWN)
+            : merchandiseSources(
+              enrichments,
+              config.slug,
+              withoutReferencePassages([
+                ...pinnedFound,
+                ...found.resources.filter((r) => !seen.has(r.id)),
+              ]),
+            ).slice(0, NEAREST_SHOWN)
           const best = Math.max(found.best, pinnedBest)
-          if (nearest.length > 0 && best < GROUNDING_FLOOR) {
+          // A question whose names resolved to papers the collection holds
+          // is covered by definition: the relevance floor is about whether
+          // the corpus has anything to say, and the pin has already answered
+          // that. Without this, a two-part question naming a trial the
+          // catalogue holds was declined with "no source in the corpus comes
+          // close" at 22% while search returned that trial first (D7-09).
+          if (!pin && nearest.length > 0 && best < GROUNDING_FLOOR) {
             await sendDecline(nearest, best * 100)
             recordDecline()
             return
@@ -4145,7 +4283,7 @@ export function buildApp(opts: BuildAppOptions): Hono {
           // rather than an answer stitched from papers about other things
           // (D3-12).
           const pair = exposureOutcomePair(query)
-          if (pair && nearest.length > 0 && !nearest.some((r) => pairCarried(r, pair))) {
+          if (!pin && pair && nearest.length > 0 && !nearest.some((r) => pairCarried(r, pair))) {
             await send({ type: 'sources', resources: nearest })
             const text = pairDecline(pair, nearestTitles(nearest))
             await send({ type: 'delta', text })
@@ -4175,7 +4313,10 @@ export function buildApp(opts: BuildAppOptions): Hono {
       // A pinned paper is answered from first: the text's own figures with
       // their n, a figure or table named when the text holds the sample but
       // not the outcome, and nothing declared absent that the paper holds.
-      if (!documentScope && pinnedIds.length > 0) promptAddendum = pinnedAddendum(pinnedTitles)
+      // Under a pin the supplied passages are the named papers' own, so the
+      // prompt says so; without one, the pinned papers merely lead.
+      if (pin) promptAddendum = pinAddendum(pin)
+      else if (!documentScope && pinnedIds.length > 0) promptAddendum = pinnedAddendum(pinnedTitles)
       // The earlier answers' cited passages ride beside retrieval on every
       // follow-up; a reformatting turn also gets the answers themselves
       // and the instruction to reshape, never add (D4-06, D4-07). A
@@ -4377,7 +4518,10 @@ export function buildApp(opts: BuildAppOptions): Hono {
               pinnedResourceIds: pinnedIds,
               pinnedTerms: pinned.filter((p) => p.kind !== 'cohort').map((p) => p.term),
               priorResourceIds: priorIds,
-              cohortResourceIds: cohortIds,
+              // The rescue read stays inside the pin: it may rebind a
+              // figure to a pinned paper, never import one from a
+              // neighbouring cohort.
+              pinScopeIds: pinIds,
             })
             // A heading whose section the gate emptied, or a table the
             // gate left without rows, goes with the sentences (D5-16).
@@ -4554,6 +4698,8 @@ export function buildApp(opts: BuildAppOptions): Hono {
         resourceId?: string
         /** A follow-up asked again without the earlier turns' papers pinned (D4-07). */
         unpinPrior?: boolean
+        /** Read the pinned paper whole rather than through a paragraph budget. */
+        deep?: boolean
       }[] = [{
         intent: readPinnedFirst ? undefined : intentForAsk,
         prequeries: readPinnedFirst ? undefined : askOpts.prequeries,
@@ -4565,7 +4711,7 @@ export function buildApp(opts: BuildAppOptions): Hono {
       let current = attempts[0]!
       // A cohort the question describes is read before a drug or syndrome
       // paper it merely names (D3-01, D4-01).
-      const retryPins = cohortIds.length > 0 ? cohortIds : pinnedIds
+      const retryPins = pinIds.length > 0 ? pinIds : cohortIds.length > 0 ? cohortIds : pinnedIds
       // A terse question that pinned nothing: the retrieved paper whose own
       // text carries the question's names, read directly on the one retry
       // before anything is declined (D5-09). Judged when the retry is
@@ -4588,6 +4734,7 @@ export function buildApp(opts: BuildAppOptions): Hono {
         priorPinned: !firstTurn && priorIds.length > 0 && !current.unpinPrior,
         priorScoped: priorScoped && !current.unpinPrior,
         topicPinId: topicPinId(),
+        pinScoped: pinIds.length > 0,
       })
       for (let attempt = 0; attempt < attempts.length; attempt++) {
         current = attempts[attempt]!
@@ -4629,17 +4776,20 @@ export function buildApp(opts: BuildAppOptions): Hono {
           : promptAddendum
         // The earlier turns' papers scope a follow-up that stays within
         // them; the reformatting turn reads only them, leanly (D5-05).
-        const scopedToPrior = priorIds.length > 0 && !resourceIds && !current.unpinPrior &&
+        const scopedToPrior = priorIds.length > 0 && !askScopeIds && !current.unpinPrior &&
           !current.resourceId
         const priorQuestionList = priorQuestions(askOpts.context ?? [], 2)
         try {
           for await (
             const event of provider.ask(config, query, {
               ...askOpts,
-              ...(resourceIds ? { resourceIds } : {}),
+              // THE PIN: the platform's own `resource_filters`, so the
+              // paragraph bag holds only the papers the question names.
+              ...(askScopeIds ? { resourceIds: askScopeIds } : {}),
               ...(authorTopK ? { topK: authorTopK } : {}),
               ...(scopedQueries ? { scopedQueries } : {}),
               ...(current.resourceId ? { resourceId: current.resourceId } : {}),
+              ...(current.deep ? { depth: 'deep' as const } : {}),
               // A reformatting turn reads only the earlier answers' papers,
               // searched for the earlier questions, without context
               // expansion or reranking (its material is already supplied),
@@ -4662,7 +4812,7 @@ export function buildApp(opts: BuildAppOptions): Hono {
               // paragraph budget of twelve, one neighbour each side and no
               // graph walk, so its first word is not behind thirty
               // thousand tokens of expansion (D5-08, D3-05).
-              ...(terse && !current.resourceId && !resourceIds ? { light: true, topK: 12 } : {}),
+              ...(terse && !current.resourceId && !askScopeIds ? { light: true, topK: 12 } : {}),
               intent: current.intent,
               prequeries: reformat ? undefined : current.prequeries,
               ...(reformat ? { maxTokens: reformatBudget(askOpts.context ?? []) } : {}),
@@ -4797,7 +4947,18 @@ export function buildApp(opts: BuildAppOptions): Hono {
         } else if (retry === 'pinned') {
           const target = retryPins[0] ?? topicPinId() ??
             (priorScoped && !current.unpinPrior ? priorIds[0] : undefined)
-          attempts.push({ intent: undefined, prequeries: undefined, resourceId: target })
+          // Inside a pin the retry reads the paper WHOLE
+          // (`rag_strategies: full_resource`), not through a paragraph
+          // budget: the first pass has already seen the top passages, and
+          // reading them again returns the figures the gate just rejected.
+          attempts.push({
+            intent: undefined,
+            prequeries: undefined,
+            resourceId: target,
+            ...(pinIds.length > 0 && target !== undefined && pinIds.includes(target)
+              ? { deep: true }
+              : {}),
+          })
           await fallbackEvent(
             retryPins.length > 0
               ? 'The question names a paper this collection holds; asking it directly.'

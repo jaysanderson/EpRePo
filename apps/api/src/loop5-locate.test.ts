@@ -25,7 +25,7 @@ import {
   studyDesignOf,
   verifyFigures,
 } from './answer-audit.ts'
-import { cohortPapers, quoteCarriesClaim, studyLabel } from './figure-rescue.ts'
+import { quoteCarriesClaim, studyLabel } from './figure-rescue.ts'
 import { inTableOrLegend, offsetOfPassage, secondhandFigures, sectionSpans } from './secondhand.ts'
 import { carriesDesignator, cohortDesignators } from './study-guard.ts'
 import { bindAndAudit, type ExtractionSource } from './ask-grounding.ts'
@@ -440,36 +440,6 @@ describe('table rows and figure text', () => {
 })
 
 describe('the cohort the question describes or names (D5-02, D5-12)', () => {
-  it("a drug the question names is found in a paper's opening pages by stem", () => {
-    const papers = [
-      {
-        id: 'icv',
-        title:
-          'Anti-seizure therapy with a long-term, implanted intra-cerebroventricular delivery system',
-        summary: 'A first-in-man study.',
-      },
-      {
-        id: 'cmp',
-        title: 'Comparative effectiveness of antiepileptic drugs',
-        summary: 'Valproate versus lamotrigine.',
-      },
-    ]
-    const texts: Record<string, string> = {
-      icv:
-        'Abstract Background: long-term intra-cerebroventricular delivery of the anti-seizure medication valproic acid (VPA).',
-    }
-    expect(cohortPapers(['valproate'], papers)).toEqual(new Set(['cmp']))
-    expect(cohortPapers(['valproate'], papers, (id) => texts[id])).toEqual(new Set())
-    expect(
-      cohortPapers(['valproate'], [...papers, {
-        id: 'other',
-        title: 'Sleep in epilepsy',
-        summary: '',
-      }], (id) => texts[id]),
-    )
-      .toEqual(new Set(['icv', 'cmp']))
-  })
-
   it('a hyphenated designator matches the title that writes it as two words (XF)', () => {
     const [designator] = cohortDesignators(
       'What proportion of the multiday heart-rate cycle cohort had significant cycles?',
@@ -576,7 +546,7 @@ describe('bindAndAudit over the loop 5 shapes', () => {
       lexicon: [],
       variant: undefined,
       floor: 0.3,
-      cohortResourceIds: ['healthy', 'epilepsy'],
+      pinScopeIds: ['healthy', 'epilepsy'],
     })
     expect(result.text).toContain(
       'In *Infradian rhythms of human heart rate reveal distinct multiday cycle periods in healthy adults*, 70% (369/525) had at least one significant rhythm',

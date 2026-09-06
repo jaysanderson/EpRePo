@@ -34,6 +34,15 @@ export interface RetryContext {
   priorScoped?: boolean
   /** A retrieved paper that carries the terse question's own terms, when nothing was pinned (D5-09). */
   topicPinId?: string
+  /**
+   * Retrieval was pinned to the papers the question names (name-pin.ts).
+   * The first pass then read the pinned paper through a paragraph budget;
+   * the retry reads it whole (`rag_strategies: full_resource`), so it sees
+   * what the first pass did not and is worth making even though the pinned
+   * paper was already cited (D7-04: the same SUDEP question answers under
+   * one wording and withholds under a synonym).
+   */
+  pinScoped?: boolean
 }
 
 /**
@@ -47,7 +56,7 @@ export interface RetryContext {
 export function nextRetry(ctx: RetryContext, reason: 'refused' | 'uncited'): RetryKind | null {
   if (ctx.documentScope || ctx.extraAttemptUsed) return null
   const pinnable = ctx.pinnedIds.length > 0 &&
-    !ctx.pinnedIds.some((id) => ctx.citedIds.includes(id))
+    (ctx.pinScoped || !ctx.pinnedIds.some((id) => ctx.citedIds.includes(id)))
   // A terse question the generator refused, or answered with another
   // paper's figures, while a retrieved paper carries the question's own
   // terms: read that paper directly before declining (D5-09).
