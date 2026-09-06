@@ -113,6 +113,15 @@ export function cohortPhrases(query: string): string[] {
   for (const m of query.matchAll(DESIGNATOR)) {
     const phrase = m[1]!.trim().replace(/\s+/g, ' ')
     if (phrase.split(' ').length < 2) continue
+    // A designator that carries an acronym or a gene-like symbol is already
+    // specific enough by that token ("the EXPERIENCE pooled analysis"), and
+    // its full phrase is a description the titles need not repeat. Only a
+    // designator with no such token needs its whole phrase.
+    if (
+      /\b[a-z]+-[A-Z][A-Z0-9]+\b/.test(phrase) || /\b(?:anti-)?[A-Z][A-Z0-9-]{2,}\b/.test(phrase)
+    ) {
+      continue
+    }
     const lower = phrase.toLowerCase()
     if (!out.includes(lower)) out.push(lower)
   }

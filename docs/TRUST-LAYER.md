@@ -1,7 +1,7 @@
 # The answer trust layer
 
-Status: **current, 5 September 2026**, after the five D'Souza test-fix loops (PRs #6 to #17 and
-the loop 5 PRs into `feat/eprepo-portal`). Written for an engineer joining the project. Companion to
+Status: **current, 6 September 2026**, after the six D'Souza test-fix loops (PRs #6 to #17 and
+the loop 5 and loop 6 PRs into `feat/eprepo-portal`). Written for an engineer joining the project. Companion to
 `docs/INTENT-ROUTING.md` (the router and the stored search configurations),
 `docs/ARAG-DEV.md` (platform facts and known bugs), `docs/EPREPO-ROADMAP.md` (the roadmap items
 R1 to R27 and the P-findings) and the loop reports in `docs/persona-reports/dsouza-loop1.md` to
@@ -39,6 +39,7 @@ the failing figures named.
 | Cited text | A cited resource's full extracted text, fetched from the platform's extraction endpoint and cached per process; reference lists stripped before use. |
 | Binding | Re-deriving, sentence by sentence, which cited texts carry a sentence. |
 | Located sentence | The sentence, or the table row with its label and column headings, that carries a figure in a cited text. Every figure check is a check of the claim against this sentence (loop 5, "locate first"). |
+| Population clause | The group a claim states a figure for ("in patients with psychiatric comorbidity who switched from LEV to BRV"): the frame that opens the figure's clause, or the qualifier that follows the figure. A claim that only points back ("of these patients") takes the population of the sentence before it. |
 | Quantity | What a figure measures in the claim: the noun phrase before its verb ("the adverse-event discontinuation rate was 33.6%"), the words after it ("80% of EDs"), or the label of the bracket it sits in ("(n = 4201, retention population)"), with the outcome families that phrase names, its responder threshold and the n it pairs. |
 | Audit | The figure, cohort, second-hand, year, contraindication, denominator and attribution checks over the bound sentences. |
 | Gate | The decision the audit's result becomes: remove, rescue, replace, qualify or keep each sentence. |
@@ -60,8 +61,8 @@ never has to infer. Times in brackets are what the loop 4 runs measured on the l
 | 5 | **Platform ask** | One `/ask` on the routed stored configuration with the variant preamble on the system prompt, the pinned addendum, the prequeries strategy (a pass per pinned paper with `resource_filters`, `top_k` 20 and weight 2; a pass per question clause against the first pinned papers; a lighter pass per prior-turn paper; one pass restricted to the intent's preferred labels; then the sub-questions, ten at most), `extra_context` (document tables, prior turns' passages and their papers' own paragraphs, publication years for a recency question, a pinned paper's own sections on a retry), chat `context` for follow-ups, `citations: true`, the intent's `rag_strategies` (`full_resource` or `neighbouring_paragraphs`, `graph_beta`; one neighbour each side and no graph walk for a terse question of seven words or fewer, with `top_k` 12), the cross-encoder reranker and, for a reformatting turn, retrieval on the earlier papers alone with no expansion, no reranker and a `max_tokens` sized to the number of earlier answers (1800 to 4096). The provider's own refusal retry is switched off (`noRefusalRetry`); the application manages the one retry. | One platform generation. | Stored configuration, `prequeries` with `resource_filters`, `extra_context`, `context`, `citations`, `rag_strategies`, `top_k`, `max_tokens`, `reranker`. | `stage` events from the provider (`retrieval`, `generating`), `sources` (the platform's grounding set, pinned papers first), `delta`, `citation`, `done` | provider `ask` and `groundingPrequeries` in `packages/retrieval/src/providers/arag/index.ts`; `prompts.ts` |
 | 6 | **Stream shaping and the first verified sentence** | Each delta passes through the reference-list stop (a model-authored "References:" block or a trailing run of `[n] Title.` lines is never forwarded) and the sentinel rewriter (`SentinelStream`: "the context does not provide" becomes "the cited sources do not provide", the platform's guardrail sentence is dropped, a sentence is released the moment its stop arrives). The provider holds the platform's fixed decline copy and a `[n` split across chunks; a code-fence line is never forwarded. The first complete sentence is checked against the texts fetched in step 2: every figure beside the claim's own terms in one of those papers, which must also carry the question's cohort name; the surface is told which paper. The surface renders everything that streams in the checking style (muted ink, a dashed rule, the badge "Unchecked - still streaming, the check follows") and shows the verified line only under visible text; the gated text replaces everything at `done` in full ink (D5-08). | Deterministic. | (none) | `delta`, `verified` (at the platform's first token, 7 to 11 s) | `answer-shape.ts`, `ask-stream-verify.ts`, provider `splitPartialMarker` |
 | 7 | **Finish the text** | At the platform's `done`: the model's reference lines are stripped (a heading block, a trailing author-year entry, a cited title written out), the sentinels rewritten in the final text and the "(inference)" token removed, code fences stripped, header-only tables and empty headings dropped (D5-05, D5-16), a generation that stopped mid-sentence is cut back to its last complete sentence (`done.truncated`; a table row that closes its pipe is complete, one cut before it is dropped alone). Citation chips take the bibliographic title with the generated headline as subtitle. | Deterministic. | (none) | `stage auditing started { figures }` | `answer-shape.ts` `stripModelReferences`, `rewriteSentinels`, `trimTruncatedTail` |
-| 8 | **Binding** | The cited texts (eight at most) are fetched and their reference sections cut. Each sentence keeps only the markers whose cited text carries its named entities (both of two, 60 percent of many), a name the question also uses (the cohort, drug or study), the study design it states, every figure beside the claim's own terms, and enough of its content words and word pairs, including at least one of its rare words. A marker to a source under the display floor is dropped unless the source is pinned. Headings carry no markers; a list item inherits the nearest marked line's citation when the text carries it; a table row's markers sit inside its last cell. | Deterministic. | The platform's extraction endpoint (`extractionText`). | (none yet) | `citation-binding.ts` `bindSentences`, `supportScore`, `rareWords`; `ask-grounding.ts` `bindAndAudit` |
-| 9 | **Audit** | Over the bound sentences: (a) `verifyFigures`, every figure located first in the texts its sentence is bound to: each occurrence brings the sentence or table row that carries it (a cell with its row label and column headings), and the claim is placed when that sentence shares one of its names, two of its specific words, the noun the figure qualifies, a word of the quantity the figure measures, every outcome that quantity names, or the name the question routes on; the located sentence must then not give the figure a different outcome, follow-up, statistic, responder threshold or denominator pairing; (b) the cohort guard, under a designated cohort every result-figure sentence must cite a cohort paper unless it names another study; (c) the rescue, a failing sentence's figures looked up in the full text and DA fields of the cohort papers, the pinned papers, the prior turns' papers and the retrieved resources, and the first paper carrying every figure beside the claim lends its marker (a citation the platform never made); (d) second-hand figures, a figure the cited paper carries only where it cites other studies is looked for first-hand elsewhere, and on a named-cohort or planning question a sentence left with one is removed; (e) the replacement, a still-failing sentence about the cohort or a pinned paper is replaced by that paper's own results sentence, verbatim and cited, only when it carries the same figure at the same time point beside the claim, at most one quote per sentence and three per answer, never over a decline; (f) the population qualifier the supporting passage frames ("In patients with psychiatric comorbidity, ...") carried into the sentence. | Deterministic. | Extraction endpoint; DA summary and key takeaways as texts of their own. | (none yet) | `answer-audit.ts`, `figure-rescue.ts`, `secondhand.ts` |
+| 8 | **Binding** | The cited texts (eight at most) are fetched and their reference sections cut. Each sentence keeps only the markers whose cited text carries its named entities (both of two, 60 percent of many), a name the question also uses (the cohort, drug or study), the study design it states, every figure beside the claim's own terms, and enough of its content words and word pairs, including at least one of its rare words. A marker to a source under the display floor is dropped unless the source is pinned; a sentence whose figures all pass keeps only the markers whose located passage carries them (D6-12). Headings carry no markers; a list item inherits the nearest marked line's citation when the text carries it; a table row's markers sit inside its last cell. | Deterministic. | The platform's extraction endpoint (`extractionText`). | (none yet) | `citation-binding.ts` `bindSentences`, `supportScore`, `rareWords`; `ask-grounding.ts` `bindAndAudit` |
+| 9 | **Audit** | Over the bound sentences: (a) `verifyFigures`, every figure located first in the texts its sentence is bound to: each occurrence brings the sentence or table row that carries it (a cell with its row label and column headings, and, for a Markdown table in the answer, the column heading above the cell), and the claim is placed when that sentence shares one of its names, two of its specific words, the noun the figure qualifies, a word of the quantity the figure measures, every outcome that quantity names, or the name the question routes on; the located sentence must then not give the figure a different outcome (including a modifier the paper uses to tell two figures apart, "continuous seizure freedom" against "seizure freedom"), population, follow-up, statistic, responder threshold or denominator pairing; (b) the cohort guard, under a designated cohort every result-figure sentence must cite a cohort paper unless it names another study; (c) the rescue, a failing sentence's figures looked up in the full text and DA fields of the cohort papers, the pinned papers, the prior turns' papers and the retrieved resources, and the first paper carrying every figure beside the claim lends its marker (a citation the platform never made); (d) second-hand figures, a figure the cited paper carries only where it cites other studies is looked for first-hand elsewhere, and on a named-cohort or planning question a sentence left with one is removed; (e) the replacement, a still-failing sentence about the cohort or a pinned paper is replaced by that paper's own results sentence, verbatim and cited, only when it carries the same figure at the same time point beside the claim, at most one quote per sentence and three per answer, never over a decline; (f) the population qualifier the supporting passage frames ("In patients with psychiatric comorbidity, ...") carried into the sentence. | Deterministic. | Extraction endpoint; DA summary and key takeaways as texts of their own. | (none yet) | `answer-audit.ts`, `figure-rescue.ts`, `secondhand.ts` |
 | 10 | **Gate** | `gateFigures`: a sentence whose figures failed is removed, except a table row, which keeps its place with each failing cell marked "not verified" and the rest of the row intact (D5-05); a figure sentence with no marker inherits the one cited text that carries every figure it states or is removed; a conclusion whose supporting sentences went goes with them; a dangling connective is stripped; the survivors are renumbered by first appearance. A denominator the answer paired differently from the located figure's own bracket is a failed figure (removed, or replaced by the paper's own sentence when it carries the same figure at the same time point), never a rewrite. Under a designated cohort or a planning question, result sentences from more than one paper each open with the paper they come from. A contraindication no cited passage states is removed (safety variant or a treatment-decision question). "X and colleagues" over a paper X did not write is rewritten to the paper's first author. Years are post-checked against every retrieved source's metadata and the cited texts. | Deterministic. | Resource metadata (`year`, `published`). | (none yet) | `answer-gate.ts`, `answer-audit.ts` `denominatorCorrections`, `stripUnsupportedContraindications`, `yearsUnsupported`; `ask-author.ts` |
 | 11 | **Addenda** | Appended in italics: the removal note (figures named, and where they were found if a paper carries them beside other words), the paper's own figure for the question's outcome after a removal ("For the outcome asked about, [n] itself reports: ..."), a protocol's planned recruitment named as such beside the results paper's enrolment, the effect size a cited passage carries when a risk question got none, the study-design line that leads an answer grounded on a modelling or preclinical paper, the study designs in the sources' own words (clinical variant), the second-hand note, the corpus-boundary note for a study the question names that no held title carries, the author-scope note, denominators the passage gives for a bare proportion, and the drugs the sources flag that a which-drug answer left out; the denominators line only ever names an n the located passage gives in the figure's own bracket or cell. Evidence cards are re-pointed at the paragraph that carries the claims bound to each source (page kept when retrieval supplied it). | Deterministic. | Retrieval paragraphs with pages (`ScoredResource.passages`). | `sources` (re-chosen passages, weak uncited matches dropped), `citation` (renumbered), `audit`, `done { text, truncated? }` | `answer-gate.ts` `removalNote`, `effectSizeNote`, `designLead`; `evidence-passages.ts`; `ask-grounding.ts` `auditAddendum` |
 | 12 | **Done, confidence and the quality tail** | `done` carries the gated text and goes out before the REMi judge answers; the page replaces the streamed text, releases the composer and saves the session. The judge started before `done` in the provider, capped at 8 s, and its `quality` event trails on the same stream. Confidence is audit-led: an unsupported figure, year or contraindication is Low; every figure found and at least half the sentences cited is High; removed sentences cap it at Moderate; the platform's groundedness may lower an audited verdict one step and never raise it, and never reaches High on its own. | REMi: one platform call, advisory. | The platform's REMi scoring. | `done` (9 to 30 s), `stage validating`, `quality` | provider `ask` tail; `apps/web/src/lib/confidence.ts` `assessConfidence`; `answer-marks.ts` for the badge |
@@ -221,6 +222,47 @@ Every rule below exists because a reviewer found the defect it prevents. The ids
   whose heading asks for a quantity is marked the same way: the check can neither pass nor fail
   it, and How this works promises that mark for every cell it could not verify
   (`markUnverifiableCells`, loop 6 D6-16a). One addendum line covers both kinds.
+- **A located figure is bound to its population clause** (loop 6 section 6; D6-01). Loop 5 made
+  recall excellent and left precision resting on the outcome noun, so a figure passed when it
+  merely sat near the right words: the EXPERIENCE subgroup paper's 16.0% seizure freedom "in
+  patients with and without psychiatric comorbidity" was sold as the rate for the LEV-to-BRV
+  switchers, whose 13.9% the very next paragraph gives. Now, when the located paragraph frames a
+  population of its own (`statesPopulation`), the claim's population must be covered by that
+  paragraph: every distinctive word of the claim's qualifier (`claimPopulation`,
+  `populationWords`) must be in the located sentence, its window or its paragraph. A paragraph
+  that frames no population contradicts none, and a sample size or a follow-up is judged by its
+  noun as before. A sentence that only points back ("continuous seizure freedom in 13.7% of these
+  patients") inherits the population the sentence before it named, so the second bullet of an
+  answer cannot escape the check the first one failed.
+- **The outcome test is exact where the paper itself is exact** (loop 6 D6-03). "Continuous
+  seizure freedom" is not "seizure freedom" and "all-cause discontinuation" is not
+  "discontinuation for adverse events". A curated set of discriminating modifiers (continuous,
+  sustained, complete, all-cause, drug- or treatment-related, serious, definite, probable) is read
+  from the claim's clause and from the clause of the located occurrence (`clauseAround`, splitting
+  on semicolons outside brackets); a difference fails the figure only when the paper itself uses
+  that modifier to tell two figures of the same outcome family apart (`distinguishesModifier`),
+  so a paper that only ever writes "all-cause mortality" contradicts nothing when the answer says
+  "mortality".
+- **A table cell is checked under its column heading** (loop 6 D6-03). A cell states no outcome of
+  its own - "11.7% (FAS)" - so the heading above it is read as part of the claim
+  (`tableCellHeadings`, aligning header and body cells by pipe position and tolerating the markers
+  the generator writes after the closing pipe). The brivaracetam row's 12-month seizure freedom
+  cell verifies at 14.9% (n = 1111, FAS); the continuous rate of 11.7% does not.
+- **A range's upper bound takes the quantity of its lower bound** (loop 6 D6-05, D6-06). Nothing
+  sits between the two numbers of "(95% CI: 1.07- 4.68)" or "a range of 23 to 71 years", so the
+  quantity phrase is read from the lower bound (`rangeLowerBound`), and a range the claim states
+  is placed by the same two numbers written as a range in the located sentence
+  (`rangeInSentence`). A statistic's own qualifier ("median", "adjusted") is read from the
+  figure's own clause, not from anywhere in the sentence, so "the median age was not stated, but
+  the mean age was 45 (range 23-71)" is no longer removed for the word "median".
+- **An analysis set named beside a figure pairs its size** (loop 6 D6-06). When the claim and the
+  located sentence name the same analysis set (`analysisSetIn`: FAS, mFAS, safety, retention, ITT,
+  per-protocol) and the paper writes that set's n as a count of people ("Analyses included 1644
+  adults"), an n the located bracket does not repeat still agrees: "71.1% (n = 1644, full analysis
+  set)" is the paper's own retention figure.
+- **A marker is emitted only for a paper that carries the figures** (loop 6 D6-12): a sentence
+  whose figures all pass keeps only the markers whose located passage carries them, when at least
+  one does; a marker whose text could not be read stays, because unverifiable is not unsupported.
 - **Locate first** (loop 5 section 6; D5-01 to D5-04; PR #20). Loop 5 found fourteen sentences
   the cited paper carried word for word removed ("80% of EDs in Group 1 were clustered during the
   sleep period", the "937 (52%)" and "Number deceased 60 87" cells, "The remaining 24 participants
@@ -247,6 +289,10 @@ Every rule below exists because a reviewer found the defect it prevents. The ids
   ("Follow-up duration, y").
 
 ### The cohort guard, the rescue and the replacement
+- **A cohort named in full identifies its own papers** (loop 6 D6-07): a multi-word designator
+  ("the Australian autoimmune encephalitis consortium cohort") narrows the cohort's papers where
+  its opening word cannot, because "Australian" is a country, not a study (`cohortPhrases`). The
+  phrase narrows only; it is never required in a cited text.
 - **The cohort guard applies at the question's level.** Loop 3 found the anti-NMDAR hazard ratio
   under a question about the LGI1 cohort with a clean badge (D3-01; PR #14), and loop 4 found a
   Dravet series' "25 of 205" under the video-EEG mortality cohort riding through four turns under
@@ -286,6 +332,22 @@ Every rule below exists because a reviewer found the defect it prevents. The ids
   as an italic line naming the paper, cited, never as a substitute for the removed sentence, at
   most two per answer.
 
+### Reference lists and studies the collection does not hold
+- **A bibliography can never ground a sentence** (loop 6 D6-02). The reference cut was line-based,
+  and a PDF extraction wraps one entry over three or four lines, so no single line read as an
+  entry and the bibliography was never cut at all: "the RANSOM Study found that nonadherence to
+  antiepileptic drugs is associated with increased mortality" was a reference **title** in two
+  cited papers, restated as a result. `stripReferenceSection` now joins the blank-line blocks
+  after a References heading before testing them, and removes a wrapped bibliography entry
+  anywhere else in the text.
+- **The corpus boundary covers a study the answer introduces**, not only one the question names
+  (loop 6 D6-02). `namedStudies` reads every study acronym in the gated answer; one that neither a
+  cited title, the catalogue nor any cited text carries has nothing behind it, and the sentence
+  naming it is replaced by "*A sentence naming X was removed: this collection holds no paper
+  reporting that study, and no cited source states the finding.*" (`stripUnheldStudyClaims`). A
+  study the question names keeps the softer banner, because the statements do come from sources
+  that cite it.
+
 ### Second-hand figures and sections
 - **A figure the cited paper carries only in its Introduction or Discussion is that paper citing
   other studies** (D2-06, D2-14, D3-08; PRs #11, #14). Table rows, figure legends and a line of
@@ -299,6 +361,18 @@ Every rule below exists because a reviewer found the defect it prevents. The ids
   2020" the answer repeated; Markdown headings ("## Introduction:") section a text the platform
   extracted from HTML; and a block of short lines is figure or graphical-abstract text, the
   paper's own data ("312 saliva samples collected" was a false flag).
+- **Section is not provenance** (loop 6 D6-04, D6-07). A Discussion sentence whose subject is the
+  paper itself ("our cohort", "we found", "this trial", "the present study") is first-hand
+  wherever the extraction placed it, and the subject is read across the wrapped lines of a PDF
+  extraction but never across a section heading (`speaksOfOwnWork`). The abstract is checked
+  before anything is declared second-hand: the lacosamide trial's own placebo 50% responder rate
+  of 46.3% sits in its abstract as well as its Discussion, and is its finding. Only the abstract
+  counts for that check - a number a Results sentence happens to share with an Introduction figure
+  is a different quantity (D5-15).
+- **A flagged sentence never leads an answer** (loop 6 D6-07). When the paper's own finding is
+  quoted after a sentence the answer itself flags as second-hand, and that sentence is the
+  answer's lead (`leadSentence`), the quote takes its place at the front and the flagged sentence
+  follows it.
 - **An assessment's answer key and a briefing's key takeaway are never a second-hand figure**
   (loop 5 D5-10; PR #20): a quiz question whose correct answer or explanation states a figure its
   source paper carries only where it cites other studies is dropped and counted
@@ -343,7 +417,11 @@ Every rule below exists because a reviewer found the defect it prevents. The ids
   gives are the planned recruitment, not the enrolment", with the results paper's own enrolment
   sentence quoted when the answer also cites one.
 - **The effect size a passage carries is stated** when a risk question got none, named for what
-  it is for, covariate lists skipped (D2-09, D3-10; PRs #12, #14).
+  it is for, covariate lists skipped (D2-09, D3-10; PRs #12, #14). It must be an effect of what
+  the answer is about (loop 6 D6-05): the effect sentence has to share one of the answer's own
+  distinctive words, beyond the terms the question already names, so a lamotrigine aHR is not
+  offered under an answer about tonic-clonic seizure frequency. No effect size is better than the
+  wrong one.
 - **Study design first**: a modelling, simulation or preclinical source that the first citing
   sentence did not name as such leads the answer with a design line, on every intent (D2-11,
   D1-15; PR #12); the clinical variant names each source's design in the source's own words
