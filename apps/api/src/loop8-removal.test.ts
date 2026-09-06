@@ -229,6 +229,43 @@ describe('a briefing never prints a figure its audit reports as removed (D8-02)'
   })
 })
 
+describe('a figure belongs to the arm its own phrase names (D8-02)', () => {
+  const prepared = prepareSource(PERAMPANEL)
+  const check = (claim: string, figure: string) =>
+    figureSupportedBy(
+      figure,
+      claimFeatures(claim, ['perampanel', 'placebo'], ['perampanel']),
+      prepared,
+    )
+
+  it("refuses the other arm's number", () => {
+    const verdict = check(
+      'Seizure freedom at 12 months was 22.1% for patients who received placebo during the ' +
+        'Core Study before converting to perampanel.',
+      '22.1%',
+    )
+    expect(verdict.supported).toBe(false)
+    expect(verdict.reason).toBe('population')
+  })
+
+  it("accepts the arm's own number from the same sentence", () => {
+    expect(
+      check(
+        'Seizure freedom at 12 months was 17.1% for patients who received placebo during the ' +
+          'Core Study.',
+        '17.1%',
+      ).supported,
+    ).toBe(true)
+    expect(
+      check(
+        'Seizure freedom at 12 months was 22.1% for patients who received perampanel during ' +
+          'the Core Study.',
+        '22.1%',
+      ).supported,
+    ).toBe(true)
+  })
+})
+
 describe('the figure check reads the figure own sentence (D8-05, D8-01)', () => {
   const prepared = prepareSource(RITUXIMAB)
 

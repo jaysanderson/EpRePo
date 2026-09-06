@@ -785,6 +785,68 @@ export function qualifierForFigure(figure: string, text: PreparedSource): string
 // subgroup 13.9%, in the very next paragraph.
 // ---------------------------------------------------------------------------
 
+/**
+ * The verb a trial allocates an arm with, and the arm it names: "patients
+ * who received placebo", "randomised to perampanel", "treated with
+ * brivaracetam". Used to tell one arm's figure from another's inside a
+ * single sentence that reports both (docs/persona-reports/dsouza-loop8.md
+ * D8-02: "39.7% and 22.1% of patients who received perampanel ... and
+ * 35.7% and 17.1% of patients who received placebo", served as the
+ * placebo arm's 22.1%).
+ */
+const ALLOCATION =
+  /\b(?:received|receiving|randomi[sz]ed to|randomi[sz]ed into|allocated to|assigned to|treated with|switched to|converted to|on)\s+(?:the\s+)?([a-z][a-z-]{3,})/gi
+
+/** The arm nearest a position in a sentence: the first after it, else the last before it. */
+export function allocationArm(sentence: string, at = 0): string | undefined {
+  const re = new RegExp(ALLOCATION.source, 'gi')
+  let before: string | undefined
+  let m: RegExpExecArray | null
+  while ((m = re.exec(sentence)) !== null) {
+    const arm = m[1]!.toLowerCase()
+    if (ARM_STOP.has(arm)) continue
+    if (m.index >= at) return arm
+    before = arm
+  }
+  return before
+}
+
+/** Words an allocation verb is followed by that name no arm. */
+const ARM_STOP = new Set([
+  'their',
+  'this',
+  'that',
+  'these',
+  'those',
+  'them',
+  'both',
+  'either',
+  'other',
+  'another',
+  'first',
+  'second',
+  'third',
+  'more',
+  'less',
+  'least',
+  'from',
+  'with',
+  'only',
+  'least',
+  'treatment',
+  'therapy',
+  'medication',
+  'drug',
+  'study',
+  'trial',
+  'patients',
+  'participants',
+  'people',
+  'adults',
+  'children',
+  'average',
+])
+
 /** The nouns a population frame names a group of people by. */
 const POPULATION_NOUN =
   '(?:patients?|people|participants?|adults?|children|subjects?|individuals?|persons?|pwe|women|men|cases|controls|infants?|neonates?|those)'
@@ -2015,6 +2077,23 @@ export function figureSupportedBy(
         forms.some((re) => re.test(where) || re.test(whereOriginal))
       )
       if (!covered) {
+        reason = 'population'
+        continue
+      }
+    }
+    // The arm the figure belongs to, where both the claim and the located
+    // sentence allocate one: a sentence reporting two arms gives each
+    // figure to the arm its own phrase names, so a claim that says
+    // "patients who received placebo" is not carried by the number sitting
+    // beside "patients who received perampanel" (loop 8 D8-02).
+    if (result) {
+      const claimArm = allocationArm(quantity.rawClause)
+      const sourceArm = allocationArm(ownSentence, occ.sentenceAt)
+      if (
+        claimArm && sourceArm && claimArm !== sourceArm &&
+        !termForms(claimArm, text.pairs).some((re) => re.test(sourceArm)) &&
+        !termForms(sourceArm, text.pairs).some((re) => re.test(claimArm))
+      ) {
         reason = 'population'
         continue
       }
