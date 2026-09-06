@@ -36,6 +36,7 @@ import {
   type RetrievalProvider,
 } from '@research-portal/retrieval'
 import { type NewTenantInput, TenantStore, type TenantStoreApi } from './tenants.ts'
+import { tenantToday } from './tenant-time.ts'
 import { BindingStore, type BindingStoreApi } from './bindings.ts'
 import { accountOpsAvailable, createKnowledgeBox, enableHiddenResources } from './arag-account.ts'
 import { GENERATE_SCHEMAS } from './generate-schemas.ts'
@@ -46,6 +47,7 @@ import {
   BRIEFING_CONTEXT_RULE,
   BRIEFING_INSTRUCTIONS,
   BRIEFING_RETRIEVAL_TOP_K,
+  textCarriesQuote,
 } from './generate-sources.ts'
 import { analyseTenant } from './analyse.ts'
 import {
@@ -146,8 +148,10 @@ import { composeHelpParts, helpPartsAddendum, helpQuestionParts } from './docs-a
 import { DOCS_DECLINE, DocsSentinelStream, rewriteDocsSentinels } from './docs-answer.ts'
 import {
   appendOmittedPapers,
+  asksEnrolment,
   authorsNamed,
   authorTopicQuery,
+  enrolmentSentence,
   isPaperListingQuestion,
   paperListingAddendum,
 } from './ask-author.ts'
@@ -606,6 +610,12 @@ const generateBodySchema = z.object({
   topics: z.string().min(1).max(80).array().max(8).optional(),
   /** Writing guidance (how many, how deep) that rides the system prompt, not the retrieval text. */
   guidance: z.string().max(1500).optional(),
+  /**
+   * How many questions the reader asked for. The brief asks the model for
+   * more than this, so the count survives the quote and second-hand checks;
+   * what is left is trimmed back to it (D6-09).
+   */
+  count: z.number().int().min(1).max(20).optional(),
 })
 const hexColour = z.string().regex(/^#[0-9a-fA-F]{6}$/)
 const renameTenantSchema = z.object({
@@ -1860,22 +1870,63 @@ export function buildApp(opts: BuildAppOptions): Hono {
               correct_index?: unknown
               explanation?: unknown
               source_resource_id?: unknown
+              source_title?: unknown
+              source_quote?: unknown
             }[]
           } & Record<string, unknown>
-          const kept: NonNullable<typeof quiz.questions> = []
-          let omittedSecondhand = 0
-          for (const question of quiz.questions ?? []) {
-            const id = typeof question.source_resource_id === 'string'
-              ? question.source_resource_id
-              : undefined
-            let text: string | undefined
-            if (id) {
+          // One fetch per paper, shared by the quote check and the
+          // second-hand check below.
+          const fetched = new Map<string, string | undefined>()
+          const textOf = async (id: string): Promise<string | undefined> => {
+            if (!fetched.has(id)) {
               try {
-                text = await extractionText(opts.management, config, id)
+                fetched.set(id, await extractionText(opts.management!, config, id))
               } catch {
                 // An unfetchable source leaves the question as attributed.
+                fetched.set(id, undefined)
               }
             }
+            return fetched.get(id)
+          }
+          // The paper whose own text carries the quote: the bound one first,
+          // then the rest of the retrieved set (loop 6 D6-09 bound a
+          // rituximab question to the anti-LGI1 paper, which does not carry
+          // the quoted sentence at all).
+          const carrierOf = async (
+            quote: string,
+            bound: string | undefined,
+          ): Promise<string | undefined> => {
+            const candidates = [
+              ...(bound ? [bound] : []),
+              ...result.sources.map((s) => s.id).filter((id) => id !== bound).slice(0, 8),
+            ]
+            for (const id of candidates) {
+              const text = await textOf(id)
+              if (text && textCarriesQuote(quote, text)) return id
+            }
+            return undefined
+          }
+          const kept: NonNullable<typeof quiz.questions> = []
+          let omittedSecondhand = 0
+          let omittedUnsourced = 0
+          for (const question of quiz.questions ?? []) {
+            let id = typeof question.source_resource_id === 'string'
+              ? question.source_resource_id
+              : undefined
+            const quote = typeof question.source_quote === 'string' ? question.source_quote : ''
+            if (quote) {
+              const carrier = await carrierOf(quote, id)
+              if (!carrier) {
+                omittedUnsourced += 1
+                continue
+              }
+              if (carrier !== id) {
+                id = carrier
+                question.source_resource_id = carrier
+                question.source_title = result.sources.find((s) => s.id === carrier)?.title ?? null
+              }
+            }
+            const text = id ? await textOf(id) : undefined
             if (!text) {
               kept.push(question)
               continue
@@ -1899,7 +1950,16 @@ export function buildApp(opts: BuildAppOptions): Hono {
             }
             kept.push(question)
           }
-          result.object = { ...quiz, questions: kept, omitted_secondhand: omittedSecondhand }
+          // The brief asks for more questions than the reader wanted, so
+          // that the count survives these checks; the extras are trimmed
+          // here rather than handed to the reader (D6-09).
+          const wanted = parsed.data.count
+          result.object = {
+            ...quiz,
+            questions: wanted && kept.length > wanted ? kept.slice(0, wanted) : kept,
+            omitted_secondhand: omittedSecondhand,
+            omitted_unsourced: omittedUnsourced,
+          }
         }
       }
       // Comparison cells that came back empty get one targeted second look -
@@ -2414,7 +2474,7 @@ export function buildApp(opts: BuildAppOptions): Hono {
       const notUsed = unusedReferences(brief, kept.length)
       const artefact = investigations.addArtefact(config.slug, clientId(c), investigation.id, {
         kind: 'synthesis',
-        title: `Synthesis - ${new Date().toISOString().slice(0, 10)}`,
+        title: `Synthesis - ${tenantToday(config.timezone)}`,
         data: { ...brief, references, notUsed },
       })
       return c.json({ ok: true, artefact })
@@ -4372,6 +4432,30 @@ export function buildApp(opts: BuildAppOptions): Hono {
           }
         }
         if (listingAuthor && resourceIds) {
+          // "... and what sample size did they enrol?" is one attribute of
+          // each listed paper, so it is read from each paper's own text
+          // rather than left to a single retrieval that can only reach one
+          // of them (D6-10). At most four papers, and only when the
+          // question asks for it.
+          const notes: Record<string, string> = {}
+          if (asksEnrolment(query) && opts.management) {
+            const scope = new Set(resourceIds)
+            const wanted = [
+              ...citations.filter((c) => scope.has(c.resourceId)).map((c) => c.resourceId),
+              ...lastSources.filter((s) => scope.has(s.id)).map((s) => s.id),
+            ]
+            for (const id of [...new Set(wanted)].slice(0, 4)) {
+              try {
+                const found = enrolmentSentence(await extractionText(opts.management, config, id))
+                if (!found) continue
+                notes[id] = found.planned
+                  ? `planned recruitment, not an enrolment: "${found.sentence}"`
+                  : `"${found.sentence}"`
+              } catch {
+                // A paper whose text will not fetch simply carries no note.
+              }
+            }
+          }
           const listed = appendOmittedPapers({
             text,
             query,
@@ -4381,6 +4465,7 @@ export function buildApp(opts: BuildAppOptions): Hono {
             scopeIds: resourceIds,
             citations,
             kindLabel: studyDesignLabel,
+            notes,
           })
           text = listed.text
           citations = listed.citations

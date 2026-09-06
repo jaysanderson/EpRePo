@@ -175,6 +175,9 @@ const eprepo: TenantConfig = TenantConfigSchema.parse({
   },
   searchPlaceholder: 'Search seizure forecasting, genetics, antiseizure medications, surgery…',
   assessmentHeading: 'Research knowledge areas',
+  // The portal is read and run from Melbourne: dates it writes are its dates,
+  // not the server's (D6-13).
+  timezone: 'Australia/Melbourne',
   // A global research initiative: the corpus is not organised by Australian
   // state, so Explore omits the regional discovery band.
   regionalDiscovery: false,
