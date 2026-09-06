@@ -407,17 +407,21 @@ export function resolvePin(
 /**
  * The prompt addendum for an ask whose retrieval is pinned: the supplied
  * passages are the named papers' own, so the answer reports what they state
- * and never attributes a figure to a study that did not report it.
+ * and never attributes a figure to a study that did not report it. It names
+ * the question's own names, never the papers' titles: a title in the prompt
+ * comes back as a title in the prose ("In *Acute and Long-Term
+ * Immune-Treatment Strategies in Anti-LGI1 ...*, 16 patients ...").
  */
 export function pinAddendum(pin: NamePin): string {
-  const named = pin.titles.slice(0, 3).map((t) => `"${t}"`).join(', ')
   const subject = pin.names.slice(0, 3).join(', ')
-  return `Every supplied passage comes from the paper${
-    pin.resourceIds.length === 1 ? '' : 's'
-  } this question names (${subject}): ${named}. ` +
+  const count = pin.resourceIds.length
+  return `Every supplied passage comes from the ${
+    count === 1 ? 'paper' : `${count} papers`
+  } this question names (${subject}). ` +
     'Answer only from those passages and report what they state, with the sample or subgroup ' +
     'size beside each proportion. When they give the sample size in the text but report the ' +
     'outcome only in a figure or table, say exactly that and name the figure or table. Never ' +
     'declare absent something the supplied passages contain, and never state a figure that no ' +
-    'supplied passage carries.'
+    "supplied passage carries. Do not write a paper's title into the prose: the citation " +
+    'marker identifies which paper each sentence came from.'
 }

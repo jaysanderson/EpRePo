@@ -187,11 +187,20 @@ export const DOC_PAGES: DocPage[] = [
           'protocol document reads the supplementary files beside the papers; everything else ' +
           'runs on the default configuration. The choice is shown beside the answer as a chip, ' +
           'and you can change it and ask again.\n' +
-          '2. **The index returns the passages.** The chosen configuration retrieves the ' +
-          'passages that match the question, by meaning and by exact term, and ranks them. A ' +
-          'study the question names by title or acronym is looked up by name and pinned into the ' +
-          'sources, so it cannot be crowded out of them; when the collection does not hold that ' +
-          'study, the answer says so rather than answering from a paper that only cites it.\n' +
+          '2. **The index returns the passages.** Before anything is retrieved, the portal ' +
+          'resolves the things the question names against the collection: an antibody or ' +
+          'antigen, a named consortium, registry or network, a trial acronym, a quoted title, a ' +
+          'cohort you describe, and the medications and syndromes it knows. Where a name ' +
+          'identifies a small enough set of papers, **retrieval is restricted to those papers**, ' +
+          'the way asking a question of a single document is restricted to that document, so a ' +
+          "question about one antibody cannot be answered with a neighbouring cohort's figures: " +
+          "that cohort's paper is never in front of the answer at all. A name that titles " +
+          'many papers is a topic rather than a name and restricts nothing, and a medication on ' +
+          'its own never restricts retrieval, because a drug name titles a laboratory study and ' +
+          'a clinical trial alike. Where a part of your question is not answered by the papers ' +
+          'the names resolved to, the paper that does answer it joins them. When the collection ' +
+          'does not hold a study the question names, the answer says so rather than answering ' +
+          'from a paper that only cites it.\n' +
           '3. **The answer is written only from those passages.** Nothing is drawn from general ' +
           'knowledge or from the internet. Every sentence that states a finding carries a ' +
           'citation to the passage it came from (an item in a list takes the citation of the ' +
@@ -221,9 +230,10 @@ export const DOC_PAGES: DocPage[] = [
           'with psychiatric comorbidity" is not the rate for "patients who switched from ' +
           'levetiracetam to brivaracetam", and a sentence that points back ("of these ' +
           'patients") is checked against the group the sentence before it named. When the ' +
-          'question names a cohort, trial or study, every sentence with a figure must also cite ' +
-          'a paper about that cohort, and a figure the cited paper only quotes from other ' +
-          'studies is removed rather than annotated. Where the question names no cohort, such a ' +
+          'question names a cohort, trial or study, the papers that cohort names are the only ' +
+          "papers retrieval reads, so no sentence can carry another cohort's figure, and a " +
+          'figure the cited paper only quotes from other studies is removed rather than ' +
+          'annotated. Where the question names no cohort, such a ' +
           "figure is kept but marked as second-hand, with the paper's own finding beside it - " +
           'and the marked sentence never leads the answer. What counts as second-hand is ' +
           'judged by the words, not the section: a figure a paper states in its own voice ' +
@@ -479,9 +489,12 @@ export const DOC_PAGES: DocPage[] = [
           'threshold and the same denominator. A figure the cited passage does not carry is ' +
           'looked for in the full text ' +
           'of the papers retrieval found, and if one carries it the sentence is cited to that ' +
-          'paper instead. When the question names a cohort, trial or study, a figure sentence ' +
-          'must cite a paper about that cohort, and a figure the cited paper only quotes from ' +
-          'other studies is removed rather than footnoted.\n\n' +
+          'paper instead - and, under a restricted retrieval, only ever to one of the ' +
+          'papers the question named. A citation marker is only ever left on a paper whose ' +
+          "passage was where the sentence's figures were found: a marker on a paper that does " +
+          'not carry the figure is dropped, and a sentence left with no marker is removed. A ' +
+          'figure the cited paper only quotes from other studies is removed rather than ' +
+          'footnoted when the question names a cohort.\n\n' +
           'A sentence whose figures cannot be verified anywhere is removed, and the answer says ' +
           'so in a note beneath it, naming the figures. A sentence cited to the wrong paper is ' +
           "replaced by the named paper's own sentence only when that sentence carries the same " +

@@ -113,6 +113,75 @@ nothing binds is still withheld.
 Every rule below exists because a reviewer found the defect it prevents. The ids point into
 `docs/EPREPO-ROADMAP.md` (P-findings, R-items) and `docs/persona-reports/dsouza-loop<n>.md`.
 
+### The retrieval pin: what the question names decides what retrieval sees
+
+This is the architecture change of loop 7 (`dsouza-loop7.md` section 6), and it replaced rules
+rather than adding them. Loops 5, 6 and 7 all scored 7 on the same defect class: the answer was
+generated and checked over a bag of paragraphs drawn from several cohorts, and every rule added to
+the checker - the outcome noun, then the exact outcome, then the population clause - was a filter
+on a set that should never have contained the wrong cohort's paper. The proof that the fix belongs
+upstream is that document chat, scoped to one paper, answered all three loop 7 P0 cases correctly
+in six to seven seconds while Ask, seeing eight papers, got them wrong under a High confidence
+badge.
+
+- **The names a question uses are resolved to resources before retrieval** (`name-pin.ts`).
+  Resolved against the catalogue, in the order a pin prefers them: antibodies and antigens, named
+  consortia, registries and networks, trial acronyms, quoted titles, described cohorts, then the
+  tenant lexicon's drugs and syndromes.
+  - **An antigen is read where the gene-symbol reader refuses it.** "LGI1" is a gene, and the
+    router rightly rejects it as a study acronym; in "anti-LGI1 antibody encephalitis" it names an
+    antibody, a cohort and exactly one paper (D7-01). Three shapes are read - the "anti-" prefix,
+    the word before "antibody"/"antibodies", the word before "encephalitis" - and the token is
+    tested in the case the question wrote it, so "autoimmune encephalitis" names no antigen.
+    NMDAR, GABA and AMPA are deliberately not filtered through the router's generic-acronym list:
+    they are generic as topics and are exactly names here.
+  - **A title match beats a generated summary.** The Australian Autoimmune Encephalitis
+    Consortium titles four papers; an LGI1 sub-study names it only in its DA summary. Preferring
+    the title is what stops a named cohort's twelve-month outcome being answered from a member
+    study (D7-02). A described cohort keeps every word it contains, geography included: "the
+    Australian autoimmune encephalitis cohort" is not the German one, and the study guard's
+    designator reader drops exactly the word that tells them apart.
+  - **An acronym is matched in the case the question wrote it.** "EXPERIENCE" titles two articles;
+    "experience" the English word titles seven more.
+  - **A name that titles too many papers is a topic and pins nothing**, and **a drug or syndrome
+    alone never makes a pin** - it titles a rat pharmacokinetics study and a real-world pooled
+    analysis alike. A drug joins a pin a stronger name has already made.
+- **Whether the pin holds is retrieval's judgement, not a string rule.** The question and each of
+  its clauses are found *inside* the pin on `/find` with `resource_filters`. A pin whose papers
+  carry nothing for the question is dropped and retrieval is exactly what it was before. A clause
+  the pinned papers cannot answer widens the pin with the paper that does answer it, so a two-part
+  question keeps both halves; a clause that merely continues the subject ("and at what median time
+  to first relapse") scores inside the pin already and widens nothing.
+- **Retrieval is then constrained to the pin** on the platform's own `resource_filters`, exactly
+  as document chat is constrained. The wrong cohort's paper is not filtered out of the answer: it
+  is never in the grounding set.
+- **A question whose names resolved is covered by definition**, so the relevance floor no longer
+  declines it. A two-part question naming a trial the catalogue holds was declined with "no source
+  in the corpus comes close" at a 22% best match while `/search?q=BREATHS` returned that trial
+  first (D7-09).
+- **The pin is enforced on the way back too.** `/ask` honours `resource_filters` weakly
+  (`docs/ARAG-DEV.md`), so a citation to a paper outside the pin is dropped before anything is
+  checked; its sentence then has no marker and is judged, and removed, like any other unsupported
+  sentence. The rescue read's pool is the pinned papers alone, so it may rebind a figure inside
+  the pin and can never import one from a neighbouring cohort.
+- **The pinned retry reads the paper whole.** Under a pin the one extra ask is
+  `rag_strategies: full_resource` on the pinned resource, because the first pass has already seen
+  the top passages and reading them again returns the figures the gate just rejected.
+- **A marker may only name a paper whose located passage carries the sentence's figures.** The
+  per-sentence check already knows which of a sentence's papers each figure was located in; every
+  other marker is dropped, and a sentence left with none falls to the gate. "28% of patients
+  experienced a relapsing course.[1]" named a paper whose text does not contain 28% (D7-01).
+- **Rules the pin replaced, and deleted.** The question-level cohort guard and its
+  `reason: 'cohort'`; `cohortPapers` and `cohortPhrases`, the catalogue matching it needed; the
+  restricted rescue and second-hand pools; `alwaysNamed`, the escape hatch from the name test; the
+  name test on a cited text while a pin is in force (under a pin it is a tautology); and the dead
+  `numbersMissing`. The layer is smaller after loop 7 than before it.
+- **What the pin does not do.** It fires only on a first turn (a follow-up is already scoped by
+  the earlier turns' papers, an author question by that author's articles) and only when a name
+  resolves. A question that names no study, cohort or antibody - "what placebo responder rate
+  should I assume", "what is the adjusted hazard ratio for SUDEP" - retrieves exactly as it did
+  before, and the figure check is what stands behind it.
+
 ### Routing and grounding before generation
 - **The grounding gate runs before generation, not after.** The platform reports its retrieval
   after the answer tokens, so a floor on that event appended a decline under an answer that had
@@ -288,26 +357,19 @@ Every rule below exists because a reviewer found the defect it prevents. The ids
   1111)") and a duration found as the bare number of a table row whose label names the unit
   ("Follow-up duration, y").
 
-### The cohort guard, the rescue and the replacement
-- **A cohort named in full identifies its own papers** (loop 6 D6-07): a multi-word designator
-  ("the Australian autoimmune encephalitis consortium cohort") narrows the cohort's papers where
-  its opening word cannot, because "Australian" is a country, not a study (`cohortPhrases`). The
-  phrase narrows only; it is never required in a cited text.
-- **The cohort guard applies at the question's level.** Loop 3 found the anti-NMDAR hazard ratio
-  under a question about the LGI1 cohort with a clean badge (D3-01; PR #14), and loop 4 found a
-  Dravet series' "25 of 205" under the video-EEG mortality cohort riding through four turns under
-  High confidence (D4-01, D4-02; PR #17). A designated cohort is exactly its pinned papers; a
-  drug or syndrome term never widens it; a paper whose summary merely mentions the cohort is not
-  one of them. **It never fires against the paper the question names or describes** (loop 5
-  D5-02; PR #20): under a cohort the question names by drug, a paper the question pinned is a
-  cohort paper, a medication term is also looked for by stem in a paper's opening pages
-  ("valproic acid (VPA)" is the valproate paper), and a sentence the guard fails is looked up in
-  the cohort papers the answer cited for something else before it is removed (the SUDEP
-  case-control paper's own "101 SUDEP cases and 199 living epilepsy controls").
+### The cohort, the rescue and the replacement
+- **The cohort is the pin.** Loop 3 found the anti-NMDAR hazard ratio under a question about the
+  LGI1 cohort with a clean badge (D3-01), and loop 4 a Dravet series' "25 of 205" under the
+  video-EEG mortality cohort riding through four turns under High confidence (D4-01, D4-02).
+  Both were fixed by a question-level guard that forced every result sentence to cite a paper
+  "about that cohort", matched from titles and summaries; loop 7 found the same defect across
+  antibodies, where the guard did not reach. **That guard is gone.** Retrieval no longer sees a
+  neighbouring cohort's paper (see the retrieval pin above), so there is nothing to guard against
+  after the fact, and the one case the pin cannot prevent - the platform citing outside its own
+  `resource_filters` - is handled by dropping the citation, not by matching strings.
 - **Two populations under one question are named** (loop 5 D5-12, TDE; PR #20): under a
-  designated cohort or a planning question, when the result sentences the gate kept come from
-  more than one paper, each sentence that names no study of its own opens with the paper it
-  comes from ("In *Infradian rhythms ... in healthy adults*, 70% (369/525) ..." beside "In
+  designated cohort, a planning question, or a pin holding several of one cohort's papers, each
+  result sentence that names no study of its own opens with the paper it comes from ("In *Infradian rhythms ... in healthy adults*, 70% (369/525) ..." beside "In
   *Multiday cycles of heart rate ...*, participants with epilepsy documented 3,619 seizures"), by
   the study acronym its title carries or the title itself (`studyLabel`).
 - **The rescue looks a figure up before withholding it.** Loop 3 found the gate withholding
@@ -315,8 +377,10 @@ Every rule below exists because a reviewer found the defect it prevents. The ids
   "could not be verified" a minute after the portal cited them) because the audit only saw the
   paragraphs the platform happened to cite (D3-02; PR #14). The pool is the cohort papers, the
   pinned papers, the prior turns' papers, then the retrieved resources by relevance, with each
-  paper's DA summary and key takeaways as a text of its own. A second-hand figure is looked for
-  first-hand before it is judged (D4-15; PR #17).
+  paper's DA summary and key takeaways as a text of its own. **Under a pin the pool is the pinned
+  papers and nothing else** (D7-01): the rescue may rebind a figure to a paper the question named,
+  never import one from a neighbouring cohort. A second-hand figure is looked for first-hand
+  before it is judged (D4-15; PR #17).
 - **The replacement is restricted.** Loop 4 found the "paper itself reports" step swapping a
   correct 12-month "64.2% (n = 4201)" for a ">12 months, 29.5%" sentence, replacing an honest
   decline with an exposure quote from another paper, and stitching an irrelevant SUDEP sentence
@@ -324,8 +388,9 @@ Every rule below exists because a reviewer found the defect it prevents. The ids
   claim, from a cohort paper under a designated cohort, at most one quote per sentence, never
   over a decline, and the "paper's own finding" after a second-hand figure must share the
   question's outcome and add a figure the answer does not already state.
-- **An emptied answer is retried on the cohort paper before it is declined**, and a decline about
-  who was in a named study is asked on that paper's resource filter first (D4-09, D3-01; PR #17).
+- **An emptied answer is retried on the pinned paper before it is declined**, whole
+  (`rag_strategies: full_resource`) when a pin is in force, and a decline about who was in a named
+  study is asked on that paper's resource filter first (D4-09, D3-01; PR #17, D7-04).
 - **The paper's own figure for the question's outcome is offered after a removal** when the
   model's figure differs from it (loop 5 D5-14; PR #20): the consortium paper's "At 12 months, a
   favourable mRS (≤ 2) occurred in 154 (67%) patients" after an "80% (n = 231)" no paper carries,
@@ -538,11 +603,11 @@ Every rule below exists because a reviewer found the defect it prevents. The ids
 |---|---|
 | Stored search configurations (`portal-intent-<id>` `-ask` and `-find`, `portal-search`, `portal-ask`, `portal-doc-*`) with label filters, features and reranker centrally managed | Route, probe, platform ask. `docs/INTENT-ROUTING.md` section 4. Re-ensured through `POST /api/admin/t/:slug/search-configs/ensure`. |
 | `prequeries` strategy: each entry is a full find request with its own `resource_filters`, `top_k`, `filters` and `weight` (ten at most) | Pinned papers, question clauses, prior-turn papers, preferred labels, sub-questions. `groundingPrequeries`. |
-| `resource_filters` on `/ask` and `/find` | Document chat, the pinned retry, author scope, reformatting turns, the per-entity finds, the pinned targeted finds. |
+| `resource_filters` on `/ask` and `/find` | **The retrieval pin**: an ask whose names resolved runs over those resources alone. Also document chat, the pinned retry, author scope, reformatting turns, the per-entity finds, the pinned targeted finds, and the finds that decide whether a pin holds. |
 | `extra_context` (twelve blocks at most) | Document tables and key-resources blocks, prior turns' passages and answers, publication years for a recency question, a pinned paper's own sections on the pinned retry. |
 | Chat `context` | Follow-up turns (USER and AGENT text). |
-| `citations: true` and the platform's paragraph-level attribution | The starting point of the binding; a citation's page and paragraph for the reader. Never combined with `answer_json_schema` (platform 500). |
-| `rag_strategies`: `full_resource`, `neighbouring_paragraphs`, `graph_beta`, `prequeries` | Per intent (`answer.strategy`, `answer.graph`). `full_resource` is never sent beside a wide paragraph budget. |
+| `citations: true` and the platform's paragraph-level attribution | The starting point of the binding; a citation's page and paragraph for the reader; the paper a marker names, which the marker rule then requires to carry the sentence's figures. Never combined with `answer_json_schema` (platform 500). |
+| `rag_strategies`: `full_resource`, `neighbouring_paragraphs`, `graph_beta`, `prequeries` | Per intent (`answer.strategy`, `answer.graph`), and `full_resource` for the rescue read inside a pin - the one extra ask reads the pinned paper whole rather than through the paragraph budget the first pass already used. `full_resource` is never sent beside a wide paragraph budget. |
 | Request-level `top_k` (wins over the configuration's) and `max_tokens` | Author scope (60), reformatting turns (40 paragraphs, 1800 tokens). |
 | The extraction endpoint (a resource's extracted text, page by page) | Every cited text, the pool texts, the evidence-card passages, the document-chat tables. Cached per process. |
 | Data-augmentation fields (summary, key takeaways, curated title, headline) | Cohort matching on summaries, the rescue pool, merchandised citation chips, closest-match ranking. |
@@ -554,9 +619,9 @@ Every rule below exists because a reviewer found the defect it prevents. The ids
 ## 4. What is deterministic and what is a model call
 
 Deterministic, string matching over the platform's extracted texts and fields, no model in the
-loop: routing rules and identifier resolution; the study guard; prequery selection; the stream
-shaping; the first-sentence verifier; binding; every audit check; the cohort guard, rescue,
-replacement and qualifier; the gate; the addenda; evidence-card passage choice; closest-match
+loop: routing rules and identifier resolution; the study guard; the name resolution behind the
+retrieval pin; prequery selection; the stream shaping; the first-sentence verifier; binding; every
+audit check; the rescue, replacement and qualifier; the gate; the addenda; evidence-card passage choice; closest-match
 ranking; the confidence verdict. These are all unit-tested without the platform.
 
 Model calls, all the platform's own: the intent classifier (only when no rule fires; memoised);
@@ -592,7 +657,17 @@ PRs #16 and #17:
   as overall, EB in loop 4) is not corrected: deciding that would need a rule about strata the
   paper does not report.
 - **Stray extra markers on multi-claim sentences** ("[1][2]" where one paper carries the claim)
-  remain (D3-09, partly).
+  remain where the sentence states no figure: the marker rule keys on the papers a figure was
+  located in, and a sentence with no figure gives it nothing to key on (D3-09, partly).
+- **A question that names nothing gets no pin, and the wording sensitivity with it.** "What
+  placebo responder rate should I assume" and "what is the adjusted hazard ratio for SUDEP" name
+  no cohort, trial or antibody the catalogue can resolve - SUDEP titles five papers, so it is a
+  topic - and retrieval still decides which paragraph leads. Those are the families that still
+  answer differently under different wordings (D7-04, D7-05).
+- **A pin of several papers is several studies.** The Australian consortium's name resolves to
+  four papers, and which of them retrieval ranks first still varies with the wording. Every result
+  sentence is labelled with the paper it came from so a sub-study's figure is never read as the
+  cohort's headline, but the leading figure can still be a sub-study's (D7-02, partly).
 - **The platform's retrieval stage (6 to 10 s on a pinned question) is the latency floor.** The
   route chip is on screen at 0 s and the sources shortlist at 0.8 to 2.6 s; a sub-6 s first
   sentence is not reachable from the application (D3-05, D1-09).
@@ -640,6 +715,7 @@ apps/api/src/app.ts                     the /api/t/:slug/ask route (steps 1 to 1
 apps/api/src/intent-router.ts           routing rules, classifier threshold, decision shape
 apps/api/src/catalog-lookup.ts          identifier, author and person-name resolution against the catalogue
 apps/api/src/study-guard.ts             study names, eponyms, described cohorts -> pinned papers
+apps/api/src/name-pin.ts                the retrieval pin: antibodies, consortia, acronyms, cohorts, drugs -> resource_filters
 apps/api/src/ask-entities.ts            per-entity pins, question clauses
 apps/api/src/ask-author.ts              author scope, attribution correction, paper listings
 apps/api/src/ask-prequeries.ts          which mandatory prequeries fit; medication and treatment-decision tests
@@ -651,7 +727,7 @@ apps/api/src/ask-stream-verify.ts       the first verified sentence while stream
 apps/api/src/ask-grounding.ts           bindAndAudit: the orchestration of steps 8 to 11; cited texts; context blocks
 apps/api/src/citation-binding.ts        sentence splitting, supportScore, binding and rendering
 apps/api/src/answer-audit.ts            figure normalisation and matching, denominators, contraindications, years, designs
-apps/api/src/figure-rescue.ts           cohort guard helpers, the rescue pool, quotes and replacement cues
+apps/api/src/figure-rescue.ts           the rescue pool, quotes and replacement cues
 apps/api/src/secondhand.ts              section-aware reading, second-hand figures and the note
 apps/api/src/answer-gate.ts             gateFigures, removal note, effect sizes, design lead
 apps/api/src/evidence-passages.ts       the passage each evidence card shows

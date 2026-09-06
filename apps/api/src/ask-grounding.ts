@@ -1223,26 +1223,27 @@ export async function bindAndAudit(raw: BindAndAuditInput): Promise<BindAndAudit
   // The gate runs whenever a cited text was read: a paper that never names
   // the question's cohort is judged like any other, never left to a
   // footnote (the loop 4 C4 replay: every cited text failed the name check).
-  // A MARKER MAY ONLY NAME A PAPER THAT CARRIES THE FIGURE. The per-sentence
-  // check already knows, for each figure, which of the sentence's papers its
-  // passage was located in; every other marker on that sentence is dropped.
-  // This is what "28% of patients experienced a relapsing course.[1]" needed
-  // and did not have: the answer's own marker named a paper whose text does
-  // not contain 28% (D7-01), and a sentence bound to three papers where one
-  // carries the figure read as three sources for it (loop 6 D6-12).
-  // A marker whose text could not be read stays: unverifiable is not
-  // unsupported. A sentence left with no marker at all falls to the gate,
-  // which removes it like any other unsupported sentence.
+  // A MARKER MAY ONLY NAME A PAPER THAT CARRIES THE FIGURE. A sentence with
+  // one marker already gets this from the check itself, which reads only the
+  // text of the paper that marker names; "28% of patients experienced a
+  // relapsing course.[1]" survived because the anti-NMDAR paper was in the
+  // grounding set and lent its marker, which the pin now prevents (D7-01).
+  // What is left to decide is a sentence bound to several papers: the
+  // per-sentence check knows which of them each figure's passage was located
+  // in, and every other marker is dropped, so a sentence bound to three
+  // papers where one carries the figure no longer reads as three sources for
+  // it (loop 6 D6-12). A marker whose text could not be read stays:
+  // unverifiable is not unsupported.
   for (const sentence of bound.sentences) {
-    if (sentence.bound.length === 0) continue
+    if (sentence.bound.length < 2) continue
     const own = checks.filter((c) => c.sentence === sentence.text)
     if (own.length === 0 || own.some((c) => !c.supported)) continue
-    const unreadable = sentence.bound.filter((n) => !usableTexts.has(n))
-    const carrying = sentence.bound.filter((n, i) =>
-      usableTexts.has(n) && own.every((c) => c.supportedBy.includes(i))
-    )
-    if (carrying.length === 0 && unreadable.length === 0) continue
-    if (carrying.length + unreadable.length === sentence.bound.length) continue
+    // `supportedBy` indexes the texts the check was given, which is
+    // `sentence.bound` with the unfetchable ones dropped.
+    const withText = sentence.bound.filter((n) => usableTexts.has(n))
+    if (withText.length < 2) continue
+    const carrying = withText.filter((_, i) => own.every((c) => c.supportedBy.includes(i)))
+    if (carrying.length === 0 || carrying.length === sentence.bound.length) continue
     sentence.bound = sentence.bound.filter((n) => !usableTexts.has(n) || carrying.includes(n))
   }
   const gateRan = texts.size > 0 || rescued.length > 0

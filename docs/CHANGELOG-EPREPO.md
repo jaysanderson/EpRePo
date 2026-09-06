@@ -7,7 +7,46 @@ ten-persona evaluation (`docs/EPREPO-ROADMAP.md`, `docs/persona-reports/p1.md` t
 (`docs/persona-reports/dsouza-loop1.md` to `loop5.md`). Dates are the merge dates (UTC).
 The architecture of the answer trust layer these entries built is in `docs/TRUST-LAYER.md`.
 
-## PR (this loop) - 6 September 2026 - D'Souza loop 7 (l2): safety verbs bound to their medication, removals that take their dependants
+## PR (this loop) - 6 September 2026 - D'Souza loop 7 (l1): retrieval is pinned to what the question names
+
+For the reader: ask "in anti-LGI1 antibody encephalitis, what proportion of patients relapsed, and
+at what median time to first relapse?" and the portal answers 16 patients (30%) at a median of 414
+days (IQR 256 to 967), from the anti-LGI1 paper. It used to answer 28% at 764 days from the
+anti-NMDAR paper, cited to the LGI1 paper, under a High confidence badge. Ask what proportion of
+the Australian autoimmune encephalitis consortium cohort had a favourable modified Rankin score at
+12 months and it answers 154 patients (67%) from the consortium's own prognostication study, not
+the 80% an LGI1 sub-study of 55 reports. Ask a registrar-teaching question that names the BREATHS
+trial and it answers what BREATHS tests, instead of "no source in the corpus comes close" about a
+trial the search box returns as hit one.
+
+What changed is the architecture, not another rule. Before a word is retrieved, the antibodies,
+antigens, consortia, registries, trial acronyms, quoted titles, described cohorts and lexicon
+medications a question names are resolved against the collection; where they identify a small
+enough set of papers and a find inside those papers carries the question or one of its clauses,
+the answer is generated over those papers alone, on the platform's own `resource_filters` - the
+same mechanism that makes document chat trustworthy. The wrong cohort's paper is no longer
+filtered out of the answer afterwards: it is never in front of the answer. A clause the pinned
+papers cannot answer widens the pin with the paper that does. A name that titles many papers is a
+topic and pins nothing, and a drug on its own never pins, so a question that names no study
+retrieves exactly as it did before.
+
+The layer is smaller after this change, not larger. Removed: the question-level cohort guard and
+its removal reason, the catalogue matching it needed (`cohortPapers`, `cohortPhrases`), the
+restricted rescue and second-hand pools, the `alwaysNamed` escape hatch, the name test on a cited
+text while a pin is in force, and the dead `numbersMissing`. Added, because the platform honours
+`resource_filters` weakly on `/ask`: a citation to a paper outside the pin is dropped before
+anything is checked, the rescue read's pool is the pinned papers alone, and the one retry reads
+the pinned paper whole (`rag_strategies: full_resource`) rather than through the paragraph budget
+the first pass already used.
+
+Closes D7-01, D7-02, D7-09 and D6-07; closes D6-01 and most of D7-04 (the paraphrase consistency
+of the antibody, cohort and named-trial families). D7-05 and the SUDEP half of D7-04 stay open:
+those questions name nothing the catalogue can resolve, so they get no pin and the figure check is
+what stands behind them. `docs/TRUST-LAYER.md` section 2 has the full rule list and what it
+replaced; `docs/INTENT-ROUTING.md` has the resolution rules; `docs/ARAG-DEV.md` has the platform
+facts (top-level `resource_filters` on `/ask`, `depth: 'deep'` for `full_resource`, and that
+scores from a filtered find are not comparable with scores from an unfiltered one).
+## PR #23 - 6 September 2026 - D'Souza loop 7 (l2): safety verbs bound to their medication, removals that take their dependants
 
 For the reader: the portal will no longer tell you a medication is contraindicated because the
 word appears somewhere near it. A safety verb is now read with the medication nearest it, and at

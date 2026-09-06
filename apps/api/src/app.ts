@@ -4031,6 +4031,16 @@ export function buildApp(opts: BuildAppOptions): Hono {
               ),
             ),
           )
+          // The pin is ordered by what retrieval found inside it, so the
+          // paper read whole on the one retry is the one that carries the
+          // question, not whichever the catalogue listed first.
+          const rank = new Map(pinSources.map((r, i) => [r.id, i]))
+          const order = [...pin.resourceIds].sort((a, b) =>
+            (rank.get(a) ?? Number.MAX_SAFE_INTEGER) - (rank.get(b) ?? Number.MAX_SAFE_INTEGER)
+          )
+          const held = pin
+          const titleAt = new Map(held.resourceIds.map((id, i) => [id, held.titles[i] ?? '']))
+          pin = { ...held, resourceIds: order, titles: order.map((id) => titleAt.get(id) ?? '') }
         }
       }
       const pinIds = pin?.resourceIds ?? []
