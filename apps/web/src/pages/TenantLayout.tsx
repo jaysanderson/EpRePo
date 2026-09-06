@@ -14,6 +14,7 @@ import { CommandPalette } from '../components/CommandPalette.tsx'
 import { AccountMenu } from '../components/AccountMenu.tsx'
 import { HelpItemIcon, HelpMenu } from '../components/HelpMenu.tsx'
 import { helpMenuItems } from '../components/help-menu-items.ts'
+import { pageTitle } from '../lib/page-title.ts'
 import { KbSwitcher } from '../components/KbSwitcher.tsx'
 import { PortalFooter } from '../components/PortalFooter.tsx'
 import { SignInDialog } from '../components/SignInDialog.tsx'
@@ -286,16 +287,11 @@ export function TenantLayout() {
     // would attach to nothing and never set the property.
   }, [config])
 
+  // Every surface names itself in the tab, so two open portal tabs are told
+  // apart by what they hold rather than by the product name alone (D6-14).
   useEffect(() => {
     if (config) {
-      const surface = /\/ask(?:\/|$)/.test(location.pathname)
-        ? 'Ask'
-        : /\/tools(?:\/|$)/.test(location.pathname)
-        ? 'Tools'
-        : null
-      document.title = surface
-        ? `${surface} | ${config.branding.productName}`
-        : config.branding.productName
+      document.title = pageTitle(location.pathname, config.branding.productName)
     }
     return () => {
       document.title = 'Research Portal'

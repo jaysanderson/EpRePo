@@ -217,7 +217,10 @@ Every rule below exists because a reviewer found the defect it prevents. The ids
 - **A table row is never dropped for one cell.** The failing cell reads "not verified", the
   verified cells stand, the row keeps its marker (or inherits the text that carries its passing
   figures), and the addendum names the figures; the table turn used to come back with one row of
-  three (D5-05, D4-06).
+  three (D5-05, D4-06). A cell that states an analysis set ("FAS") or "not reported" in a column
+  whose heading asks for a quantity is marked the same way: the check can neither pass nor fail
+  it, and How this works promises that mark for every cell it could not verify
+  (`markUnverifiableCells`, loop 6 D6-16a). One addendum line covers both kinds.
 - **Locate first** (loop 5 section 6; D5-01 to D5-04; PR #20). Loop 5 found fourteen sentences
   the cited paper carried word for word removed ("80% of EDs in Group 1 were clustered during the
   sleep period", the "937 (52%)" and "Number deceased 60 87" cells, "The remaining 24 participants
@@ -301,6 +304,14 @@ Every rule below exists because a reviewer found the defect it prevents. The ids
   source paper carries only where it cites other studies is dropped and counted
   (`omitted_secondhand`, said on the page), and a takeaway whose figure every referenced paper
   carries only second-hand is dropped and counted (`takeawaysSecondhand`).
+- **A quiz question is bound to the paper that carries its quote** (loop 6 D6-09; PR this loop).
+  The model writes the title from memory and the quote from the passage in front of it, so where
+  the two disagree the quote wins: `attributeQuiz` resolves `source_quote` against the retrieved
+  passages first and only falls back to the model's title, and the route then locates the quote in
+  the bound paper's own extracted text, rebinding to whichever retrieved paper carries it. A
+  question whose quote no retrieved paper carries is dropped and counted (`omitted_unsourced`,
+  said on the page). The brief asks for two more questions than the reader wanted and the route
+  trims what survives back to the requested `count`, so the checks cost the reader nothing.
 
 ### Denominators, effect sizes, designs, years, drugs, authors
 - **Every proportion carries its n and analysis set** by prompt rule, and the audit lists the
@@ -316,6 +327,16 @@ Every rule below exists because a reviewer found the defect it prevents. The ids
   figure in, adds an n only from that passage's own bracket or cell, and says nothing for a quoted
   sentence, a share the paper gives as a decimal proportion ("F1 = 0.8"), a confidence interval
   or an effect size.
+- **The addendum only asks where a denominator exists to be asked for** (loop 6 D6-08 and the
+  carried-over D5-13; PR this loop). It says nothing inside a table, whose n column is the
+  denominator; nothing for a share the located passage states as a fitted statistic (an F score,
+  an AUC, an R squared, a kappa: "We found F1 = 0.8, suggesting that 80% of EDs ..."); and
+  nothing for a share the paper qualifies with a range or an interquartile range instead of an n
+  ("17.1% (range 13-28%)"), whose bounds are not proportions either. Where the paper writes the
+  count one clause further on - "(n = 583), the most common reasons were lack of effectiveness
+  (232 [39.8%])" - the line gives "232 of 583" rather than complaining: the "count [percent]"
+  shape is read in square brackets as well as round ones, and a single "n =" in the same sentence
+  supplies the whole.
 - **A protocol's sample size is planned recruitment, not enrolment** (loop 5 D5-11; PR #20): a
   kept sentence that states a planned sample from a paper that is a protocol (its masthead, its
   title, or methods in the future tense) gets the note "[n] is the study protocol: the numbers it
@@ -335,6 +356,15 @@ Every rule below exists because a reviewer found the defect it prevents. The ids
   "NMDAR", "LGI1" and "JAMA" are not drugs (P9-14, P9-15; PR #6).
 - **"X and colleagues" over a paper X did not write is rewritten** to the paper's first author,
   and a named author scopes retrieval to that author's articles (D1-05, D2-23; PRs #8, #11).
+- **An author review lists one item per paper** (loop 6 D6-10; PR this loop): every author-scoped
+  paper the answer cited, then every other scoped source on the topic, each with its title, year,
+  journal and study design from the catalogue and a marker of its own, so a paper the answer cited
+  but never named cannot go unlisted. When the question asks each paper for its enrolment ("... and
+  what sample size did they enrol?"), that clause is stripped from the retrieval text and answered
+  per paper from the paper's own words: the enrolment sentence quoted verbatim, and a protocol's
+  future-tense sentence quoted as planned recruitment. The protocol note now also fires on a
+  past-tense enrolment claim over a citation to a protocol ("The study enrolled approximately 450
+  participants"), not only on planning wording.
 - **A study the question names that no held title carries gets a boundary sentence** ("This
   collection does not hold SANAD II itself ...") (D1-16; PR #8).
 

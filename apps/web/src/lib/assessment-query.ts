@@ -61,5 +61,11 @@ export function buildAssessmentBrief(
 ): string {
   const meta = DEPTH_BY_ID.get(depth) ?? DEPTH_OPTIONS[0]!
   const topic = topicLabel.trim()
-  return `Generate exactly ${count} multiple-choice questions at ${meta.label.toLowerCase()} depth. ${meta.instruction} Cover a spread of sub-topics within ${topic} rather than repeating the same idea.`
+  // Two more than the reader asked for: the portal discards any question
+  // whose quote it cannot find in the paper it is attributed to, and the
+  // server trims what survives back to `count` (D6-09).
+  return `Generate ${count + 2} multiple-choice questions at ${meta.label.toLowerCase()} depth, ` +
+    `of which at least ${count} must be answerable from a passage you quote verbatim. ` +
+    `${meta.instruction} Cover a spread of sub-topics within ${topic} rather than repeating the ` +
+    'same idea.'
 }

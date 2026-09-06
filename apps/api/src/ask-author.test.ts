@@ -157,12 +157,14 @@ describe('appendOmittedPapers (D3-11)', () => {
       kindLabel: (id) => id === 'clinical-trial' ? 'Clinical trial (non-randomised)' : id,
     })
     expect(out.added).toBe(1)
-    expect(out.text).toContain("Also by D'Souza in this collection on sub-scalp EEG:")
+    expect(out.text).toContain("Papers by D'Souza in this collection on sub-scalp EEG:")
     expect(out.text).toContain(
       '- *The UMPIRE study: a first-in-human trial of bilateral subscalp monitoring* (2025, Clinical trial (non-randomised)) [2]',
     )
-    const listing = out.text.split('Also by')[1] ?? ''
-    expect(listing).not.toContain('Minder')
+    const listing = out.text.split('Papers by')[1] ?? ''
+    // Loop 6 D6-10: a paper the answer cited is listed too, so a reader
+    // never sees a marker for a paper the answer never names.
+    expect(listing).toContain('Minder')
     expect(listing).not.toContain('dogs')
     expect(out.citations.map((c) => [c.index, c.resourceId])).toEqual([[1, 'minder'], [
       2,

@@ -164,6 +164,24 @@ export function namesAnAuthor(query: string, surname: string): boolean {
 }
 
 /**
+ * The trailing clause of a listing question that asks one attribute of each
+ * paper rather than a second topic: "..., and what sample size did they
+ * enrol?", "... and how many participants were in each?" (loop 6 D6-10).
+ */
+const PER_PAPER_CLAUSE =
+  /,?\s*(?:and\s+)?(?:what|how many)\s+(?:sample\s+sizes?|participants?|patients?|people|subjects?)\b[^?]*|,?\s*(?:and\s+)?what\s+(?:was|were|is|are)\s+(?:the\s+)?(?:sample\s+sizes?|cohort\s+sizes?|enrolments?|enrollments?)\b[^?]*/gi
+
+/**
+ * Whether the question asks each listed paper for the number of people it
+ * enrolled. The answer to that is per paper, from the paper's own words -
+ * not from one retrieval that can only reach one of them (D6-10).
+ */
+export function asksEnrolment(query: string): boolean {
+  return /\b(?:sample\s+size|cohort\s+size|enrol(?:l)?ment|how many\s+(?:participants|patients|people|subjects|were\s+(?:enrolled|recruited|included)))\b/i
+    .test(query)
+}
+
+/**
  * The retrieval text for an author-scoped question: the question with the
  * attribution scaffolding removed ("What has D'Souza and colleagues
  * published on seizure cycles?" becomes "seizure cycles"). Retrieval is
@@ -187,6 +205,11 @@ export function authorTopicQuery(query: string, surnames: readonly string[]): st
     )
   }
   text = text
+    // "..., and what sample size did they enrol?" asks a per-paper
+    // attribute, not a second topic: it is answered per paper from the
+    // catalogue and the papers' own text (loop 6 D6-10), so it never
+    // reaches the retrieval text.
+    .replace(PER_PAPER_CLAUSE, ' ')
     // "Which of X's papers report on Y, and what did each find?" is Y (D3-11).
     .replace(
       /\bwhich\s+of\b|\b(?:papers?|publications?|articles?|studies|work)\s+(?:report|reported|describe|described|address|addressed|examine|examined|study|studied|investigate|investigated|cover|covered|deal)\w*\s*(?:on|about|with)?\b|,?\s*(?:and\s+)?what\s+(?:did|do|does)\s+(?:each|they|it|those|these)\s+(?:find|report|show|conclude|say)\b/gi,
@@ -362,15 +385,20 @@ export interface PaperListingSource {
   summary?: string
   matchedPassage?: string
   year?: string
+  journal?: string
   kind?: string
 }
 
 /**
- * Appends the author-scoped sources on the topic that the answer left
- * unnamed, each as a line with its title, year and study design and a
- * marker bound to that source. New citations continue the answer's own
- * numbering. Returns the text and citations unchanged when every source on
- * the topic is already named, or when the question is not a listing.
+ * The listing a review question is owed: one item per paper, with its
+ * title, year and journal from the catalogue and a marker bound to it
+ * (loop 6 D6-10 answered "Which of D'Souza's papers report patient-reported
+ * outcomes after a first seizure" by naming one paper while citing two).
+ * The list holds every author-scoped paper the answer cited, in citation
+ * order, then every other scoped source on the topic; a paper named in the
+ * prose is still listed, because the list is the answer to the question
+ * asked. `note` is the per-paper attribute, already quoted and cited by the
+ * caller, when the question asked one.
  */
 export function appendOmittedPapers(input: {
   text: string
@@ -381,19 +409,43 @@ export function appendOmittedPapers(input: {
   scopeIds: readonly string[]
   citations: readonly Citation[]
   kindLabel: (id: string) => string
-}): { text: string; citations: Citation[]; added: number } {
-  const unchanged = { text: input.text, citations: [...input.citations], added: 0 }
+  /** Per-paper attribute lines, keyed by resource id (D6-10). */
+  notes?: Record<string, string>
+}): { text: string; citations: Citation[]; added: number; listed: string[] } {
+  const unchanged = {
+    text: input.text,
+    citations: [...input.citations],
+    added: 0,
+    listed: [] as string[],
+  }
   if (!isPaperListingQuestion(input.query)) return unchanged
-  const words = topicWords(input.topic)
-  if (words.length === 0) return unchanged
   const scope = new Set(input.scopeIds)
-  const omitted = input.sources.filter((s) =>
-    scope.has(s.id) && carriesTopic(s, words) && !mentionsTitle(input.text, s.title)
-  )
-  if (omitted.length === 0) return unchanged
+  const byId = new Map(input.sources.map((s) => [s.id, s]))
+  // The papers the answer itself cited, in the order it cited them: each is
+  // evidence the answer already leant on, so each is owed a line.
+  const cited = input.citations
+    .slice()
+    .sort((a, b) => a.index - b.index)
+    .map((c) => byId.get(c.resourceId))
+    .filter((s): s is PaperListingSource => s !== undefined && scope.has(s.id))
+  const words = topicWords(input.topic)
+  const onTopic = words.length > 0
+    ? input.sources.filter((s) => scope.has(s.id) && carriesTopic(s, words))
+    : []
+  const listed: PaperListingSource[] = []
+  for (const source of [...cited, ...onTopic]) {
+    if (!listed.some((s) => s.id === source.id)) listed.push(source)
+  }
+  // Nothing to add when the answer named the only paper there is and asked
+  // for no per-paper attribute.
+  const notes = input.notes ?? {}
+  if (
+    listed.length === 0 ||
+    (listed.length === 1 && !notes[listed[0]!.id] && mentionsTitle(input.text, listed[0]!.title))
+  ) return unchanged
   const citations = [...input.citations]
   let next = citations.reduce((m, c) => Math.max(m, c.index), 0) + 1
-  const lines = omitted.map((s) => {
+  const lines = listed.map((s) => {
     let citation = citations.find((c) => c.resourceId === s.id)
     if (!citation) {
       citation = {
@@ -404,13 +456,55 @@ export function appendOmittedPapers(input: {
       }
       citations.push(citation)
     }
-    const meta = [s.year, s.kind ? input.kindLabel(s.kind) : undefined].filter(Boolean).join(', ')
-    return `- *${s.title}*${meta ? ` (${meta})` : ''} [${citation.index}]`
+    const meta = [s.year, s.journal, s.kind ? input.kindLabel(s.kind) : undefined]
+      .filter(Boolean).join(', ')
+    const note = notes[s.id]
+    return `- *${s.title}*${meta ? ` (${meta})` : ''} [${citation.index}]${
+      note ? ` - ${note}` : ''
+    }`
   })
-  const heading = `Also by ${input.surname} in this collection on ${input.topic}:`
+  const heading = input.topic
+    ? `Papers by ${input.surname} in this collection on ${input.topic}:`
+    : `Papers by ${input.surname} in this collection:`
   return {
     text: `${input.text.trimEnd()}\n\n${heading}\n\n${lines.join('\n')}`,
     citations,
-    added: omitted.length,
+    added: listed.filter((s) => !mentionsTitle(input.text, s.title)).length,
+    listed: listed.map((s) => s.id),
   }
+}
+
+/**
+ * The sentence a paper states its enrolment in, quoted verbatim: "A total
+ * of 196 participants were enrolled". A protocol states a plan rather than
+ * an enrolment, and says so ("450 patients will be recruited"), so it is
+ * returned marked as planned and never offered as a result (D5-11, D6-10).
+ * Undefined when the paper's text states neither.
+ */
+export function enrolmentSentence(
+  text: string,
+): { sentence: string; planned: boolean } | undefined {
+  const COUNT =
+    /(?:\bn\s*=\s*)?\b\d[\d,]{1,}\s+(?:participants|patients|subjects|adults|children|individuals|people|women|men|cases)\b/i
+  const VERB =
+    /\b(?:enrol(?:l)?ed|recruited|included|randomi[sz]ed|implanted|completed|underwent|participated|consented|were studied|comprised|analysed|analyzed)\b/i
+  const PLANNED =
+    /\b(?:will be|aims? to|aimed to|plans? to|planned to|intend(?:s|ed)? to|target(?:s|ed)?|estimated sample size|sample size calculation|anticipated)\b/i
+  let planned: { sentence: string; planned: boolean } | undefined
+  // The abstract and methods come first in an extracted paper, and the
+  // enrolment is stated there; only the first 40,000 characters are read.
+  const sentences = text.slice(0, 40_000)
+    .replace(/\s+/g, ' ')
+    .split(/(?<=[.!?])\s+(?=[A-Z0-9("])/)
+  for (const raw of sentences) {
+    const sentence = raw.trim()
+    if (sentence.length < 20 || sentence.length > 300) continue
+    if (!COUNT.test(sentence) || !VERB.test(sentence)) continue
+    if (PLANNED.test(sentence)) {
+      planned ??= { sentence, planned: true }
+      continue
+    }
+    return { sentence, planned: false }
+  }
+  return planned
 }

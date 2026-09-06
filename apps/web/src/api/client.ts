@@ -288,6 +288,8 @@ export function generateArtifact(
     topicIds?: string[]
     /** Writing guidance (count, depth) kept out of the retrieval text. */
     guidance?: string
+    /** How many questions the reader asked for (an assessment): the server trims to it. */
+    count?: number
   } = {},
 ): Promise<GenerateResult> {
   return fetch(`/api/t/${encodeURIComponent(slug)}/generate`, {
@@ -298,6 +300,7 @@ export function generateArtifact(
       query,
       ...(opts.topicIds?.length ? { topics: opts.topicIds } : {}),
       ...(opts.guidance?.trim() ? { guidance: opts.guidance.trim() } : {}),
+      ...(opts.count ? { count: opts.count } : {}),
     }),
   }).then(async (res) => {
     if (!res.ok) {

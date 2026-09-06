@@ -155,6 +155,10 @@ export const ASSESSMENT_INSTRUCTIONS =
   'what the sources actually report - a figure, a proportion, an effect size, a comparison ' +
   'between two interventions, groups or study designs - and make every distractor a plausible ' +
   'value or claim a specialist could mistake for the answer, never an obviously absurd option. ' +
+  'Prefer a stem that turns on a figure the passage states - a proportion, an effect size, a ' +
+  'cohort size, a follow-up length - over one that turns on a definition. The portal checks ' +
+  "every question's quote against the paper it came from and discards any it cannot find, so " +
+  'write two more questions than the brief asks for and quote each one exactly. ' +
   'Write each stem as a question a reader would be asked in a clinic or a journal club: name ' +
   'the study, cohort, drug or measure it concerns, and never refer to "the context", "the ' +
   'passage", "the provided text" or "the document" - the reader cannot see them. Never write ' +
@@ -342,10 +346,11 @@ export const MIN_QUOTE_OVERLAP = 0.7
 /**
  * Resolve a verbatim quote to the retrieved resource whose grounding passage
  * carries it. The model sees passages, not titles, so a quote is the
- * attribution it can actually make reliably; a title is checked first
- * because when the model does know it, it is exact. A quote is matched by
- * content-word overlap against every passage, best passage wins, and it
- * needs at least four content words to count.
+ * attribution it can actually make reliably, and it is checked first: the
+ * title the model writes is its recollection, and loop 6 D6-09 shows the
+ * two disagreeing. A quote is matched by content-word overlap against every
+ * passage, best passage wins, and it needs at least four content words to
+ * count.
  */
 export function resolveByQuote(
   quote: string,
@@ -364,6 +369,32 @@ export function resolveByQuote(
     }
   }
   return best?.id ?? null
+}
+
+/**
+ * The blocks of an extracted paper a quote can be located in: its
+ * paragraphs, and each consecutive pair of them, so a quote that runs over
+ * a paragraph break is still found.
+ */
+function quoteBlocks(text: string): string[] {
+  const paragraphs = text
+    .split(/\n\s*\n/)
+    .map((p) => p.replace(/\s+/g, ' ').trim())
+    .filter((p) => p.length >= 30)
+  const pairs = paragraphs.slice(0, -1).map((p, i) => `${p} ${paragraphs[i + 1]}`)
+  return [...paragraphs, ...pairs]
+}
+
+/**
+ * Whether a paper's own extracted text carries the quote, by the same
+ * content-word measure `resolveByQuote` uses over retrieved passages. The
+ * full text is the arbiter for a quiz question's Source link: the passages
+ * the model saw are a slice of the corpus, and a question whose quote no
+ * retrieved paper carries is not a question this portal asks (loop 6
+ * D6-09).
+ */
+export function textCarriesQuote(quote: string, text: string): boolean {
+  return resolveByQuote(quote, { source: quoteBlocks(text) }) === 'source'
 }
 
 /**
@@ -487,12 +518,18 @@ export function attributeQuiz(
   const questions = raw.filter((q) => !fromReferenceList(q)).map((question, position) => {
     const label = typeof question.source === 'string' ? question.source : ''
     const quote = typeof question.source_quote === 'string' ? question.source_quote : ''
-    let match = label ? resolveSource(label, sources) : null
-    if (!match && quote) {
+    // The quote is the evidence and the title is the model's recollection of
+    // it, so the paper that carries the quote wins: loop 6 D6-09 attributed
+    // a rituximab question to the anti-LGI1 paper because that was the title
+    // the model wrote, while the quoted sentence lived in another paper
+    // entirely. The label only stands where the quote locates nowhere.
+    let match: AttributedSource | null = null
+    if (quote) {
       const id = resolveByQuote(quote, passagesByResource)
       const source = id ? sources.find((s) => s.id === id) : undefined
       if (source) match = { resourceId: source.id, title: source.title }
     }
+    if (!match && label) match = resolveSource(label, sources)
     const { source: _source, source_quote: _quote, ...rest } = rotateOptions(question, position)
     return {
       ...rest,

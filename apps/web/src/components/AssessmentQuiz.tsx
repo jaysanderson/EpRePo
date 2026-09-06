@@ -25,6 +25,7 @@ export type AssessmentObject = {
   /** Questions the server withheld because they were written from a reference list. */
   omitted_questions?: number
   omitted_secondhand?: number
+  omitted_unsourced?: number
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -131,6 +132,18 @@ export function AssessmentQuiz({
             {data.omitted_secondhand === 1 ? 'its' : 'their'}{' '}
             answer key was a figure the source paper only quotes from earlier studies, not its own
             result.
+          </p>
+        )
+        : null}
+      {(data.omitted_unsourced ?? 0) > 0
+        ? (
+          <p className='mb-4 text-xs leading-relaxed text-ink-3' role='note'>
+            {data.omitted_unsourced === 1
+              ? 'One question was left out'
+              : `${data.omitted_unsourced} questions were left out`} because{' '}
+            {data.omitted_unsourced === 1 ? 'the sentence it quoted' : 'the sentences they quoted'}
+            {' '}
+            could not be found in any of the papers retrieved for this topic.
           </p>
         )
         : null}

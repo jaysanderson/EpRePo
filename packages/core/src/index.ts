@@ -394,6 +394,13 @@ export const TenantConfigSchema = z.object({
   /** Domain lexicon (drug and gene names) the router recognises as entities. */
   entityTerms: z.string().array().optional(),
   /**
+   * The portal's own timezone, as an IANA name ("Australia/Melbourne"). Every
+   * user-facing date the API writes is formatted in it, so an artefact made in
+   * the morning is not dated yesterday (docs/persona-reports/dsouza-loop6.md
+   * D6-13). Absent means UTC.
+   */
+  timezone: z.string().optional(),
+  /**
    * Portal-facing example copy. Every field has a default derived from
    * `suggestedQuestions` and `topics` (see apps/web/src/lib/tenant-copy.ts),
    * so a tenant sets only what it wants to say - and no other tenant's

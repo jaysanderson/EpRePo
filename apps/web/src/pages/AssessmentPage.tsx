@@ -177,9 +177,10 @@ export function AssessmentPage() {
   const topicCounts = facets?.topic ?? {}
 
   const mutation = useMutation({
-    mutationFn: (vars: { query: string; guidance: string; topicIds?: string[] }) =>
+    mutationFn: (vars: { query: string; guidance: string; count: number; topicIds?: string[] }) =>
       generateArtifact(slug, 'assessment', vars.query, {
         guidance: vars.guidance,
+        count: vars.count,
         topicIds: vars.topicIds,
       }),
   })
@@ -191,6 +192,7 @@ export function AssessmentPage() {
     mutation.mutate({
       query: buildAssessmentQuery(topic.label),
       guidance: buildAssessmentBrief(topic.label, nextCount, nextDepth),
+      count: nextCount,
       ...(topic.id !== CUSTOM_TOPIC_ID ? { topicIds: [topic.id] } : {}),
     })
   }
