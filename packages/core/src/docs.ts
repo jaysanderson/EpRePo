@@ -722,8 +722,22 @@ export const DOC_PAGES: DocPage[] = [
           'Opening a document shows its title, a summary and key takeaways where they have been ' +
           'generated, and the source itself in the viewer - a PDF reader, a web page, a video or ' +
           'audio player with transcript, or the extracted text, depending on what the document ' +
-          'is. A citation you clicked through takes you to the matching passage. Use **Save to ' +
-          'investigation** to keep the document with an active line of research.',
+          'is. Use **Save to investigation** to keep the document with an active line of ' +
+          'research.',
+      },
+      {
+        heading: 'Arriving from a citation',
+        body:
+          'A citation you clicked through opens the document itself, not a transcription of it. ' +
+          'For a PDF the reader opens at the cited page with the passage highlighted and scrolled ' +
+          'into view, and the passage is quoted above the viewer as well.\n\n' +
+          'Every document also carries an **extracted text**: a machine reading of the file that ' +
+          'the portal searches and that you can copy from. It is folded away under the viewer ' +
+          'behind a **Show extracted text** switch, so the document stays the thing you read. ' +
+          'Turn the switch on to open it, and off to put it away again; jumping to a match from ' +
+          'the **Matches in this document** list opens it for you. If the PDF itself cannot be ' +
+          'displayed, the extracted text is shown straight away, since it is then the only ' +
+          'reading available.',
       },
       {
         heading: 'Chatting with one document',
