@@ -449,6 +449,12 @@ export function assertsFinding(text: string): boolean {
   if (trimmed.startsWith('*') || /^#{1,6}\s/.test(trimmed)) return false
   if (isTableRow(trimmed)) return false
   if (/^\*\*[^*]+\*\*:?$/.test(trimmed)) return false
+  // A sentence about what the sources do not say is the portal's own
+  // account of the collection, not a claim that needs a passage behind it.
+  if (
+    /\b(?:cited sources|the sources|this collection|the corpus|retrieved passages?)\b[^.]{0,80}\b(?:do not|does not|did not|cannot|never|no )/i
+      .test(trimmed)
+  ) return false
   return /\b(?:is|are|was|were|has|have|had|can|could|may|might|show|shows|showed|find|finds|found|report|reports|reported|suggest|suggests|suggested|indicate|indicates|indicated|remain|remains|remained|achiev\w+|reduc\w+|increas\w+|associated|includ\w+|require\w*|improv\w+|predict\w*)\b/i
     .test(trimmed)
 }

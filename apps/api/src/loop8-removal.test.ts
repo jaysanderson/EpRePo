@@ -252,6 +252,22 @@ describe('what the answer credits to other authors, and what it cites nobody for
     expect(note).toContain('Wearable devices are more acceptable')
   })
 
+  it('says nothing about a sentence describing what the sources do not say', () => {
+    expect(
+      uncitedNote([
+        {
+          text: 'The BREATHS trial compares breathing control training to befriending.',
+          bound: [1],
+        },
+        {
+          text: 'The cited sources do not provide specific data on how often functional ' +
+            'seizures are misdiagnosed as epilepsy.',
+          bound: [],
+        },
+      ]),
+    ).toBe('')
+  })
+
   it('says nothing when every sentence carries one', () => {
     expect(uncitedNote([{ text: 'Retention at 12 months was 71.1%.', bound: [1] }])).toBe('')
   })
