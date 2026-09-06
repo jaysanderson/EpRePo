@@ -9,7 +9,7 @@ import {
   useState,
 } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { createPortal } from 'react-dom'
+import { createPortal, flushSync } from 'react-dom'
 import { Link, useOutletContext, useParams, useSearchParams } from 'react-router-dom'
 import type {
   Citation,
@@ -49,6 +49,7 @@ import {
   selectViewerVariant,
 } from '../lib/resource-view.ts'
 import { plainDashes } from '../lib/display-title.ts'
+import { extractedTextHint, extractedTextMode, extractedTextToggleLabel } from './extracted-text.ts'
 import type { TenantOutletContext } from './TenantLayout.tsx'
 import { useResizableRail } from '../components/useResizableRail.ts'
 
@@ -580,6 +581,96 @@ function GeneratedSummary({ text }: { text: string }) {
   )
 }
 
+/** The `aria-controls` target of the extracted-text switch. */
+const EXTRACTED_TEXT_REGION_ID = 'extracted-text-region'
+
+/**
+ * The extracted text of a PDF, folded away behind an explicit switch.
+ *
+ * A reader who arrives from a citation came to see the document, so the PDF is
+ * the default view and the machine reading of it stays closed - including when
+ * a passage, a search match or a summary match brought them here, which is
+ * exactly when it used to spring open and bury the viewer. The switch says
+ * what it does in both states, carries `aria-expanded`/`aria-controls`, and is
+ * keyboard reachable with the house focus ring.
+ *
+ * When the PDF itself cannot be displayed the text is the only reading there
+ * is, so it is shown outright with no control to find.
+ */
+function ExtractedText(
+  { mode, open, onToggle, hasMatch, children }: {
+    mode: ReturnType<typeof extractedTextMode>
+    open: boolean
+    onToggle: () => void
+    /** A passage, a search match or a summary match points into this text. */
+    hasMatch: boolean
+    children: ReactNode
+  },
+) {
+  if (mode === 'hidden') return null
+
+  if (mode === 'always') {
+    return (
+      <section aria-labelledby='extracted-text-heading' className='rp-card p-5'>
+        <h3 id='extracted-text-heading' className='rp-eyebrow text-ink-3'>Extracted text</h3>
+        <p className='rp-measure mt-1 text-xs leading-relaxed text-ink-3'>
+          The PDF could not be displayed, so this machine reading of the file is the only version
+          available here.
+        </p>
+        <div id={EXTRACTED_TEXT_REGION_ID} data-extracted-text-region='' className='mt-4'>
+          {children}
+        </div>
+      </section>
+    )
+  }
+
+  return (
+    <section
+      aria-labelledby='extracted-text-heading'
+      data-extracted-text=''
+      className='rp-card p-5'
+    >
+      {
+        /* Stacked on a phone: side by side, the label column collapses to one
+         * word per line behind a control that must not shrink. */
+      }
+      <div className='flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-x-4'>
+        <div className='min-w-0 sm:flex-1'>
+          <h3 id='extracted-text-heading' className='rp-eyebrow text-ink-3'>Extracted text</h3>
+          <p className='rp-measure mt-1 text-xs leading-relaxed text-ink-3'>
+            {extractedTextHint({ open, hasMatch })}
+          </p>
+        </div>
+        <button
+          type='button'
+          data-extracted-text-toggle=''
+          aria-expanded={open}
+          aria-controls={EXTRACTED_TEXT_REGION_ID}
+          onClick={onToggle}
+          className='rp-focus rp-btn rp-btn-outline !h-auto min-h-[calc(2.25rem*var(--rp-density-ctl,1))] w-full py-1.5 sm:w-auto sm:shrink-0'
+        >
+          <span className='rp-switch' data-on={open ? 'true' : 'false'} aria-hidden='true'>
+            <span className='rp-switch-knob' />
+          </span>
+          {
+            /* Wraps rather than clips: at a scaled-up system font this label
+             * is wider than a phone's content column. */
+          }
+          <span className='min-w-0'>{extractedTextToggleLabel(open)}</span>
+        </button>
+      </div>
+      <div
+        id={EXTRACTED_TEXT_REGION_ID}
+        data-extracted-text-region=''
+        hidden={!open}
+        className='mt-4'
+      >
+        {open ? children : null}
+      </div>
+    </section>
+  )
+}
+
 /** A prominent link to download or open the original stored file. */
 function OriginalFileActions(
   { fileUrl, label }: { fileUrl: string; label: string },
@@ -666,7 +757,18 @@ function OfficeBody(
 
 /** Dispatches to the type-aware primary viewer for the resource's content. */
 function ResourceViewer(
-  { slug, content, blocks, passage, page, summaryMatch = false, flashIndex, hasTextMatches }: {
+  {
+    slug,
+    content,
+    blocks,
+    passage,
+    page,
+    summaryMatch = false,
+    flashIndex,
+    hasTextMatches,
+    extractedTextOpen,
+    onToggleExtractedText,
+  }: {
     slug: string
     content: ResourceContent
     blocks: DocBlock[]
@@ -676,6 +778,10 @@ function ResourceViewer(
     summaryMatch?: boolean
     flashIndex: number | null
     hasTextMatches: boolean
+    /** The reader has asked to see a PDF's extracted text. Owned by the page so
+     * a jump into the text (the Matches rail, a citation) can open it. */
+    extractedTextOpen: boolean
+    onToggleExtractedText: () => void
   },
 ) {
   const primaryFile = content.files[0]
@@ -683,9 +789,17 @@ function ResourceViewer(
   const variant = selectViewerVariant(content.kind)
   const mediaRef = useRef<HTMLMediaElement | null>(null)
   const generated = content.pageSummary?.trim()
+  // The PDF viewer reported that it cannot show the file. The extracted text
+  // then stops being an aside and becomes the only reading available.
+  const [pdfFailed, setPdfFailed] = useState(false)
+  useEffect(() => setPdfFailed(false), [content.id])
 
   switch (variant) {
-    case 'pdf':
+    case 'pdf': {
+      // The summary-match notice promises the summary "under its own heading
+      // below", so on that path it is shown outright rather than folded into
+      // the extracted text the reader has not opened.
+      const generatedOutside = summaryMatch && Boolean(generated)
       return (
         <div className='space-y-4'>
           {summaryMatch ? <SummaryMatchNotice /> : null}
@@ -697,6 +811,7 @@ function ResourceViewer(
                 title={content.title}
                 initialPage={page}
                 highlight={passage}
+                onLoadError={() => setPdfFailed(true)}
               />
             )
             : (
@@ -705,36 +820,34 @@ function ResourceViewer(
                 description='The original file could not be loaded. The extracted text below is a machine reading of the document.'
               />
             )}
-          {blocks.length > 0 || generated
-            ? (
-              <details
-                className='rp-card p-5'
-                open={passage != null || hasTextMatches || summaryMatch}
-              >
-                <summary className='rp-eyebrow cursor-pointer text-ink-3'>
-                  Extracted text
-                </summary>
-                {generated
-                  ? (
-                    <div className='mt-3'>
-                      <GeneratedSummary text={generated} />
-                    </div>
-                  )
-                  : null}
-                <div className='mt-3'>
-                  <DocumentReader
-                    key={content.id}
-                    blocks={blocks}
-                    title={content.title}
-                    passage={passage}
-                    flashIndex={flashIndex}
-                  />
+          {generatedOutside && generated ? <GeneratedSummary text={generated} /> : null}
+          <ExtractedText
+            mode={extractedTextMode({
+              hasExtractedText: blocks.length > 0 || Boolean(generated),
+              pdfAvailable: Boolean(fileUrl) && !pdfFailed,
+            })}
+            open={extractedTextOpen}
+            onToggle={onToggleExtractedText}
+            hasMatch={passage != null || hasTextMatches || summaryMatch}
+          >
+            {generated && !generatedOutside
+              ? (
+                <div className='mb-3'>
+                  <GeneratedSummary text={generated} />
                 </div>
-              </details>
-            )
-            : null}
+              )
+              : null}
+            <DocumentReader
+              key={content.id}
+              blocks={blocks}
+              title={content.title}
+              passage={passage}
+              flashIndex={flashIndex}
+            />
+          </ExtractedText>
         </div>
       )
+    }
     case 'video':
       return (
         <div className='space-y-5'>
@@ -1430,6 +1543,14 @@ export function ResourceDetailPage() {
 
   const [flashIndex, setFlashIndex] = useState<number | null>(null)
   const flashTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
+  /**
+   * Whether the reader has asked to see a PDF's extracted text. Owned here,
+   * not by the viewer, because a jump into the text - the Matches rail, a
+   * citation in the document chat - has to be able to open it. It closes again
+   * whenever another document is opened.
+   */
+  const [extractedTextOpen, setExtractedTextOpen] = useState(false)
+  useEffect(() => setExtractedTextOpen(false), [id])
 
   useEffect(() => {
     return () => {
@@ -1487,25 +1608,32 @@ export function ResourceDetailPage() {
    * image, or a PDF with no extracted text - so a caller can fall back rather
    * than believing a jump happened.
    *
-   * For a PDF the reader lives inside a collapsed `Extracted text` disclosure,
-   * and scrolling into a closed `<details>` does nothing, so the ancestor is
-   * opened first. Focus moves to the block as well: without it a keyboard or
-   * screen-reader user is left on the control they activated with no signal
-   * that anything moved.
+   * For a PDF the reader is folded away behind the `Show extracted text`
+   * switch and is not in the DOM at all while it is closed, so an explicit
+   * jump into the text opens it first. That, and the flash target (which is
+   * what extends the reader's rendered slice to reach a block deep in a long
+   * document), are flushed synchronously so the block exists by the time this
+   * has to report whether the jump landed. Focus moves to the block as well:
+   * without it a keyboard or screen-reader user is left on the control they
+   * activated with no signal that anything moved.
    */
   function jumpToBlock(index: number): boolean {
-    const el = document.getElementById(`doc-block-${index}`)
-    if (!el) return false
+    if (flashTimeout.current) globalThis.clearTimeout(flashTimeout.current)
+    flushSync(() => {
+      setExtractedTextOpen(true)
+      setFlashIndex(index)
+    })
 
-    const disclosure = el.closest('details')
-    if (disclosure && !disclosure.open) disclosure.open = true
+    const el = document.getElementById(`doc-block-${index}`)
+    if (!el) {
+      setFlashIndex(null)
+      return false
+    }
 
     el.setAttribute('tabindex', '-1')
     el.focus({ preventScroll: true })
     el.scrollIntoView({ behavior: 'smooth', block: 'center' })
 
-    if (flashTimeout.current) globalThis.clearTimeout(flashTimeout.current)
-    setFlashIndex(index)
     flashTimeout.current = globalThis.setTimeout(() => setFlashIndex(null), 1500)
     return true
   }
@@ -1610,6 +1738,8 @@ export function ResourceDetailPage() {
                             summaryMatch={summaryMatch}
                             flashIndex={flashIndex}
                             hasTextMatches={matchIndices.length > 0}
+                            extractedTextOpen={extractedTextOpen}
+                            onToggleExtractedText={() => setExtractedTextOpen((open) => !open)}
                           />
                         </div>
                       )
