@@ -7,6 +7,33 @@ ten-persona evaluation (`docs/EPREPO-ROADMAP.md`, `docs/persona-reports/p1.md` t
 (`docs/persona-reports/dsouza-loop1.md` to `loop5.md`). Dates are the merge dates (UTC).
 The architecture of the answer trust layer these entries built is in `docs/TRUST-LAYER.md`.
 
+## PR #22 - 6 September 2026 - D'Souza loop 6 (k1): the population clause, exact outcomes, bibliographies, a paper's own words
+
+For the reader: a figure now belongs to the group the paper reports it for. Asked what the
+real-world evidence says about switching a patient from levetiracetam to brivaracetam, the portal
+answers 13.9% seizure freedom and 10.6% continuous seizure freedom for the switchers, not the
+16.0% and 13.7% the same paper reports for the wider comorbidity subgroup one paragraph earlier.
+An outcome must match exactly where the paper itself is exact, so a continuous seizure freedom
+rate no longer fills a "12-month seizure freedom" column: each table cell is checked under the
+heading above it, and the brivaracetam row reads 14.9% (n = 1111, FAS). Reference lists wrapped
+over several lines are cut from every paper before the check reads it, so a bibliography entry can
+no longer become a finding - "the RANSOM Study found that nonadherence is associated with
+increased mortality" is removed and the removal is stated. A paper's own words are never
+second-hand: the lacosamide trial's own placebo 50% responder rate of 46.3% (n = 121) comes back,
+"our cohort had an 80% favorable mRS" is not flagged, and a sentence the answer does flag never
+leads it. Three figures loop 5 returned and loop 6 withheld are back: the SUDEP adjusted hazard
+ratio of 2.24 (95% CI 1.07-4.68, P = 0.031), the UMPIRE mean age of 45 years (range 23 to 71) that
+document chat delivered while Ask removed it, and brivaracetam's 12-month retention of 71.1%
+(n = 1644, full analysis set), which is no longer removed and then quoted back two lines below.
+
+Findings closed: **D6-01** (P0, the population clause), **D6-02** (bibliographies and the
+answer's own named studies), **D6-03** (exact outcomes and the column heading), **D6-04**
+(section is not provenance), **D6-05** (the aHR interval and the effect-size helper), **D6-06**
+(one gate, one outcome), **D6-12** (markers on papers that carry the figure), and the **D4-18**
+regression. Partly: **D6-07** (the second-hand misfire and the flagged lead are fixed; which
+consortium paper answers a consortium question is retrieval, not the gate), **D6-11** (the prompt
+now asks for the results sentence's count; the gate does not force it).
+
 ## PR #19 - 5 September 2026 - D'Souza loop 5 (j2): sessions, the table turn, terse refusals, the checking state, latency
 
 For the reader: a follow-up in a conversation always carries the earlier answers' papers, and one

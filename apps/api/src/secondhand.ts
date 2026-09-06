@@ -224,6 +224,17 @@ function sentenceAround(text: string, offset: number): string {
   return text.slice(start, end)
 }
 
+/**
+ * Whether a sentence ends on a numbered citation ("... to over 22% after
+ * 2020.[6, 7]"): the paper is quoting other work, whatever section the
+ * sentence sits in, and its own abstract cannot clear the figure (D5-15).
+ */
+export function endsWithReferenceMarker(sentence: string): boolean {
+  return /(?:[.!?]|\d\s?%|\d)\s*\[\s*\d{1,3}(?:\s*[,;\u2010-\u2015-]\s*\d{1,3})*\s*\]/.test(
+    sentence,
+  )
+}
+
 /** Whether the sentence around an offset attributes its figure to earlier work. */
 export function citesEarlierWork(text: string, offset: number): boolean {
   const sentence = sentenceAround(text, offset)
@@ -294,7 +305,9 @@ export function secondhandFigures(
           offsets.map((o) =>
             inTableOrLegend(text, o) || speaksOfOwnWork(text, o)
               ? 'results'
-              : citesEarlierWork(text, o)
+              // A sentence that carries a numbered citation is quoting
+              // other work whatever section it sits in (D5-15).
+              : citesEarlierWork(text, o) || endsWithReferenceMarker(ownWorkSentence(text, o))
               ? 'discussion'
               : sectioned
               ? sectionAt(spans, o)
@@ -302,8 +315,10 @@ export function secondhandFigures(
           ),
         )
         if ([...sections].some((s) => OWN.has(s))) continue
+        const quoted = at >= 0 &&
+          (citesEarlierWork(text, at) || endsWithReferenceMarker(ownWorkSentence(text, at)))
         if (
-          sectioned && at >= 0 &&
+          sectioned && at >= 0 && !quoted &&
           figureOffsets(figure, text).some((o) =>
             o !== at && !citesEarlierWork(text, o) && sectionAt(spans, o) === 'abstract'
           )

@@ -14,7 +14,7 @@ import {
   verifyFigures,
 } from './answer-audit.ts'
 import { stripReferenceSection } from './citation-binding.ts'
-import { secondhandFigures, speaksOfOwnWork } from './secondhand.ts'
+import { endsWithReferenceMarker, secondhandFigures, speaksOfOwnWork } from './secondhand.ts'
 import { leadSentence, namedStudies, unheldStudyNote } from './ask-grounding.ts'
 import { rowKey, tableCellHeadings } from './answer-gate.ts'
 import { cohortPhrases } from './figure-rescue.ts'
@@ -418,5 +418,42 @@ describe('a cohort named in full narrows its own papers (D6-07)', () => {
       ),
     )
       .toEqual([])
+  })
+})
+
+describe('a sentence that quotes other work is second-hand whatever the abstract says (D5-15)', () => {
+  it('reads a trailing numbered citation', () => {
+    expect(
+      endsWithReferenceMarker('the rate has risen from 10% in 1990 to over 22% after 2020.[6, 7]'),
+    )
+      .toBe(true)
+    expect(endsWithReferenceMarker('our cohort had an 80% favorable mRS score at 12 months.')).toBe(
+      false,
+    )
+  })
+
+  it("does not let a paper's own abstract clear a figure its introduction quotes", () => {
+    const text = [
+      '## Abstract',
+      '',
+      'Mixture modeling indicated a higher 50% responder rate (42% in the higher group vs 22% in the lower group).',
+      '',
+      '## Introduction:',
+      '',
+      'The placebo 50% responder rate has been increasing over time from 10% in 1990 to over 22% after 2020.[6, 7]',
+      '',
+      '## Results:',
+      '',
+      'There was a higher 50% responder rate in Bulgaria (42% in the higher group vs 22% in the lower group).',
+    ].join('\n')
+    const passage =
+      'The placebo 50% responder rate has been increasing over time from 10% in 1990 to over 22% after 2020.'
+    expect(
+      secondhandFigures([{
+        text: 'the placebo responder rate has been increasing, reaching over 22% after 2020.',
+        bound: [1],
+        located: [{ figure: '22%', index: 1, passage }],
+      }], new Map([[1, text]])),
+    ).toEqual([{ figure: '22%', index: 1 }])
   })
 })
