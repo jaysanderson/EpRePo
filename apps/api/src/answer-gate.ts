@@ -360,7 +360,6 @@ function figuresToName(checks: readonly FigureCheck[]): string[] {
 
 function dominantReason(failing: readonly FigureCheck[]): RemovedSentence['reason'] {
   const order: RemovedSentence['reason'][] = [
-    'cohort',
     'secondhand',
     'entity',
     'pvalue',
@@ -398,9 +397,6 @@ export function removalNote(
     const figures = [...new Set(figured.flatMap((r) => r.figures))].map(figureLabel)
     const reasons = new Set(figured.map((r) => r.reason))
     const why: string[] = []
-    if (reasons.has('cohort')) {
-      why.push('the cited paper is not the cohort or study the question asks about')
-    }
     if (reasons.has('secondhand')) {
       why.push(
         'the cited paper carries them only where it cites other studies, not among its own results',

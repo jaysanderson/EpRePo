@@ -17,7 +17,6 @@ import { stripReferenceSection } from './citation-binding.ts'
 import { endsWithReferenceMarker, secondhandFigures, speaksOfOwnWork } from './secondhand.ts'
 import { leadSentence, namedStudies, unheldStudyNote } from './ask-grounding.ts'
 import { rowKey, tableCellHeadings } from './answer-gate.ts'
-import { cohortPhrases } from './figure-rescue.ts'
 
 /**
  * Loop 6 (docs/persona-reports/dsouza-loop6.md): a located figure is bound
@@ -399,25 +398,6 @@ describe('a table cell is checked under its column heading (D6-03)', () => {
         headings: new Map([['14.9%', '12-month seizure freedom'], ['71.1%', '12-month retention']]),
       }], [POOLED]).filter((c) => c.figure === '14.9%').map((c) => c.supported),
     ).toEqual([true])
-  })
-})
-
-describe('a cohort named in full narrows its own papers (D6-07)', () => {
-  it('uses the whole phrase only when the designator carries no acronym', () => {
-    expect(
-      cohortPhrases(
-        'What proportion of the Australian autoimmune encephalitis consortium cohort had a favourable mRS?',
-      ),
-    )
-      .toEqual(['australian autoimmune encephalitis'])
-    // "the EXPERIENCE pooled analysis" is already specific by its acronym:
-    // narrowing on the phrase excluded the pooled-analysis paper itself.
-    expect(
-      cohortPhrases(
-        'What was the 12-month seizure freedom rate in the EXPERIENCE pooled analysis?',
-      ),
-    )
-      .toEqual([])
   })
 })
 

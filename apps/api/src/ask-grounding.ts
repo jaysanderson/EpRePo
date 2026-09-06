@@ -26,8 +26,6 @@ import {
 } from './answer-audit.ts'
 import {
   carriesQualifier,
-  cohortPapers,
-  cohortPhrases,
   cohortTerms,
   figuresFoundIn,
   generatedText,
@@ -253,8 +251,13 @@ export interface BindAndAuditInput {
   pinnedTerms?: readonly string[]
   /** Resources the session's earlier turns cited: a figure carried forward is checked against them. */
   priorResourceIds?: readonly string[]
-  /** Papers the study guard pinned for a cohort the question designates: the cohort's papers, whatever their titles carry. */
-  cohortResourceIds?: readonly string[]
+  /**
+   * The resources retrieval was pinned to (name-pin.ts): the papers the
+   * question's own names resolved to. Every retrieved passage came from
+   * them, so a rescue may rebind a figure inside the pin but can never
+   * import one from a neighbouring cohort (D7-01, D7-02).
+   */
+  pinScopeIds?: readonly string[]
 }
 
 export interface BindAndAuditResult {
@@ -682,11 +685,13 @@ const MAX_CITED_TEXTS = 8
 const MAX_POOL_TEXTS = 8
 
 /**
- * The texts a withheld figure is looked up in, best first: the cohort
- * papers, the pinned papers, the papers earlier turns cited, then the
- * retrieved resources by relevance - each paper's extracted text (fetched
- * now, cached per process) and its DA summary and key takeaways as a
- * text of its own. Cited texts already fetched are not repeated.
+ * The texts a withheld figure is looked up in. Under a pin they are the
+ * pinned papers and nothing else, so a rescue can rebind a figure inside
+ * the pin but never import one from a neighbouring cohort. Without a pin,
+ * best first: the pinned papers, the papers earlier turns cited, then the
+ * retrieved resources by relevance. Each is the paper's extracted text
+ * (fetched now, cached per process) plus its DA summary and key takeaways
+ * as a text of its own. Cited texts already fetched are not repeated.
  */
 async function poolTexts(
   input: BindAndAuditInput,
@@ -708,10 +713,15 @@ async function poolTexts(
     if (!order.includes(id)) order.push(id)
   }
   for (const id of cohort) add(id)
-  for (const id of input.pinnedResourceIds ?? []) add(id)
-  for (const id of input.priorResourceIds ?? []) add(id)
-  for (const s of [...input.sources].sort((a, b) => b.relevance - a.relevance)) {
-    if (!s.referenceChunk) add(s.id)
+  // The rescue read stays inside the pin: it may rebind a figure to a paper
+  // the question named, and can never import one from a neighbouring cohort
+  // (D7-01). Without a pin the pool is the retrieved set, as before.
+  if (cohort.size === 0) {
+    for (const id of input.pinnedResourceIds ?? []) add(id)
+    for (const id of input.priorResourceIds ?? []) add(id)
+    for (const s of [...input.sources].sort((a, b) => b.relevance - a.relevance)) {
+      if (!s.referenceChunk) add(s.id)
+    }
   }
   const wanted = order.filter((id) => !fetchedIds.has(id)).slice(0, MAX_POOL_TEXTS)
   const out: PoolText[] = []
@@ -742,7 +752,17 @@ async function poolTexts(
  * audit addendum is appended to it; the `audit` event summarises what was
  * checked so the surface can badge the answer and mark figures inline.
  */
-export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAuditResult> {
+export async function bindAndAudit(raw: BindAndAuditInput): Promise<BindAndAuditResult> {
+  // The pin, enforced on the way back. The platform honours
+  // `resource_filters` weakly on `/ask` (docs/ARAG-DEV.md), so a citation to
+  // a paper outside the pin is dropped before anything is checked: its
+  // sentence then has no marker and is judged, and removed, like any other
+  // unsupported sentence. This is what the question-level cohort guard used
+  // to approximate by matching strings.
+  const scope = new Set(raw.pinScopeIds ?? [])
+  const input: BindAndAuditInput = scope.size > 0
+    ? { ...raw, citations: raw.citations.filter((c) => scope.has(c.resourceId)) }
+    : raw
   const { config, query, lexicon, variant } = input
   const texts = new Map<number, string>()
   await Promise.all(
@@ -764,8 +784,14 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
   // the BREATHS protocol at 10%).
   const pinnedSet = new Set([
     ...(input.pinnedResourceIds ?? []),
-    ...(input.cohortResourceIds ?? []),
+    ...(input.pinScopeIds ?? []),
   ])
+  // The pin: when retrieval was constrained to the papers the question
+  // names, every cited paper is by construction one of them, so the checks
+  // that existed to tell the question's cohort from a neighbour's - the
+  // cohort guard, the name test on a cited text, the restricted rescue
+  // pool - have nothing left to decide and are gone (docs/TRUST-LAYER.md).
+  const pinScope = scope
   const belowFloor = new Set(
     input.citations
       .filter((c) =>
@@ -789,9 +815,14 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
     query,
     (input.pinnedTerms ?? []).filter((t) => !isMedicationTerm(t.toLowerCase())),
   )
-  const designated = designatedTerms.length > 0 || (input.cohortResourceIds ?? []).length > 0
+  const designated = designatedTerms.length > 0 || pinScope.size > 0
   const terms = designated ? designatedTerms : cohortTerms(query, input.pinnedTerms ?? [], lexicon)
-  const requiredNames = [...new Set([...(study ? [study.split(' ')[0]!] : []), ...terms])]
+  // Under a pin the name test is a tautology - the cited paper is a paper
+  // the question named - and applying it would strip a marker from a pinned
+  // paper whose text spells the cohort differently from the question.
+  const requiredNames = pinScope.size > 0
+    ? []
+    : [...new Set([...(study ? [study.split(' ')[0]!] : []), ...terms])]
   // The generator's scaffolding goes before any sentence is judged (D4-14).
   const bound = bindSentences({
     text: stripTemplateLeaks(input.text),
@@ -801,13 +832,6 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
     belowFloor,
     questionEntities,
     ...(requiredNames.length > 0 ? { requiredName: requiredNames } : {}),
-    // A paper the study guard pinned for the cohort is the cohort's paper
-    // whatever its text calls it.
-    alwaysNamed: new Set(
-      input.citations.filter((c) => (input.cohortResourceIds ?? []).includes(c.resourceId)).map((
-        c,
-      ) => c.index),
-    ),
     // The gate renumbers once it has decided what stays.
     keepNumbering: true,
   })
@@ -853,68 +877,14 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
   checks = checks.filter((c) => !declines.has(c.sentence))
   const resourceOfIndex = new Map(input.citations.map((c) => [c.index, c.resourceId]))
   const candidates: Citation[] = [...input.citations]
-  // The cohort guard, at the question's level (D3-01, D3-07, D4-01, D4-02):
-  // when the question names a cohort, study or trial - by acronym, by a
-  // designator the study guard matched to a paper, or by a drug - every
-  // figure sentence must cite a paper about that cohort unless it names
-  // another study itself. A sentence that fails goes to the rescue below
-  // with only the cohort papers as candidates, and to the replacement
-  // after that.
-  const knownResources = [
-    ...input.sources,
-    ...input.citations.filter((c) => !input.sources.some((s) => s.id === c.resourceId)).map((
-      c,
-    ) => ({
-      id: c.resourceId,
-      title: c.title,
-    })),
-  ]
-  // A cohort the study guard matched from the catalogue is exactly its
-  // papers: a paper whose summary merely mentions the cohort's name is not
-  // one of them (the loop 4 C4 replay: the anti-NMDAR rituximab paper
-  // discusses LGI1).
-  // A medication term is also looked for in a paper's opening pages, so a
-  // paper about "valproic acid (VPA)" is the valproate paper the question
-  // describes (loop 5 N03), and a paper the question names outright (a
-  // pinned paper) is by definition one the question asks about: the guard
-  // never fires against it (loop 5 D5-02). A designated cohort stays
-  // exactly its own papers (D4-01).
-  const textOf = (id: string) => {
-    const index = oldIndexByResource.get(id)
-    return index === undefined ? undefined : texts.get(index)
-  }
-  const cohortBase = (input.cohortResourceIds ?? []).length > 0
-    ? new Set(input.cohortResourceIds)
-    : cohortPapers(terms, knownResources, textOf, cohortPhrases(query))
-  const cohort = cohortBase.size > 0 && !designated
-    ? new Set([...cohortBase, ...(input.pinnedResourceIds ?? [])])
-    : cohortBase
+  // The cohort the answer may draw on IS the pin: retrieval never saw
+  // another cohort's paper, so there is no post-hoc guard to run. The
+  // question-level cohort guard that used to force every result sentence to
+  // cite a paper "about that cohort" (D3-01, D3-07, D4-01, D4-02) is gone
+  // with it, and so are the catalogue-matching helpers it needed.
+  const cohort = pinScope
   const namedCohort = cohort.size > 0
   const planning = isPlanningQuestion(query)
-  const cohortFailed = new Set<string>()
-  if (cohort.size > 0) {
-    const namedIndices = new Set(bound.named)
-    for (const sentence of bound.sentences) {
-      if (!statesResultFigure(sentence.text)) continue
-      if (namesOtherStudy(sentence.text, terms)) continue
-      const ownChecks = checks.filter((c) => c.sentence === sentence.text)
-      if (ownChecks.length === 0) continue
-      // A sentence the binding stripped of every marker because none of
-      // its cited papers carries the cohort's name failed this guard too.
-      const markers = [...(sentence.original ?? []), ...(sentence.block ?? [])]
-      const strippedByName = sentence.bound.length === 0 && markers.length > 0 &&
-        markers.every((n) => !namedIndices.has(n))
-      if (sentence.bound.length === 0 && !strippedByName) continue
-      const citesCohort = sentence.bound.some((n) => cohort.has(resourceOfIndex.get(n) ?? ''))
-      if (citesCohort) continue
-      cohortFailed.add(sentence.text)
-      checks = checks.map((c) =>
-        c.sentence === sentence.text
-          ? { ...c, supported: false, supportedBy: [], reason: 'cohort' as const }
-          : c
-      )
-    }
-  }
   // The rescue (D3-02): a sentence the gate would remove is looked up in
   // the full text of every retrieved resource, the papers the session's
   // earlier turns cited and the DA summary and key takeaways, before it
@@ -1027,16 +997,13 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
     for (const sentence of bound.sentences) {
       if (!failing.has(sentence.text)) continue
       const other = namesOtherStudy(sentence.text, terms)
-      const restricted = cohortFailed.has(sentence.text) ||
-        (cohort.size > 0 && statesResultFigure(sentence.text) && !other)
-      const allowed = [
+      // Under a pin the pool is already the pinned papers, so the rescue
+      // reads more of them and can never reach a neighbouring cohort's
+      // paper; without one it is the retrieved set, name-tested as before.
+      const poolFor = [
         ...citedEntries.filter((e) => !sentence.bound.includes(e.index)),
         ...poolEntries,
       ].filter((e) => other || prior.has(e.resourceId) || named(e))
-      const poolFor = restricted ? allowed.filter((e) => cohort.has(e.resourceId)) : [
-        ...allowed.filter((e) => cohort.has(e.resourceId)),
-        ...allowed.filter((e) => !cohort.has(e.resourceId)),
-      ]
       const found = rescueSentence({ sentence, pool: poolFor, lexicon, questionEntities })
       if (!found) continue
       sentence.bound = [found.index]
@@ -1068,11 +1035,9 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
       const figures = secondhandBySentence.get(sentence.text)
       if (!figures) continue
       const other = namesOtherStudy(sentence.text, terms)
-      const restricted = cohort.size > 0 && !other
       const pool = [...citedEntries, ...poolEntries]
         .filter((e) => !sentence.bound.includes(e.index) && texts.has(e.index))
         .filter((e) => other || prior.has(e.resourceId) || named(e))
-        .filter((e) => !restricted || cohort.has(e.resourceId))
       let found: ReturnType<typeof rescueSentence> | undefined
       for (const entry of pool) {
         const attempt = rescueSentence({ sentence, pool: [entry], lexicon, questionEntities })
@@ -1135,17 +1100,12 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
       ) continue
       if (replaced.length >= MAX_REPLACEMENTS) break
       // The named papers first; the paper the sentence itself cited only
-      // when no named paper answers, and never for a sentence the cohort
-      // guard failed (its cited paper is the wrong cohort by definition).
+      // when no named paper answers.
       const papersOf = (indices: readonly number[]) =>
         indices.map((n) => resourceOfIndex.get(n))
           .filter((id): id is string => id !== undefined && !replacementPapers.includes(id))
-      const own = cohortFailed.has(sentence.text)
-        ? []
-        : papersOf([...sentence.bound, ...(sentence.original ?? [])])
-      const block = cohortFailed.has(sentence.text)
-        ? []
-        : papersOf(sentence.block ?? []).filter((id) => !own.includes(id))
+      const own = papersOf([...sentence.bound, ...(sentence.original ?? [])])
+      const block = papersOf(sentence.block ?? []).filter((id) => !own.includes(id))
       const cue = {
         ...replacementCue(sentence.text, lexicon, questionEntities, questionOutcomes, terms),
         exclude: stated,
@@ -1263,20 +1223,27 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
   // The gate runs whenever a cited text was read: a paper that never names
   // the question's cohort is judged like any other, never left to a
   // footnote (the loop 4 C4 replay: every cited text failed the name check).
-  // A marker is emitted only for a paper whose located passage carries the
-  // sentence's figures: the per-sentence check already knows which papers
-  // those are, and a sentence bound to three papers where one carries the
-  // figure reads as three sources for it (loop 6 D6-12).
+  // A MARKER MAY ONLY NAME A PAPER THAT CARRIES THE FIGURE. A sentence with
+  // one marker already gets this from the check itself, which reads only the
+  // text of the paper that marker names; "28% of patients experienced a
+  // relapsing course.[1]" survived because the anti-NMDAR paper was in the
+  // grounding set and lent its marker, which the pin now prevents (D7-01).
+  // What is left to decide is a sentence bound to several papers: the
+  // per-sentence check knows which of them each figure's passage was located
+  // in, and every other marker is dropped, so a sentence bound to three
+  // papers where one carries the figure no longer reads as three sources for
+  // it (loop 6 D6-12). A marker whose text could not be read stays:
+  // unverifiable is not unsupported.
   for (const sentence of bound.sentences) {
     if (sentence.bound.length < 2) continue
     const own = checks.filter((c) => c.sentence === sentence.text)
     if (own.length === 0 || own.some((c) => !c.supported)) continue
+    // `supportedBy` indexes the texts the check was given, which is
+    // `sentence.bound` with the unfetchable ones dropped.
     const withText = sentence.bound.filter((n) => usableTexts.has(n))
     if (withText.length < 2) continue
     const carrying = withText.filter((_, i) => own.every((c) => c.supportedBy.includes(i)))
     if (carrying.length === 0 || carrying.length === sentence.bound.length) continue
-    // A marker whose text could not be read stays: unverifiable is not
-    // unsupported.
     sentence.bound = sentence.bound.filter((n) => !usableTexts.has(n) || carrying.includes(n))
   }
   const gateRan = texts.size > 0 || rescued.length > 0
@@ -1331,9 +1298,9 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
   }
   // Two populations stitched into one answer are named for what they are
   // (docs/persona-reports/dsouza-loop5.md D5-12, TDE): under a designated
-  // cohort or a planning question, when the result sentences the gate kept
-  // come from more than one paper, each sentence that names no study of
-  // its own is opened with the paper it comes from - "In *Infradian
+  // cohort, a planning question or a pin holding several of one cohort's
+  // papers, each result sentence that names no study of its own is opened
+  // with the paper it comes from - "In *Infradian
   // rhythms ... in healthy adults*, 70% (369/525) had ..." beside "In
   // *Multiday cycles of heart rate ...*, participants with epilepsy
   // documented 3,619 seizures".
@@ -1346,7 +1313,11 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
       resultSentences.map((s) => citations.find((c) => c.index === s.bound[0])?.resourceId)
         .filter((id): id is string => id !== undefined),
     )
-    if (papers.size >= 2) {
+    // A pin of several papers is several studies under one name: the
+    // Australian consortium has four papers and the answer must say which
+    // one a figure comes from, even when it draws on only one of them, so
+    // a sub-study's 84% is never read as the cohort's headline (D7-02).
+    if (papers.size >= 2 || (pinScope.size >= 2 && papers.size >= 1)) {
       for (const sentence of resultSentences) {
         const citation = citations.find((c) => c.index === sentence.bound[0])
         if (!citation || namesOtherStudy(sentence.text, terms)) continue

@@ -70,6 +70,20 @@ search configurations are all configurable objects ON the KB, viewable in the ad
   `top_k`, `resource_filters` and `weight` - the portal gives a pinned paper a 20-paragraph pass
   at weight 2 and a 10-paragraph pass per question clause, and never sends `full_resource`
   beside a wide budget (whole papers and sixty paragraphs do not fit one context).
+- **Top-level `resource_filters` on `/ask` is the strongest scoping lever there is, and the
+  portal's retrieval pin is built on it** (verified live 2026-09-06: "In anti-LGI1 antibody
+  encephalitis, what proportion of patients relapsed" returned the anti-NMDAR paper's 28% and
+  764 days unfiltered, and the LGI1 paper's own 16 (30%) at 414 days with
+  `resource_filters: ["8565cc8f..."]`, in 9.6 s). Two things to know before relying on it:
+  it is honoured **weakly** (see the known bug below), so cross-check every citation against the
+  filter server-side and drop the ones outside it; and the relevance scores that come back are
+  reranked **within** the filtered set, so a score from a filtered `/find` is not comparable with
+  a score from an unfiltered one - use it to decide whether the filtered papers carry anything
+  for the question, never to compare "inside the pin" against "the whole collection".
+- **`depth: 'deep'` is the way to read one resource whole**: it maps to
+  `rag_strategies: [{name: 'full_resource'}]`, and it is dropped if a request-level `top_k` is
+  also sent. Pair it with `resourceId`/`resource_filters` and no `top_k` for a rescue read of a
+  paper whose top passages the first pass already saw.
 - **`/graph` caps `top_k` at 500** (422 `less_than_equal` above it) and pages the path index in
   no stable order, so one page is a different slice on every call while the index is growing.
   The path query accepts a group scope, `{prop:'path', source:{group:'Gene'}, undirected:true}`

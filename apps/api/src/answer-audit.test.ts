@@ -14,7 +14,6 @@ import {
   isSampleSizeFigure,
   normaliseFigures,
   normaliseSource,
-  numbersMissing,
   numberWordsToDigits,
   outcomeConflict,
   populationQualifier,
@@ -33,6 +32,17 @@ import {
   yearsInAnswer,
   yearsUnsupported,
 } from './answer-audit.ts'
+
+/**
+ * The dead `numbersMissing` helper went with the retrieval pin: a figure
+ * present *somewhere* in the cited texts never meant it was present beside
+ * the claim, and nothing in the ask path called it. Its normalisation cases
+ * still matter, so they run through the two functions it was built from.
+ */
+const numbersMissing = (answer: string, citedTexts: readonly string[]): string[] => {
+  const haystack = citedTexts.map(normaliseSource).join('\n')
+  return extractNumbers(answer).filter((token) => !figurePresent(token, haystack))
+}
 
 describe('answer audit', () => {
   it('extracts figures but not markers, list numbers or years', () => {

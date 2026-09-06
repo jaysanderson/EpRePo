@@ -3,7 +3,6 @@ import { expect } from '@std/expect'
 import { prepareSource } from './answer-audit.ts'
 import {
   carriesQualifier,
-  cohortPapers,
   cohortTerms,
   exposureOutcomePair,
   figuresFoundIn,
@@ -62,19 +61,6 @@ describe('the cohort the question names (D3-01)', () => {
 
   it('adds the terms that pinned a paper', () => {
     expect(cohortTerms('What did UMPIRE report?', ['UMPIRE'])).toEqual(['umpire'])
-  })
-
-  it('finds the papers a term titles, and nothing when every paper carries it', () => {
-    const papers = [
-      { id: 'nmdar', title: 'Rituximab use for relapse prevention in anti-NMDAR encephalitis' },
-      {
-        id: 'lgi1',
-        title: 'Immune-treatment strategies in anti-LGI1 antibody-mediated encephalitis',
-      },
-    ]
-    expect([...cohortPapers(['lgi1'], papers)]).toEqual(['lgi1'])
-    expect([...cohortPapers(['encephalitis'], papers)]).toEqual([])
-    expect([...cohortPapers([], papers)]).toEqual([])
   })
 
   it('lets a sentence that names another study keep it', () => {

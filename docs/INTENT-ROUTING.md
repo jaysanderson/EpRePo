@@ -389,6 +389,19 @@ own prequery scoped by `resource_filters` (verified live: the BREATHS protocol j
 set it had been absent from), a targeted find beside the probe so its passage and score are
 known before generation, and the sources are ordered with the pinned papers first.
 
+**The retrieval pin.** `apps/api/src/name-pin.ts` (loop 7, `docs/TRUST-LAYER.md` section 2). The
+study guard puts a named paper *into* the grounding set; the pin decides what the grounding set
+*is*. On a first turn the antibodies, consortia, registries, trial acronyms, quoted titles,
+described cohorts and lexicon terms a question names are resolved against the catalogue; where
+they resolve to at most six papers and a `/find` inside those papers carries the question or one
+of its clauses, the ask itself runs with `resource_filters` set to them. An antigen is read where
+the gene-symbol reader refuses it ("anti-LGI1"), an acronym is matched in the case the question
+wrote it (EXPERIENCE the pooled analysis, not "experience" the word), a title match beats a
+generated summary (the Australian consortium's four papers, not an LGI1 sub-study that mentions
+them), and a drug on its own never makes a pin. A clause the pinned papers cannot answer widens
+the pin with the paper that does answer it. A pinned question is covered by definition, so the
+relevance floor never declines it. When nothing resolves, retrieval is exactly what it was.
+
 **Search never waits on a classifier.** `GET /search` runs stage 0 and stage 1 itself and returns
 the decision as `route` in the results: an identifier, a gene symbol, a lexicon term or an author
 surname is an exact lookup decided in microseconds, with `lookup` naming the match. The page no
