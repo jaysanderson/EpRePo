@@ -54,6 +54,60 @@ export function isTableRow(text: string): boolean {
 }
 
 /**
+ * Column headings that ask for a quantity. A cell under one of these either
+ * carries a figure the check can pass or fail, or carries nothing the check
+ * can read at all.
+ */
+const QUANTITY_HEADING =
+  /\b(?:n|no\.|number|size|sizes|rate|rates|retention|freedom|response|responder|proportion|percentage|percent|dose|doses|duration|follow-?up|months?|years?|weeks?|days?|age|count|counts|incidence|prevalence|mortality|survival|efficacy|reduction)\b|%/i
+
+/** A cell that names an analysis set, or says nothing, rather than stating a value. */
+const NOT_A_VALUE =
+  /^(?:fas|itt|pp|mitt|full analysis set|safety population|retention population|intention[- ]to[- ]treat|per[- ]protocol|not reported|not specified|not stated|not given|not available|not detailed|unknown|unclear|n\/?a|none|-|--)$/i
+
+/**
+ * A Markdown table with every cell that states no readable value, in a
+ * column whose heading asks for a quantity, marked "not verified" - the
+ * mark How this works promises for a cell the check could not verify. A
+ * loop 6 reformat table read "FAS" in its n column and "not reported" in
+ * its retention column, neither of which the check can pass or fail
+ * (docs/persona-reports/dsouza-loop6.md D6-16a). The row keeps its place
+ * and its other cells either way.
+ */
+export function markUnverifiableCells(text: string): { text: string; marked: number } {
+  let marked = 0
+  let quantityColumns: Set<number> | null = null
+  const out = text.split('\n').map((line) => {
+    const m = /^(\s*\|)(.*)(\|\s*)$/.exec(line)
+    if (!m) {
+      quantityColumns = null
+      return line
+    }
+    const cells = m[2]!.split('|')
+    // The rule row ("|---|---|") separates the heading from the body.
+    if (/^[\s|:-]*$/.test(m[2]!)) return line
+    if (quantityColumns === null) {
+      quantityColumns = new Set(
+        cells.flatMap((cell, index) =>
+          QUANTITY_HEADING.test(cell.replace(/\[\d{1,3}\]/g, ' ').trim()) ? [index] : []
+        ),
+      )
+      return line
+    }
+    const columns = quantityColumns
+    const next = cells.map((cell, index) => {
+      if (!columns.has(index)) return cell
+      const bare = cell.replace(/\[\d{1,3}\]/g, ' ').replace(/[*_`]/g, '').trim()
+      if (!bare || /\d/.test(bare) || !NOT_A_VALUE.test(bare)) return cell
+      marked += 1
+      return ` ${BLANKED_CELL} `
+    })
+    return `${m[1]}${next.join('|')}${m[3]}`
+  })
+  return { text: out.join('\n'), marked }
+}
+
+/**
  * The row with every cell that carries one of the failing figures replaced
  * by the blank mark, the other cells untouched. A figure matches a cell
  * with thousands separators and spaces ignored.

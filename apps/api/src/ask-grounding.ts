@@ -58,6 +58,7 @@ import {
   effectSizeNote,
   effectSizesFor,
   gateFigures,
+  markUnverifiableCells,
   removalNote,
 } from './answer-gate.ts'
 import { correctAttributions, type NamedAuthor } from './ask-author.ts'
@@ -317,16 +318,39 @@ export function unheldStudyNote(
 const DESIGN_WORD =
   /\b(?:randomi[sz]ed|trial|cohort|case-control|case series|case report|cross-sectional|survey|model(?:ling)?|simulation|simulated|review|meta-analysis|pooled analysis|protocol|first-in-human|observational|retrospective|prospective)\b/i
 
-/** The addendum line for table cells the gate blanked rather than dropping their rows (D5-05). */
-export function blankedNote(blanked: readonly { figures: string[] }[]): string | undefined {
-  if (blanked.length === 0) return undefined
+/**
+ * The addendum line for table cells marked "not verified" rather than the
+ * row dropped (D5-05): those whose figure the check could not tie to the
+ * row's source, and those that stated an analysis set or "not reported"
+ * where the column asked for a figure (loop 6 D6-16a). One line covers
+ * both, so a table never carries two notes about its own cells.
+ */
+export function blankedNote(
+  blanked: readonly { figures: string[] }[],
+  unreadable = 0,
+): string | undefined {
   const figures = [...new Set(blanked.flatMap((b) => b.figures))]
-  const cells = blanked.reduce((n, b) => n + b.figures.length, 0)
+  const failed = blanked.reduce((n, b) => n + b.figures.length, 0)
+  const cells = failed + unreadable
+  if (cells === 0) return undefined
+  const reasons: string[] = []
+  if (failed > 0) {
+    reasons.push(
+      `${failed === 1 ? 'one' : failed} whose ${figures.length === 1 ? 'figure' : 'figures'} (${
+        figures.join(', ')
+      }) could not be tied to the cited passage for that row`,
+    )
+  }
+  if (unreadable > 0) {
+    reasons.push(
+      `${
+        unreadable === 1 ? 'one' : unreadable
+      } that stated an analysis set or "not reported" where the column asked for a figure`,
+    )
+  }
   return `*${
     cells === 1 ? 'One table cell was' : `${cells} table cells were`
-  } marked "not verified": ${figures.length === 1 ? 'its figure' : 'their figures'} (${
-    figures.join(', ')
-  }) could not be tied to the cited passage for that row.*`
+  } marked "not verified": ${reasons.join(', and ')}.*`
 }
 
 /** How many figures an answer states: the "Checking N figures" count the surface shows while the audit runs. */
@@ -1119,8 +1143,15 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
   let protocolNote: string | undefined
   const PLANNED =
     /\b(?:aim(?:s|ed)? to (?:recruit|enrol|enroll|include)|plan(?:s|ned)? to|target(?:ed|s)?\b|will be (?:enrolled|recruited|included)|estimated (?:that|to|follow)|anticipated|expected to|sample size (?:of|was|is|calculation))/i
+  // A sentence that states a cohort in the past tense ("the study enrolled
+  // approximately 450 participants") over a citation to a protocol is the
+  // same defect without the giveaway wording, so the enrolment shape is
+  // read as well as the planning one (loop 6 D6-10). Whether the cited
+  // paper is a protocol is settled below, from the paper itself.
+  const ENROLMENT =
+    /\b(?:enrol(?:l)?ed|recruited|randomi[sz]ed|included|participants|patients|subjects)\b/i
   for (const sentence of gated.sentences) {
-    if (!PLANNED.test(sentence.text)) continue
+    if (!PLANNED.test(sentence.text) && !ENROLMENT.test(sentence.text)) continue
     if (!extractNumbers(sentence.text).some((f) => /^\d{2,}$/.test(f))) continue
     const marker = sentence.bound[0]
     if (marker === undefined) continue
@@ -1351,6 +1382,13 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
     } in this collection.*`
     : undefined
 
+  // A table cell that states an analysis set or "not reported" where the
+  // column asked for a figure is marked "not verified" like any other cell
+  // the check could not verify, so the table reads the way How this works
+  // describes it (docs/persona-reports/dsouza-loop6.md D6-16a).
+  const unreadableCells = markUnverifiableCells(text)
+  text = unreadableCells.text
+
   if (text.trim()) {
     text += auditAddendum({
       missingDrugs,
@@ -1364,7 +1402,7 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
           foundIn,
           replaced: replaced.length,
         }),
-        blankedNote(gated.blanked),
+        blankedNote(gated.blanked, unreadableCells.marked),
         ...offered,
         protocolNote,
         effectSizeNote(effectSizes),

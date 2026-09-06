@@ -189,7 +189,9 @@ export const DOC_PAGES: DocPage[] = [
           'and you can change it and ask again.\n' +
           '2. **The index returns the passages.** The chosen configuration retrieves the ' +
           'passages that match the question, by meaning and by exact term, and ranks them. A ' +
-          'study named in the question is pinned into the sources so it cannot be crowded out.\n' +
+          'study the question names by title or acronym is looked up by name and pinned into the ' +
+          'sources, so it cannot be crowded out of them; when the collection does not hold that ' +
+          'study, the answer says so rather than answering from a paper that only cites it.\n' +
           '3. **The answer is written only from those passages.** Nothing is drawn from general ' +
           'knowledge or from the internet. Every sentence that states a finding carries a ' +
           'citation to the passage it came from (an item in a list takes the citation of the ' +
@@ -204,13 +206,18 @@ export const DOC_PAGES: DocPage[] = [
           "must share the claim's own quantity - its outcome, the noun the figure measures or " +
           'the name the question asked about - about the same outcome, at the same follow-up, ' +
           'with the same responder threshold and the same denominator. A figure the cited ' +
-          'passage does not carry is looked for in the full text of the retrieved papers, and ' +
-          'if one of them carries it the sentence is cited to that paper instead. A figure ' +
-          'found nowhere means the sentence is removed, and the answer says that it was.\n' +
+          'passage does not carry is looked for in the full text of the retrieved papers: where ' +
+          'one of them carries it beside the same claim, the sentence is cited to that paper ' +
+          'instead; where the figure is there but cannot be tied to the claim as the answer ' +
+          "stated it, the sentence is removed and that paper's own sentence on the outcome you " +
+          'asked about is quoted in its place. A figure found nowhere means the sentence is ' +
+          'removed, and the answer says that it was.\n' +
           '- **Populations.** When the question names a cohort, trial or study, every sentence ' +
           'with a figure must cite a paper about that cohort, and a figure the cited paper only ' +
           'quotes from other studies is removed rather than annotated, so a figure from a ' +
-          'different population cannot be passed off as the one you asked about.\n' +
+          'different population cannot be passed off as the one you asked about. Where the ' +
+          'question names no cohort, such a figure is kept but marked as second-hand, with the ' +
+          "paper's own finding beside it, so you can see what it rests on.\n" +
           '- **Named studies.** A sentence cited to the wrong paper is replaced by the named ' +
           "paper's own sentence only when that sentence carries the same figure at the same " +
           'time point, quoted verbatim and cited; otherwise the sentence is removed, and a named ' +
@@ -231,8 +238,10 @@ export const DOC_PAGES: DocPage[] = [
           "follow-up in the same conversation carries the earlier answers' cited papers with " +
           'it: a question about "that study" is answered from those papers, with their own ' +
           'paragraphs and tables in front of the generator, and a request to put the earlier ' +
-          'answers in a table keeps every row, with any cell the check could not verify marked ' +
-          '"not verified" rather than the row dropped. Chat with a document runs the same check ' +
+          'answers in a table keeps every row, with any cell the check could not verify - a ' +
+          "figure it could not tie to that row's source, or an analysis set name where the " +
+          'column asked for a figure - marked "not verified" rather than the row dropped. Chat ' +
+          'with a document runs the same check ' +
           "against that document's own text and shows the same badge.\n\n" +
           'These checks are plain text comparisons against the extracted text of the papers, ' +
           'with no language model in the loop, so the check cannot invent support. The ' +
