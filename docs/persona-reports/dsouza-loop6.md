@@ -335,3 +335,31 @@ flattened by extraction) were all handled honestly by the build except where the
 filled the gap itself, which is D6-02. The remaining latency floor - the platform's retrieval stage
 inside a 10.3 s median first word - is platform work, but it is a P3 at this point, not what holds
 the score at 7.
+
+---
+
+## Loop 6 fixes (merged 6 September 2026, PRs #21 and #22 into `feat/eprepo-portal`)
+
+Direction: bind a located figure to the population clause of the sentence it was found in, rather
+than widening or narrowing the net again.
+
+| Finding | Outcome |
+|---|---|
+| D6-01 (P0) | A located figure is bound to its sentence's population clause: when the located paragraph frames a population of its own, every distinctive word of the claim's qualifier must be covered by it, and a sentence that only points back ("of these patients") inherits the group the sentence before it named. The levetiracetam to brivaracetam switch question answers 13.9% and 10.6% for the switchers, cited, nothing removed. |
+| D6-02 | The reference cut was line-based while PDF extractions wrap one bibliography entry over several lines, so bibliographies were never cut. They are now, and a study the answer introduces that nothing holds has its sentence removed with the reason stated. |
+| D6-03 | Outcome matching is exact where the paper itself is exact, and each table cell is checked under the column heading above it. The brivaracetam row reads n = 1644, 71.1%, 14.9% (n = 1111, FAS); the continuous-seizure-freedom 11.7% no longer appears under a 12-month heading. |
+| D6-04, D6-07 (part) | Section is not provenance: a paper's own voice or abstract makes a Discussion figure first-hand, a sentence carrying a numbered citation stays second-hand, and a flagged sentence never leads. The lacosamide trial's own 46.3% (n = 121) is back. |
+| D6-05, D6-06, D4-18 | A range's upper bound takes its lower bound's quantity, "median" is read from the figure's own clause, and an analysis set named beside a figure pairs its size. The SUDEP adjusted hazard ratio 2.24 (95% CI 1.07 to 4.68), the UMPIRE age 45 (range 23 to 71) and brivaracetam's 71.1% (n = 1644) all return, with Ask and document chat agreeing. |
+| D6-12 | A marker is emitted only for a paper whose located passage carries the figures. |
+| D6-16 | The How this works page states both branches of the second-hand rule and of the rescue, and claims of the pin only what it does. Verified on the merged build: a named study is pinned and answers 71.1% (n = 1644, full analysis set); when a figure cannot be tied to the claim the answer says where the figures were found and withholds rather than asserting. Unverifiable table cells are marked "not verified". |
+| D6-08, D5-13, D6-09, D6-10, D6-13, D6-14, D6-15 | The denominator addendum is silent inside tables, for fitted statistics, ranges and bounds, and reads one clause further for an n; assessment questions bind to the paper carrying their quote, with unsourced ones dropped; the author review lists one item per paper from the catalogue; dates use the tenant timezone; every route has its own title; no control is under 24 px. |
+
+Verified on the merged build (orchestrator spot checks, build `ba069234d866`): the named-study
+pin, the honest withholding path with its "found in" note, and the consortium question. Gates
+green at 446 tests.
+
+Left for loop 7: a paraphrase of the P0 question withholds rather than answering, which is the
+safe direction but not the complete one; which consortium paper answers a consortium question is
+retrieval rather than the gate and needs the relation graph (D6-07); the results-sentence count
+is asked of the prompt but not enforced (D6-11); the platform's retrieval stage remains the
+latency floor.
