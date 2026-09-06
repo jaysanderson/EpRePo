@@ -503,7 +503,11 @@ export function AnswerStream(
       }
     }, controller.signal).catch((err: unknown) => {
       if (controller.signal.aborted) return
-      setErrorMessage(err instanceof Error ? err.message : 'The answer service is unavailable')
+      // The portal's own words, never the browser's or an upstream one
+      // (docs/persona-reports/dsouza-loop8.md D8-07). The detail stays in
+      // the console, where a developer can read it.
+      console.error('ask stream failed', err)
+      setErrorMessage('The answer service is unavailable - please try again.')
       setStatus('error')
     })
 

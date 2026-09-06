@@ -525,6 +525,21 @@ resource id per sentence** (`clause-pin.ts`).
   citation whose only sentence went with the removal leaves the answer with it, so the chips and
   the "n cited" count describe the text on screen. If the removals leave nothing but the notes,
   the answer is declined with the closest matches instead of shown as a page of notices.
+- **The lead claim is a dependant too** (loop 8 D8-09; PR this loop). The opening assertion rule
+  above only fired when the *removed* sentence shared two content words with the lead, which loop 8
+  U9 did not: the fabricated RANSOM sentence was worded nothing like "non-adherence to
+  antiepileptic drugs is linked to increased mortality", so that lead stood on after every sentence
+  carrying evidence for it had gone, cited to a paper whose only use of the word is a Discussion
+  sentence about drug response in adherent patients. Whether the removed sentence happened to share
+  the lead's wording is not the test - what stands behind the lead *now* is. The rule is now: after
+  any removal, a lead that asserts a finding (`assertsFinding`), states no figure of its own and
+  shares two content words with no sentence left in the answer goes with the removals, and the
+  answer is declined with the closest matches. A lead that carries its own figure stands on that
+  figure; a framing line, a list lead-in or the portal's own note about what the sources do not say
+  asserts no finding and is left alone. The same change fixed the support scan itself: it split the
+  remaining text with `splitSentences`, which does not read a note's closing "...finding.*" as a
+  sentence end, so a note swallowed the sentence after it and the support that sentence carried was
+  invisible. It now splits with the notes cut out, like the pass above it.
 
 ### Second-hand figures and sections
 - **A figure the cited paper carries only in its Introduction or Discussion is that paper citing

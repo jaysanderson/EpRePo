@@ -62,6 +62,7 @@ import {
   stripReferenceSection,
 } from './citation-binding.ts'
 import {
+  assertsFinding,
   CONCLUSION,
   CONNECTIVE,
   designLead,
@@ -447,32 +448,41 @@ export function removeDependants(
     return kept.join(' ')
   })
   let text = out.join('\n')
-  // The opening assertion goes when the removed sentence was its only
-  // support: no other sentence left in the answer speaks to the same
-  // claim. A sentence that states a figure of its own stands on that.
+  // The opening assertion goes when the removal left nothing behind it: no
+  // sentence still in the answer speaks to the same claim. Loop 8 U9 kept
+  // "non-adherence to antiepileptic drugs is linked to increased mortality"
+  // after every sentence carrying evidence for it had gone, cited to a
+  // paper whose only use of the word is about drug response in adherent
+  // patients (D8-09). The lead is a dependant like any other, and whether
+  // the removed sentence happened to share its wording is not the test -
+  // what stands behind it now is. A lead that states a figure of its own
+  // stands on that figure, and one that asserts no finding - a framing
+  // line, a list lead-in, the portal's own note about what the sources do
+  // not say - is not a claim that needs support at all.
   const lead = leadSentence(text)
-  if (lead && !/\d/.test(lead)) {
+  if (lead && !/\d/.test(lead) && assertsFinding(lead)) {
     const leadTerms = contentTerms(lead)
-    const supported = removed.some((r) => sharedTerms(leadTerms, contentTerms(r)) >= 2)
-    if (supported) {
-      const others = text
+    // Split with the notes cut out: a note ends "...finding.*", which the
+    // sentence splitter does not read as a sentence end, so a plain split
+    // glues the note to the sentence after it and the support that
+    // sentence carries is lost with it.
+    const others = text
+      .split('\n')
+      .filter((l) => !/^\s*[|#>*]/.test(l))
+      .flatMap((l) => splitWithNotes(l))
+      .map((sentence) => sentence.replace(/\s*\[\d{1,3}\]/g, '').trim())
+      .filter((sentence) => sentence.length > 0 && sentence !== lead && !isNote(sentence))
+    const stillSupported = others.some((o) => sharedTerms(leadTerms, contentTerms(o)) >= 2)
+    if (!stillSupported) {
+      alsoRemoved.push(lead)
+      text = text
         .split('\n')
-        .filter((l) => !/^\s*[|#>*]/.test(l))
-        .flatMap((l) => splitSentences(l))
-        .map((sentence) => sentence.replace(/\s*\[\d{1,3}\]/g, '').trim())
-        .filter((sentence) => sentence.length > 0 && sentence !== lead && !isNote(sentence))
-      const stillSupported = others.some((o) => sharedTerms(leadTerms, contentTerms(o)) >= 2)
-      if (!stillSupported) {
-        alsoRemoved.push(lead)
-        text = text
-          .split('\n')
-          .map((l) =>
-            /^\s*[|#>]/.test(l) ? l : splitWithNotes(l)
-              .filter((sentence) => sentence.replace(/\s*\[\d{1,3}\]/g, '').trim() !== lead)
-              .join(' ')
-          )
-          .join('\n')
-      }
+        .map((l) =>
+          /^\s*[|#>]/.test(l) ? l : splitWithNotes(l)
+            .filter((sentence) => sentence.replace(/\s*\[\d{1,3}\]/g, '').trim() !== lead)
+            .join(' ')
+        )
+        .join('\n')
     }
   }
   return { text, removed: alsoRemoved }
