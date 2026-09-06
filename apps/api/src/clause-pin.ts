@@ -96,6 +96,7 @@ export function comparedMedications(
   supplied: readonly string[] = [],
 ): string[] {
   if (questionNames(query, lexicon).some(isStrongName)) return []
+  if (isOpenTreatmentQuestion(query, lexicon)) return []
   if (!comparesEntities(query) && !isSuperlativeComparison(query)) return []
   const named = comparisonEntities(query, lexicon).filter((e) => isMedicationTerm(e))
   return named.length >= 2 ? named : supplied.length >= 2 ? [...supplied] : []
@@ -197,6 +198,10 @@ export function clausePinningApplies(
   query: string,
   lexicon: readonly string[],
 ): boolean {
+  // An open "which medications" question has no clause structure at all, so
+  // there is nothing to decompose and the only clauses available are the
+  // drugs retrieval happened to return. See `isOpenTreatmentQuestion`.
+  if (isOpenTreatmentQuestion(query, lexicon)) return false
   if (comparedMedications(query, lexicon).length >= 2) return true
   if (isSuperlativeComparison(query) && !questionNames(query, lexicon).some(isStrongName)) {
     return true
@@ -220,20 +225,166 @@ export function asksForQuantity(query: string): boolean {
 }
 
 /**
+ * The words that ask the collection to put treatments in an order. Without
+ * one of these a "which medication" question is not a ranking, and its
+ * answer is a list, not a league table.
+ */
+const RANKING_CUE =
+  /\b(?:best|highest|lowest|greatest|worst|most|least|longest|shortest|safest|strongest|better|superior|outperform\w*|rank(?:s|ed|ing)?)\b/i
+
+/** The category a "which medication" question asks over, when it names no member. */
+const TREATMENT_CATEGORY =
+  /\b(?:which|what)\s+(?:asms?|drugs?|medicines?|medications?|agents?|treatments?|therapies|therapy|options?|anti-?seizure\s+\w+|anti-?epileptic\s+\w+|antiepileptic\s+\w+)\b/i
+
+/**
  * A question that compares a category without naming its members: "which
  * anti-seizure medication has the best real-world 12-month retention". The
  * answer is a comparison, so the clauses are the category's members - and
  * asking it as one question is how the collection's cannabidiol extension
  * came back as "the highest retention rate mentioned in the provided
  * context", which is not an answer to "which is best" (D8-13).
+ *
+ * The ranking cue is what makes it one. A bare "which anti-seizure
+ * medications ..." is not: see `isOpenTreatmentQuestion`.
  */
 export function isSuperlativeComparison(query: string): boolean {
-  return /\bwhich\b[^?]*\b(?:best|highest|lowest|greatest|worst|most|least|longest|shortest|safest|strongest)\b/i
-    .test(query) ||
-    /\bwhich\s+(?:asms?|drugs?|medications?|anti-?seizure\s+\w+|agents?|treatments?)\b/i.test(
-      query,
-    )
+  return new RegExp(`\\bwhich\\b[^?]*${RANKING_CUE.source}`, 'i').test(query)
 }
+
+/**
+ * An open "which medications" question: it asks the collection to name the
+ * members of a category, names none of them itself, and asks for no ranking.
+ * "Which anti-seizure medications are contraindicated in SCN1A Dravet
+ * syndrome?" is the shape, and it has no clause structure at all - it is one
+ * question, and one paper (the syndrome's consensus statement) answers it.
+ *
+ * Decomposing it by drug is a regression, not a refinement: the drugs can
+ * only come from `medicationsInResults`, which reads them off whatever
+ * retrieval returned rather than off the question. On this collection that
+ * produced a "**phenytoin**" heading arguing phenytoin may be BENEFICIAL in
+ * Dravet syndrome, followed by clause declines for cannabidiol and
+ * fenfluramine, neither of which the reader had asked about - an inverted
+ * answer to the single most-tested question in the portal. A question that
+ * names no treatment is never decomposed by treatment.
+ */
+export function isOpenTreatmentQuestion(query: string, lexicon: readonly string[]): boolean {
+  if (!TREATMENT_CATEGORY.test(query) || RANKING_CUE.test(query)) return false
+  return medicationNames(query, lexicon).length === 0 &&
+    comparisonEntities(query, lexicon).every((e) => !isMedicationTerm(e))
+}
+
+/**
+ * A consensus statement, guideline or management recommendation. This is the
+ * one paper in a research collection that answers "which medications are
+ * contraindicated in X" outright; every other paper answers it for one drug
+ * at a time, and a bag of those reads as a debate rather than an answer.
+ */
+const GUIDANCE_TITLE =
+  /\b(?:consensus|guidelines?|guidance|recommendations?|position statement|practice parameter|management|algorithm)\b/i
+
+/**
+ * The conditions a question is about: the phrases `conditionNames` reads
+ * ("SCN1A Dravet syndrome", "juvenile myoclonic epilepsy") and the tenant's
+ * own non-medication entity terms ("Dravet", "Lennox-Gastaut"). The portal's
+ * own suggested wording is "Which ASMs should be avoided in SCN1A Dravet?",
+ * which carries no head noun at all and so names no condition by phrase.
+ */
+export function conditionSubjects(query: string, lexicon: readonly string[]): string[] {
+  const out = [...conditionNames(query)]
+  for (const term of lexicon) {
+    const t = term.trim()
+    if (!t || t.length < 4 || isMedicationTerm(t)) continue
+    if (out.some((c) => c.includes(t.toLowerCase()))) continue
+    if (wordIn(t, query.toLowerCase())) out.push(t.toLowerCase())
+  }
+  return out
+}
+
+/**
+ * The syndrome's guidance papers for an open treatment question, or null.
+ *
+ * "Which anti-seizure medications are contraindicated in SCN1A Dravet
+ * syndrome?" names no paper the loop 7 pin can resolve - a syndrome is a
+ * topic, not a cohort - so unpinned retrieval hands the generator a bag in
+ * which a single-centre phenytoin case series scores 1.00 and the
+ * international consensus statement 0.97, and the answer leads on the case
+ * series. The consensus statement is what the question asks for, so it is
+ * pinned. The ask route still drops the pin when nothing inside it clears
+ * the grounding floor, so a collection with no guidance for the syndrome
+ * retrieves exactly as before.
+ */
+export function guidancePin(
+  query: string,
+  catalogue: readonly ResourceSummary[],
+  lexicon: readonly string[],
+  limit = 2,
+): NamePin | null {
+  if (!isOpenTreatmentQuestion(query, lexicon)) return null
+  const papers: ResourceSummary[] = []
+  const names: string[] = []
+  for (const condition of conditionSubjects(query, lexicon)) {
+    const terms = condition.toLowerCase().match(/[a-z0-9][a-z0-9-]{2,}/g) ?? []
+    const head = terms.at(-1)
+    if (!head) continue
+    // A phrase must carry its head noun and one of its own qualifiers -
+    // "Dravet syndrome", never a bare "epilepsy". A lexicon term is already
+    // the name of one condition, so the term itself is enough.
+    const qualifiers = terms.slice(0, -1).filter((w) => w.length >= 4)
+    if (terms.length > 1 && qualifiers.length === 0) continue
+    for (const resource of catalogue) {
+      if (papers.length >= limit) break
+      if (isAttachmentTitle(resource.title) || papers.includes(resource)) continue
+      const title = resource.title.toLowerCase()
+      if (!GUIDANCE_TITLE.test(resource.title)) continue
+      if (!wordIn(head, title)) continue
+      if (qualifiers.length > 0 && !qualifiers.some((w) => wordIn(w, title))) continue
+      papers.push(resource)
+      if (!names.includes(condition)) names.push(condition)
+    }
+  }
+  if (papers.length === 0) return null
+  return {
+    resourceIds: papers.map((r) => r.id),
+    titles: papers.map((r) => r.title),
+    names,
+    resolved: [],
+  }
+}
+
+/**
+ * The prequery a guidance-pinned question is asked alongside itself: the
+ * question written out in the words guidance uses.
+ *
+ * Retrieval on the question as asked lands on a consensus statement's
+ * abstract, where the answer is "the paper does not list them"; the same
+ * question written out lands on its treatment recommendations, where the
+ * answer is lamotrigine. It is a prequery and not a second chance for the
+ * pin to hold: a pin whose papers the question itself cannot find is still
+ * dropped, because a pin nothing answers is worse than no pin.
+ */
+export function guidanceProbe(pin: NamePin): string {
+  const subject = pin.names[0] ?? ''
+  return `${subject}: which medications are contraindicated, which should be avoided, ` +
+    'and which are recommended'
+}
+
+/**
+ * What a guidance-pinned answer is told beyond the ordinary pin prompt: name
+ * the medications, in the paper's own words, and expand the reader's
+ * abbreviations rather than declining on them.
+ *
+ * "Which ASMs should be avoided in SCN1A Dravet?" was answered "the cited
+ * sources do not specify which antiseizure medications should be avoided ...
+ * they mention consensus on contraindicated medications but do not list them
+ * explicitly", over passages that name lamotrigine twice. The reader's
+ * abbreviation is not a different question from the paper's prose.
+ */
+export const GUIDANCE_ADDENDUM =
+  'These papers are the guidance for the condition the question asks about. Name the ' +
+  'medications they name, in their own words, and where they describe a class ("sodium ' +
+  'channel blockers"), give the class and the medications they list under it. Read the ' +
+  "question's abbreviations as the words the papers use (ASM and anti-seizure medication " +
+  'are the same thing), and do not decline because the paper words the question differently.'
 
 /**
  * The medications the collection's own best-matching papers are about, in

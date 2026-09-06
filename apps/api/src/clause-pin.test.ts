@@ -13,7 +13,10 @@ import {
   composeClauseAnswers,
   decomposeQuestion,
   groupClauses,
+  guidancePin,
+  guidanceProbe,
   isOnlyDecline,
+  isOpenTreatmentQuestion,
   isSuperlativeComparison,
   markersPerSentence,
   medicationPapers,
@@ -553,6 +556,98 @@ describe('answerByClause', () => {
       await answerByClause(
         'Compare the 12-month retention rates of brivaracetam and perampanel in real-world studies.',
         deps([], {}),
+      ),
+    ).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// An open "which medications" question (PR: the Dravet clause regression)
+// ---------------------------------------------------------------------------
+
+const CONDITION_LEXICON = [...LEXICON, 'Dravet']
+
+const GUIDANCE_CATALOGUE: ResourceSummary[] = [
+  ...CATALOGUE,
+  resource('consensus', 'International consensus on diagnosis and management of Dravet syndrome'),
+  resource('phen', 'Does long-term phenytoin have a place in Dravet syndrome?'),
+]
+
+const DRAVET = 'Which anti-seizure medications are contraindicated in SCN1A Dravet syndrome?'
+
+describe('an open "which medications" question is never decomposed by drug', () => {
+  it('is not a ranking, so clause pinning does not apply to it', () => {
+    expect(isOpenTreatmentQuestion(DRAVET, CONDITION_LEXICON)).toBe(true)
+    expect(isSuperlativeComparison(DRAVET)).toBe(false)
+    expect(clausePinningApplies(DRAVET, CONDITION_LEXICON)).toBe(false)
+    expect(isOpenTreatmentQuestion('Which ASMs should be avoided in SCN1A Dravet?', LEXICON))
+      .toBe(true)
+    expect(isOpenTreatmentQuestion('What drugs should I avoid in Dravet syndrome?', LEXICON))
+      .toBe(true)
+  })
+
+  it('stays one clause even when retrieval offers the drugs it found', () => {
+    // The drugs come off the retrieved titles, not off the question: this is
+    // what produced a "phenytoin" heading and clause declines for
+    // cannabidiol and fenfluramine on a question that named none of them.
+    expect(comparedMedications(DRAVET, CONDITION_LEXICON, ['phenytoin', 'cannabidiol'])).toEqual([])
+    expect(
+      decomposeQuestion(DRAVET, CONDITION_LEXICON, ['phenytoin', 'cannabidiol']).map((c) => c.kind),
+    ).toEqual(['whole'])
+  })
+
+  it('leaves a ranking question and a named comparison decomposed', () => {
+    const ranking = 'Which anti-seizure medication has the best real-world 12-month retention?'
+    expect(isOpenTreatmentQuestion(ranking, LEXICON)).toBe(false)
+    expect(isSuperlativeComparison(ranking)).toBe(true)
+    expect(clausePinningApplies(ranking, LEXICON)).toBe(true)
+    expect(decomposeQuestion(ranking, LEXICON, ['brivaracetam', 'perampanel']).map((c) => c.entity))
+      .toEqual(['brivaracetam', 'perampanel'])
+    expect(clausePinningApplies('Compare brivaracetam and perampanel retention.', LEXICON))
+      .toBe(true)
+    // A question that names one drug is a drug-in-condition question, not an
+    // enumeration, and keeps its clause pin.
+    expect(
+      isOpenTreatmentQuestion('Which of lamotrigine and carbamazepine is safer in JME?', LEXICON),
+    ).toBe(false)
+  })
+})
+
+describe('guidancePin', () => {
+  it("pins the syndrome's consensus statement, by phrase and by lexicon term", () => {
+    const byPhrase = guidancePin(DRAVET, GUIDANCE_CATALOGUE, CONDITION_LEXICON)
+    expect(byPhrase?.resourceIds).toEqual(['consensus'])
+    expect(byPhrase?.names).toEqual(['scn1a dravet syndrome'])
+    // "Which ASMs should be avoided in SCN1A Dravet?" carries no head noun,
+    // so it names no condition by phrase and resolves on the lexicon term.
+    expect(
+      guidancePin('Which ASMs should be avoided in SCN1A Dravet?', GUIDANCE_CATALOGUE, [
+        'Dravet',
+      ])?.resourceIds,
+    ).toEqual(['consensus'])
+    expect(guidanceProbe(byPhrase!)).toContain('scn1a dravet syndrome')
+  })
+
+  it('pins nothing for a question that names a drug, a ranking, or a condition with no guidance', () => {
+    expect(
+      guidancePin(
+        'Is carbamazepine contraindicated in juvenile myoclonic epilepsy?',
+        GUIDANCE_CATALOGUE,
+        CONDITION_LEXICON,
+      ),
+    ).toBeNull()
+    expect(
+      guidancePin(
+        'Which anti-seizure medication has the best retention?',
+        GUIDANCE_CATALOGUE,
+        CONDITION_LEXICON,
+      ),
+    ).toBeNull()
+    expect(
+      guidancePin(
+        'Which drugs are contraindicated in juvenile myoclonic epilepsy?',
+        GUIDANCE_CATALOGUE,
+        CONDITION_LEXICON,
       ),
     ).toBeNull()
   })
