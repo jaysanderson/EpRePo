@@ -12,7 +12,9 @@ Deno.test('the retrieval text reads like the results it should retrieve, not lik
   const query = buildAssessmentQuery('Clinical Trials')
   expect(query).not.toMatch(/quiz|generate|questions/i)
   const brief = buildAssessmentBrief('Clinical Trials', 5, 'intermediate')
-  expect(brief).toContain('exactly 5 multiple-choice questions at intermediate depth')
+  // Two spare, so five survive the portal's quote check (D6-09).
+  expect(brief).toContain('7 multiple-choice questions at intermediate depth')
+  expect(brief).toContain('at least 5 must be answerable from a passage you quote verbatim')
   expect(brief).toContain('within Clinical Trials')
 })
 
