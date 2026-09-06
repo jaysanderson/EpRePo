@@ -16,6 +16,7 @@ import {
   extractNumbers,
   figurePattern,
   figureSupportedBy,
+  normaliseFigures,
   normaliseSource,
   outcomeConflict,
   outcomeFamilies,
@@ -196,6 +197,9 @@ export function auditBriefing(
   // Figures the statements fail anywhere: their sentences go whatever the
   // plain check says, in the sections and in the key takeaways alike.
   const failedEverywhere = new Set<string>()
+  // Sections whose every kept sentence passed the check against their own
+  // sources: their figures are verified where they stand (D8-02).
+  const verified = new WeakSet<AuditableSection>()
   const sections = briefing.sections.map((section) => {
     const texts = section.sources.flatMap((s) => prepare(s.resourceId))
     for (const s of section.sources) allTexts.set(s.resourceId, prepare(s.resourceId))
@@ -232,7 +236,11 @@ export function auditBriefing(
       }
       kept.push(sentence)
     }
-    return { ...section, content: kept.join(' ') }
+    const audited = { ...section, content: kept.join(' ') }
+    // Every sentence kept here passed the check against this section's own
+    // sources, so a figure it carries is verified where it stands.
+    if (texts.length > 0) verified.add(audited)
+    return audited
   }).filter((section) => section.content.trim().length > 0)
   const every = [...new Set([...allTexts.values()].flat())]
   const takeaways: string[] = []
@@ -251,7 +259,42 @@ export function auditBriefing(
     takeaways.push(takeaway)
     refs.push(briefing.takeaway_refs?.[i] ?? [])
   })
-  return { sections, key_takeaways: takeaways, takeaway_refs: refs, audit }
+  // Removal is real (docs/persona-reports/dsouza-loop8.md D8-02). A figure
+  // is checked once per section against that section's own sources and
+  // once per takeaway against every source, so one claim can fail while
+  // another carrying the same number passes. Reported globally, that read
+  // as a briefing printing 90.5% under a note saying 90.5% was removed.
+  // Two passes settle it: a sentence that repeats a failed figure without
+  // having passed its own check goes, and the audit then names only what
+  // is no longer on the page.
+  const swept = sections.map((section) => {
+    if (verified.has(section)) return section
+    const failed = audit.figuresRemoved.filter((f) =>
+      figurePattern(f).test(normaliseFigures(section.content))
+    )
+    if (failed.length === 0) return section
+    const kept = splitSentences(section.content).filter((sentence) =>
+      !failed.some((f) => figurePattern(f).test(normaliseFigures(sentence)))
+    )
+    audit.sentencesRemoved += splitSentences(section.content).length - kept.length
+    return { ...section, content: kept.join(' ') }
+  }).filter((section) => section.content.trim().length > 0)
+  const printed = [...swept.map((s) => s.content), ...takeaways].join('\n')
+  audit.figuresRemoved = audit.figuresRemoved.filter((f) =>
+    !figurePattern(f).test(normaliseFigures(printed))
+  )
+  // The statements list follows the sections: a statement whose figure the
+  // briefing no longer prints is not a statement about this briefing.
+  const statementsKept = swept.map((section) =>
+    section.statements === undefined ? section : {
+      ...section,
+      statements: section.statements.filter((statement) => {
+        const figure = extractNumbers(statement.figure ?? '')[0]
+        return figure === undefined || figurePattern(figure).test(normaliseFigures(section.content))
+      }),
+    }
+  )
+  return { sections: statementsKept, key_takeaways: takeaways, takeaway_refs: refs, audit }
 }
 
 /** The normalised source text, for callers that already hold the raw one. */

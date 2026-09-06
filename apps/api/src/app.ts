@@ -237,6 +237,21 @@ import {
 } from './cloudflare-domains.ts'
 
 const searchQuerySchema = z.object({ q: z.string().min(1) })
+/**
+ * How long the sub-question decomposition may hold up retrieval, in
+ * milliseconds (docs/persona-reports/dsouza-loop8.md D8-18). It runs
+ * before the platform is asked anything, so every millisecond of it is
+ * dead time in front of the first word.
+ */
+const DECOMPOSITION_MS = 7000
+
+/**
+ * How many sub-questions may be searched before the answer. Each is a
+ * search the platform runs in front of the first word: five of them cost
+ * about three seconds more than three (D8-18).
+ */
+const MAX_PREQUERIES = 3
+
 const MAX_ENRICHMENT_IMPORT_BYTES = 8 * 1024 * 1024
 const MAX_ENRICHMENT_RECORD_BYTES = 1024 * 1024
 const MAX_ENRICHMENT_IMPORT_AGENTS = 100
@@ -3883,6 +3898,12 @@ export function buildApp(opts: BuildAppOptions): Hono {
       // for a results question (one figure from one paper is narrow already,
       // and the decomposition would cost more than the answer). Started
       // now, awaited only once the intent's own sub-questions are known.
+      // The wait is capped (docs/persona-reports/dsouza-loop8.md D8-18): it
+      // is dead time before retrieval even starts, and at sixteen seconds
+      // it was most of the gap between an eight-second answer and the
+      // seventy-eight-second one. A call that has not returned by then
+      // costs more than the passages it would add, so the answer proceeds
+      // on the question as it was asked.
       const evidenceSeeking =
         /\b(evidence|safe|safety|risk|risks|effect|effects|impact|impacts|compare|comparison|versus|\bvs\b|harm|cause|caused)\b/i
           .test(query)
@@ -3893,9 +3914,9 @@ export function buildApp(opts: BuildAppOptions): Hono {
             opts.management.askStructured(
               config,
               SUBQUERIES_SCHEMA,
-              `Break this research question into 3 to 5 focused sub-questions that together cover it fully. Sub-questions must be answerable from the corpus and phrased as standalone questions: ${query}`,
+              `Break this research question into 3 focused sub-questions that together cover it fully. Sub-questions must be answerable from the corpus and phrased as standalone questions: ${query}`,
             ),
-            new Promise<null>((resolve) => setTimeout(() => resolve(null), 16000)),
+            new Promise<null>((resolve) => setTimeout(() => resolve(null), DECOMPOSITION_MS)),
           ]).catch(() => null)
           : null
       // Grounding gate BEFORE generation. The platform's stream reports its
@@ -4064,7 +4085,7 @@ export function buildApp(opts: BuildAppOptions): Hono {
       if (intentDef && intentDef.answer.prequeries.length > 0 && decomposable(query)) {
         const entities = extractEntities(query, lexicon)
         const mandatory = applicablePrequeries(intentDef.answer.prequeries, query, entities)
-        const combined = [...mandatory, ...(askOpts.prequeries ?? [])].slice(0, 8)
+        const combined = [...mandatory, ...(askOpts.prequeries ?? [])].slice(0, MAX_PREQUERIES)
         if (combined.length > 0) {
           askOpts.prequeries = combined
           await send({ type: 'searched', queries: combined })
@@ -4075,9 +4096,13 @@ export function buildApp(opts: BuildAppOptions): Hono {
         const questions = decomposition
           ? ((decomposition.object as { questions?: unknown }).questions ?? []) as string[]
           : []
+        // Three sub-questions, not five: each one is a search the platform
+        // runs before it answers, and the two extra cost about three
+        // seconds in front of the first word for passages the first three
+        // already reach (D8-18).
         const cleaned = questions
           .filter((q) => typeof q === 'string' && q.trim().length > 3)
-          .slice(0, 5)
+          .slice(0, MAX_PREQUERIES)
         if (cleaned.length > 0) {
           askOpts.prequeries = cleaned
           await send({ type: 'searched', queries: cleaned })

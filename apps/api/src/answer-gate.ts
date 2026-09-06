@@ -17,6 +17,8 @@ import {
   claimTerms,
   extractNumbers,
   type FigureCheck,
+  figurePattern,
+  normaliseFigures,
   normaliseSource,
   outcomeFamilies,
   studyDesignOf,
@@ -265,6 +267,36 @@ export function gateFigures(
     })
     return sentence
   })
+  // Removal is real (docs/persona-reports/dsouza-loop8.md D8-02): a figure
+  // a removed sentence stated is not left printed elsewhere in the same
+  // answer unless the sentence that still carries it passed its own check
+  // for it. A repeat with no passing check of its own - an unmarked
+  // sentence the check never saw, or one checked on other figures - is a
+  // number the answer says it could not verify and shows anyway, so it
+  // goes too, and a table row keeps its place with the cell blanked.
+  const swept = new Set(removed.flatMap((r) => r.figures))
+  if (swept.size > 0) {
+    sentences.forEach((sentence, i) => {
+      if (removedIndices.has(i)) return
+      const own = checks.filter((c) => c.sentence === sentence.text)
+      const normalised = normaliseFigures(sentence.text)
+      const repeated = [...swept].filter((figure) =>
+        figurePattern(figure).test(normalised) &&
+        !own.some((c) => c.figure === figure && c.supported)
+      )
+      if (repeated.length === 0) return
+      if (isTableRow(sentence.text)) {
+        const text = blankFailingCells(sentence.text, repeated)
+        if (text !== sentence.text) {
+          blanked.push({ text: sentence.text, figures: repeated })
+          sentences[i] = { ...sentence, text }
+          return
+        }
+      }
+      removedIndices.add(i)
+      removed.push({ text: sentence.text, figures: repeated, reason: 'absent' })
+    })
+  }
   // A conclusion that rested on removed sentences goes with them (D3-06):
   // "Thus, perampanel had a lower retention rate" with the retention
   // sentences gone is a claim with nothing behind it. A kept sentence that
@@ -332,6 +364,99 @@ export function gateFigures(
     inherited,
     blanked,
   }
+}
+
+/**
+ * The answer without the notes appended under it: the body a reader takes
+ * the figures from. The addendum is a run of trailing paragraphs, each one
+ * a whole italic note or the bold contraindication line, so the body ends
+ * where the last paragraph that is neither begins (D8-02).
+ */
+export function answerBody(text: string): string {
+  const paragraphs = text.split(/\n{2,}/)
+  let end = paragraphs.length
+  while (end > 0) {
+    const paragraph = paragraphs[end - 1]!.trim()
+    const note = /^\*[^*][\s\S]*\*$/.test(paragraph) ||
+      paragraph.startsWith('**The cited sources also discuss')
+    if (!note && paragraph.length > 0) break
+    end -= 1
+  }
+  return paragraphs.slice(0, end).join('\n\n')
+}
+
+/**
+ * The figures a text still prints, of those an audit reports as removed
+ * (docs/persona-reports/dsouza-loop8.md D8-02). The invariant the answer
+ * and the briefing both hold to: what the notice calls removed is not on
+ * the page. Empty is the only passing result.
+ */
+export function figuresStillPrinted(
+  figures: readonly string[],
+  body: string,
+): string[] {
+  const normalised = normaliseFigures(body)
+  return [...new Set(figures)].filter((figure) => figurePattern(figure).test(normalised))
+}
+
+/**
+ * The removals as the answer can honestly report them: a figure the body
+ * still carries was not removed from the answer, whatever the sentence
+ * that also stated it, so the notice does not name it (D8-02). The gate's
+ * own sweep has already taken every repeat the check did not verify where
+ * it stands, so what survives here is verified in its own sentence.
+ */
+export function reconcileRemovals(
+  removed: readonly RemovedSentence[],
+  body: string,
+): RemovedSentence[] {
+  const printed = new Set(figuresStillPrinted(removed.flatMap((r) => r.figures), body))
+  if (printed.size === 0) return [...removed]
+  return removed.map((r) => ({ ...r, figures: r.figures.filter((f) => !printed.has(f)) }))
+}
+
+/**
+ * The line naming a sentence the answer states with no citation behind it
+ * (docs/persona-reports/dsouza-loop8.md D8-04, and the How this works
+ * promise about citations). The sentence stays - it is often the model's
+ * own framing of what the cited ones say - but the reader is told which
+ * one the portal could not tie to a passage, rather than being left to
+ * count markers.
+ */
+export function uncitedNote(sentences: readonly { text: string; bound: number[] }[]): string {
+  const uncited = sentences.filter((s) => s.bound.length === 0 && assertsFinding(s.text))
+  if (uncited.length === 0 || uncited.length === sentences.length) return ''
+  const first = uncited[0]!.text.replace(/\s+/g, ' ').trim()
+  const quoted = first.length > 120 ? `${first.slice(0, 117)}...` : first
+  return uncited.length === 1
+    ? `*One sentence in this answer carries no citation - "${quoted}" - because no retrieved ` +
+      "passage was found to carry it. Read it as the answer's own framing, not as a sourced " +
+      'claim.*'
+    : `*${uncited.length} sentences in this answer carry no citation, the first of them ` +
+      `"${quoted}", because no retrieved passage was found to carry them. Read them as the ` +
+      "answer's own framing, not as sourced claims.*"
+}
+
+/**
+ * Whether a sentence asserts something about the evidence, rather than
+ * framing the answer around it. A heading, a bold label, a list lead-in
+ * ending in a colon, a table row and the portal's own italic notes assert
+ * nothing; a sentence with a reporting or stative verb does.
+ */
+export function assertsFinding(text: string): boolean {
+  const trimmed = text.trim()
+  if (trimmed.length < 25 || trimmed.endsWith(':')) return false
+  if (trimmed.startsWith('*') || /^#{1,6}\s/.test(trimmed)) return false
+  if (isTableRow(trimmed)) return false
+  if (/^\*\*[^*]+\*\*:?$/.test(trimmed)) return false
+  // A sentence about what the sources do not say is the portal's own
+  // account of the collection, not a claim that needs a passage behind it.
+  if (
+    /\b(?:cited sources|the sources|this collection|the corpus|retrieved passages?)\b[^.]{0,80}\b(?:do not|does not|did not|cannot|never|no )/i
+      .test(trimmed)
+  ) return false
+  return /\b(?:is|are|was|were|has|have|had|can|could|may|might|show|shows|showed|find|finds|found|report|reports|reported|suggest|suggests|suggested|indicate|indicates|indicated|remain|remains|remained|achiev\w+|reduc\w+|increas\w+|associated|includ\w+|require\w*|improv\w+|predict\w*)\b/i
+    .test(trimmed)
 }
 
 /** A sentence that draws a conclusion from what came before it. */
@@ -427,10 +552,19 @@ export function removalNote(
         conclusions === 1 ? 'a conclusion' : `${conclusions} conclusions`
       } that rested on ${figured.length === 1 ? 'it' : 'them'}`
       : ''
+    // Every figure the sentence stated still stands, verified, in a
+    // sentence of its own: the sentence went, the figures did not, and the
+    // notice says so rather than naming a number the reader can see (D8-02).
     parts.push(
-      `${count} removed from this answer${tail}: ${
-        figured.length === 1 ? 'its' : 'their'
-      } figures (${figures.join(', ')}) could not be verified - ${why.join('; ')}.`,
+      figures.length === 0
+        ? `${count} removed from this answer${tail}: the figures ${
+          figured.length === 1 ? 'it' : 'they'
+        } stated stand where the answer reports them beside their own claim, but not as ${
+          figured.length === 1 ? 'this sentence' : 'these sentences'
+        } framed them.`
+        : `${count} removed from this answer${tail}: ${
+          figured.length === 1 ? 'its' : 'their'
+        } figures (${figures.join(', ')}) could not be verified - ${why.join('; ')}.`,
     )
   } else if (conclusions > 0) {
     parts.push(

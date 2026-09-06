@@ -38,6 +38,7 @@ import {
   quoteCarriesClaim,
   quoteSentence,
   replacementCue,
+  rescueQuote,
   rescueSentence,
   statesResultFigure,
   stripTemplateLeaks,
@@ -45,7 +46,14 @@ import {
   syntheticCitation,
   withQualifier,
 } from './figure-rescue.ts'
-import { figureOffsets, markedSentences, secondhandFigures, secondhandNote } from './secondhand.ts'
+import {
+  attributedElsewhere,
+  attributedNote,
+  figureOffsets,
+  markedSentences,
+  secondhandFigures,
+  secondhandNote,
+} from './secondhand.ts'
 import {
   bindSentences,
   looksLikeReferencePassage,
@@ -61,10 +69,12 @@ import {
   effectSizesFor,
   gateFigures,
   markUnverifiableCells,
+  reconcileRemovals,
   removalNote,
   rowKey,
   stripConnective,
   tableCellHeadings,
+  uncitedNote,
 } from './answer-gate.ts'
 import { correctAttributions, type NamedAuthor } from './ask-author.ts'
 import { choosePassage, paragraphsOf } from './evidence-passages.ts'
@@ -1371,13 +1381,20 @@ export async function bindAndAudit(raw: BindAndAuditInput): Promise<BindAndAudit
         if (!raw) continue
         const found = ownFigureSentence(raw, cue)
         if (!found || found.score < 4) continue
-        // A figure the gate removed is never printed back verbatim two
+        // A result the gate removed is never printed back verbatim two
         // lines under its own removal notice (docs/persona-reports/
         // dsouza-loop7.md D7-10: "the figures 3.6, 2.9, 4.4 could not be
-        // verified", then the same three quoted from the same paper). If
-        // the paper does carry the sentence, the fix is to rebind and keep
-        // it, not to contradict the notice.
-        if (removed.figures.some((f) => figurePattern(f).test(found.sentence))) continue
+        // verified", then the same three quoted from the same paper). A
+        // sample size is not that: "Data from 1,674 participants ... of
+        // which 395 (23.6%) were 50% responders" is the answer to the
+        // question the removed 22% got wrong, and the notice no longer
+        // names a figure the body carries, so quoting it contradicts
+        // nothing (loop 8 D8-01, D8-02).
+        if (
+          removed.figures.filter((f) => /%|\./.test(f)).some((f) =>
+            figurePattern(f).test(found.sentence)
+          )
+        ) continue
         // The offered sentence must be about what the question asked, not
         // only about the same outcome noun: a lacosamide retention rate is
         // not an answer under a question about implanted devices (D7-10).
@@ -1409,6 +1426,48 @@ export async function bindAndAudit(raw: BindAndAuditInput): Promise<BindAndAudit
         const quote = quoteSentence(found.sentence).replace(/^The paper itself reports: /, '')
         offered.push(`*For the outcome asked about, [${marker}] itself reports: ${quote}*`)
         for (const f of extractNumbers(found.sentence)) stated.add(f)
+        break
+      }
+    }
+  }
+  // Before declining, read the paper the decline would name (docs/persona-
+  // reports/dsouza-loop8.md D8-11, and the D3-02 regression it reopened).
+  // The gate has emptied the answer, and the figures it removed sit in a
+  // retrieved paper: JOB5's "The SMR was 3.6 (95% CI 2.9-4.4) in those
+  // with a psychiatric disorder" is one sentence of the paper its own
+  // decline named, and E1's relapse rate the same. Quoted and cited, that
+  // sentence is the paper's own wording rather than the model's claim, so
+  // it stands where a refusal stood - under the same rules the offer after
+  // a removal follows, plus the requirement that it carry what the answer
+  // tried to state.
+  let rescuedAnswer = false
+  if (gated.sentences.length === 0 && gated.removed.length > 0 && !leadSentence(text)) {
+    const entries = [...citedEntries, ...poolEntries].filter((e) => named(e))
+    for (const removed of gated.removed) {
+      if (rescuedAnswer) break
+      if (removed.reason === 'secondhand' || removed.reason === 'conclusion') continue
+      // Only a figure distinctive enough to identify the finding: a
+      // confidence level is in every paper, and matching one would quote
+      // whatever sentence happened to carry an interval.
+      const distinctive = removed.figures.filter((f) =>
+        (/%|\./.test(f) || /^\d{3,}$/.test(f)) && !/^(?:90|95|99)%$/.test(f)
+      )
+      if (distinctive.length === 0) continue
+      for (const entry of entries) {
+        const raw = texts.get(entry.index)
+        if (!raw) continue
+        const found = rescueQuote(entry.text, distinctive, questionOutcomes)
+        if (!found) continue
+        let marker = citations.find((c) => c.resourceId === entry.resourceId)?.index
+        if (marker === undefined) {
+          marker = citations.length + 1
+          citations.push({ index: marker, resourceId: entry.resourceId, title: entry.title })
+          textsByNew.set(marker, raw)
+        }
+        const quote = quoteSentence(found).replace(/^The paper itself reports: /, '')
+        text = '*No cited passage carries the answer as it was generated, so the sentence the ' +
+          `paper reports it in is quoted instead.*\n\n${quote}[${marker}]`
+        rescuedAnswer = true
         break
       }
     }
@@ -1719,6 +1778,19 @@ export async function bindAndAudit(raw: BindAndAuditInput): Promise<BindAndAudit
   const bodyRemains = leadSentence(text) !== '' || /^\s*\|/m.test(text)
   const emptiedByRemoval = strippedStudies.removed.length > 0 && !bodyRemains
 
+  // Removal is real (docs/persona-reports/dsouza-loop8.md D8-02). The gate
+  // has already swept every unverified repeat out of the text; what is
+  // still printed here is a figure that passed its own check in the
+  // sentence that carries it, so the notice stops naming it and the audit
+  // reports only what actually left the answer. The body is read before
+  // the addendum is appended, because the notice itself names them.
+  // A rescued answer says in its own lead that the generated sentence was
+  // not carried and the paper's sentence stands in its place, so a removal
+  // note that adds no figure to that adds nothing (D8-11).
+  const removedForNote = reconcileRemovals(gated.removed, text)
+    .filter((r) => !rescuedAnswer || r.figures.length > 0)
+  const figuresRemovedFromText = [...new Set(removedForNote.flatMap((r) => r.figures))]
+
   if (text.trim()) {
     text += auditAddendum({
       missingDrugs,
@@ -1728,17 +1800,27 @@ export async function bindAndAudit(raw: BindAndAuditInput): Promise<BindAndAudit
       designs,
       attributions: attributed.fixes,
       notes: [
-        removalNote(gated.removed, {
+        removalNote(removedForNote, {
           foundIn,
           replaced: replaced.length,
         }),
         blankedNote(gated.blanked, unreadableCells.marked),
+        uncitedNote(gated.sentences) || undefined,
         ...offered,
         protocolNote,
         effectSizeNote(effectSizes),
         boundary,
         scoped,
         secondhandNote(secondhand),
+        attributedNote(
+          attributedElsewhere(
+            markedSentences(text),
+            (index) => {
+              const id = citations.find((c) => c.index === index)?.resourceId
+              return id === undefined ? undefined : authorsOf(id)
+            },
+          ),
+        ),
       ].filter((n): n is string => n !== undefined),
     })
   }
@@ -1772,7 +1854,8 @@ export async function bindAndAudit(raw: BindAndAuditInput): Promise<BindAndAudit
     text,
     citations,
     sources,
-    emptied: (gated.removed.length > 0 && gated.sentences.length === 0) || emptiedByRemoval,
+    emptied: !rescuedAnswer &&
+      ((gated.removed.length > 0 && gated.sentences.length === 0) || emptiedByRemoval),
     audit: {
       type: 'audit',
       figuresChecked: checks.length,
@@ -1780,11 +1863,14 @@ export async function bindAndAudit(raw: BindAndAuditInput): Promise<BindAndAudit
       yearsUnsupported: missingYears,
       contraindicationsUnsupported,
       sentencesChecked: bound.sentences.length,
-      sentencesCited: gated.sentences.filter((s) => s.bound.length > 0).length,
+      sentencesCited: Math.min(
+        bound.sentences.length,
+        gated.sentences.filter((s) => s.bound.length > 0).length + (rescuedAnswer ? 1 : 0),
+      ),
       denominatorsMissing: denominators.map((d) => d.figure),
       attributionsCorrected,
       sentencesRemoved: gated.removed.length + strippedStudies.removed.length,
-      figuresRemoved,
+      figuresRemoved: figuresRemovedFromText,
       figuresRescued: [...new Set(rescued.flatMap((r) => r.figures))],
       sentencesReplaced: replaced.length,
       foundIn,

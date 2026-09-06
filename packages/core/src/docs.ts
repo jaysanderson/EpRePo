@@ -204,7 +204,11 @@ export const DOC_PAGES: DocPage[] = [
           '3. **The answer is written only from those passages.** Nothing is drawn from general ' +
           'knowledge or from the internet. Every sentence that states a finding carries a ' +
           'citation to the passage it came from (an item in a list takes the citation of the ' +
-          'paragraph it belongs to), and opening the citation shows that passage in the paper.',
+          'paragraph it belongs to), and opening the citation shows that passage in the paper. ' +
+          'A sentence carries a marker only for a paper that shares a distinctive phrase of ' +
+          'it, not merely its vocabulary, so a phrase every paper in the field uses lends no ' +
+          'marker; where a sentence is left with none, the answer names that sentence under ' +
+          'itself rather than leaving you to count markers.',
       },
       {
         heading: 'How the answer is checked before you see it',
@@ -214,7 +218,14 @@ export const DOC_PAGES: DocPage[] = [
           'located in the cited paper, and the sentence or table row that carries it there ' +
           "must share the claim's own quantity - its outcome, the noun the figure measures or " +
           'the name the question asked about - about the same outcome, at the same follow-up, ' +
-          'with the same responder threshold and the same denominator. The outcome must match ' +
+          'with the same responder threshold and the same denominator. The denominator is read ' +
+          "from the figure's own sentence or table row, never from elsewhere in the paragraph: " +
+          'a number the paper writes as the count behind a share ("19 patients (28%)") agrees ' +
+          'with a cohort size the answer pairs with it when the two make that share, and an ' +
+          'analysis set the answer names beside a figure the paper pairs no size with must be ' +
+          "the paper's own words. Where one sentence reports two arms, each figure belongs to " +
+          "the arm its own phrase names, so a placebo arm's rate is never served as the drug " +
+          "arm's. The outcome must match " +
           'exactly wherever the paper itself is exact: where a paper reports both "seizure ' +
           'freedom" and "continuous seizure freedom", one does not stand for the other. A ' +
           'figure the cited ' +
@@ -223,7 +234,13 @@ export const DOC_PAGES: DocPage[] = [
           'instead; where the figure is there but cannot be tied to the claim as the answer ' +
           "stated it, the sentence is removed and that paper's own sentence on the outcome you " +
           'asked about is quoted in its place. A figure found nowhere means the sentence is ' +
-          'removed, and the answer says that it was.\n' +
+          'removed, and the answer says that it was. Removal is applied to the answer, not ' +
+          'only recorded under it: a figure the note names has left the page, and a figure ' +
+          'that still stands somewhere in the answer, verified where it stands, is not named ' +
+          'as removed. Where the check empties an answer altogether, the paper the removed ' +
+          'figure was found in is read before anything is declined, and the sentence that ' +
+          'carries the figure there - from its own results, not its introduction, discussion ' +
+          'or tables - is quoted and cited in place of the refusal.\n' +
           '- **Populations.** A figure is bound to the group the paper reports it for. Where ' +
           'the passage a figure was found in names a group of its own, the group your question ' +
           'asked about must be that group or narrower: a rate the paper reports for "patients ' +
@@ -238,7 +255,10 @@ export const DOC_PAGES: DocPage[] = [
           'and the marked sentence never leads the answer. What counts as second-hand is ' +
           'judged by the words, not the section: a figure a paper states in its own voice ' +
           '("our cohort", "this trial", "we found"), or reports in its own abstract, is that ' +
-          "paper's finding wherever the extraction placed it.\n" +
+          "paper's finding wherever the extraction placed it. A finding the answer credits by " +
+          'name to authors who did not write the paper cited beside it ("Rajna and Veres ' +
+          'showed ...") is that paper\'s account of earlier work, and is named as such under ' +
+          'the answer whether or not it carries a figure.\n' +
           '- **Named studies.** A sentence cited to the wrong paper is replaced by the named ' +
           "paper's own sentence only when that sentence carries the same figure at the same " +
           'time point, quoted verbatim and cited; otherwise the sentence is removed, and a named ' +

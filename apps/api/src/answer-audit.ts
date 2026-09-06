@@ -785,6 +785,68 @@ export function qualifierForFigure(figure: string, text: PreparedSource): string
 // subgroup 13.9%, in the very next paragraph.
 // ---------------------------------------------------------------------------
 
+/**
+ * The verb a trial allocates an arm with, and the arm it names: "patients
+ * who received placebo", "randomised to perampanel", "treated with
+ * brivaracetam". Used to tell one arm's figure from another's inside a
+ * single sentence that reports both (docs/persona-reports/dsouza-loop8.md
+ * D8-02: "39.7% and 22.1% of patients who received perampanel ... and
+ * 35.7% and 17.1% of patients who received placebo", served as the
+ * placebo arm's 22.1%).
+ */
+const ALLOCATION =
+  /\b(?:received|receiving|randomi[sz]ed to|randomi[sz]ed into|allocated to|assigned to|treated with|switched to|converted to)\s+(?:the\s+)?([a-z][a-z-]{3,})/gi
+
+/** The arm nearest a position in a sentence: the first after it, else the last before it. */
+export function allocationArm(sentence: string, at = 0): string | undefined {
+  const re = new RegExp(ALLOCATION.source, 'gi')
+  let before: string | undefined
+  let m: RegExpExecArray | null
+  while ((m = re.exec(sentence)) !== null) {
+    const arm = m[1]!.toLowerCase()
+    if (ARM_STOP.has(arm)) continue
+    if (m.index >= at) return arm
+    before = arm
+  }
+  return before
+}
+
+/** Words an allocation verb is followed by that name no arm. */
+const ARM_STOP = new Set([
+  'their',
+  'this',
+  'that',
+  'these',
+  'those',
+  'them',
+  'both',
+  'either',
+  'other',
+  'another',
+  'first',
+  'second',
+  'third',
+  'more',
+  'less',
+  'least',
+  'from',
+  'with',
+  'only',
+  'least',
+  'treatment',
+  'therapy',
+  'medication',
+  'drug',
+  'study',
+  'trial',
+  'patients',
+  'participants',
+  'people',
+  'adults',
+  'children',
+  'average',
+])
+
 /** The nouns a population frame names a group of people by. */
 const POPULATION_NOUN =
   '(?:patients?|people|participants?|adults?|children|subjects?|individuals?|persons?|pwe|women|men|cases|controls|infants?|neonates?|those)'
@@ -1691,8 +1753,10 @@ export function pairedNsAt(lower: string, occ: LocatedFigure, figureLength: numb
     for (const n of [after[1], after[2]]) if (n) out.push(n.replace(/,/g, ''))
     return out
   }
-  const before = lower.slice(Math.max(0, occ.at - 14), occ.at)
-  const counted = /(\d[\d,]*) \($/.exec(before)
+  // "19 patients (28%)" pairs 19 with the share just as "19 (28%)" does:
+  // the noun the count counts may sit between them (loop 8 D8-05).
+  const before = lower.slice(Math.max(0, occ.at - 40), occ.at)
+  const counted = /(\d[\d,]*)(?: [a-z][a-z-]{2,}){0,3} \($/.exec(before)
   if (counted?.[1] && /^\s*\)/.test(rest)) {
     out.push(counted[1].replace(/,/g, ''))
     for (
@@ -1705,6 +1769,27 @@ export function pairedNsAt(lower: string, occ: LocatedFigure, figureLength: numb
     }
   }
   return out
+}
+
+/**
+ * Whether a count and an n make the share, as the paper and the claim
+ * state them between them: "19 patients (28%)" in the paper and "(n = 67)"
+ * in the claim are the same result, because 19/67 rounds to 28%
+ * (docs/persona-reports/dsouza-loop8.md D8-05). The tolerance is the
+ * rounding the share itself shows, so a one-decimal share is held to a
+ * tenth of a point.
+ */
+export function sharePairs(figure: string, count: string, n: string): boolean {
+  const share = /^(\d+(?:\.\d+)?)\s*%$/.exec(figure.trim())
+  if (!share) return false
+  const value = Number(share[1])
+  const numerator = Number(count.replace(/,/g, ''))
+  const denominator = Number(n.replace(/,/g, ''))
+  if (!Number.isFinite(numerator) || !Number.isFinite(denominator) || denominator <= 0) return false
+  if (numerator > denominator) return false
+  const decimals = (share[1]!.split('.')[1] ?? '').length
+  const tolerance = 0.5 / Math.pow(10, decimals) + 0.01
+  return Math.abs((numerator / denominator) * 100 - value) <= tolerance
 }
 
 /** What a sentence brings to a figure check, computed once per sentence. */
@@ -1996,6 +2081,23 @@ export function figureSupportedBy(
         continue
       }
     }
+    // The arm the figure belongs to, where both the claim and the located
+    // sentence allocate one: a sentence reporting two arms gives each
+    // figure to the arm its own phrase names, so a claim that says
+    // "patients who received placebo" is not carried by the number sitting
+    // beside "patients who received perampanel" (loop 8 D8-02).
+    if (result) {
+      const claimArm = allocationArm(quantity.rawClause)
+      const sourceArm = allocationArm(ownSentence, occ.sentenceAt)
+      if (
+        claimArm && sourceArm && claimArm !== sourceArm &&
+        !termForms(claimArm, text.pairs).some((re) => re.test(sourceArm)) &&
+        !termForms(sourceArm, text.pairs).some((re) => re.test(claimArm))
+      ) {
+        reason = 'population'
+        continue
+      }
+    }
     // The outcome test is exact where the paper itself is exact:
     // "continuous seizure freedom" does not answer "seizure freedom" in a
     // paper that reports both (loop 6 D6-03).
@@ -2067,9 +2169,31 @@ export function figureSupportedBy(
           // the figure just as surely as a bracket would (loop 6 D6-06).
           const sameSet = quantity.analysisSet !== undefined &&
             analysisSetIn(ownSentence) === quantity.analysisSet
+          // "full analysis set" is a claim about the paper's own wording.
+          // Where the paper pairs no n with the figure at all, the claim's
+          // whole bracket - the n and the set it names - has to come from
+          // the figure's own sentence, or the answer assembled it: a
+          // mixture-model class's 22% was served as "22% (n = 1,674, full
+          // analysis set)" that way (loop 8 D8-01).
+          if (
+            paired.length === 0 && quantity.analysisSet !== undefined && !sameSet &&
+            analysisSetIn(occ.label) !== quantity.analysisSet
+          ) {
+            if (reason === 'absent') reason = 'terms'
+            continue
+          }
+          // A claim that gives the cohort n agrees with a paper that gives
+          // the numerator, when the two make the share: "28% (n = 67)"
+          // against "19 patients (28%)" is 19/67 = 28% (loop 8 D8-05).
           const agrees = paired.length > 0
-            ? quantity.pairedNs.some((n) => paired.includes(n))
-            : quantity.pairedNs.some((n) => figurePattern(n).test(occ.paragraph)) ||
+            ? quantity.pairedNs.some((n) => paired.includes(n)) ||
+              paired.some((c) => quantity.pairedNs.some((n) => sharePairs(figure, c, n)))
+            // The n must come from the figure's own sentence or its table
+            // row, never from elsewhere in the paragraph: a mixture-model
+            // class's 22% took the pooled 1,674 that way (loop 8 D8-01).
+            : quantity.pairedNs.some((n) =>
+              figurePattern(n).test(occ.sentence) || figurePattern(n).test(occ.label)
+            ) ||
               (sameSet && quantity.pairedNs.some((n) => isCountOfPeople(n, text.lower)))
           if (!agrees) {
             if (reason === 'absent') reason = 'terms'
