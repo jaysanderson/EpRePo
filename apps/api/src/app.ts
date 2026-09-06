@@ -4887,10 +4887,12 @@ export function buildApp(opts: BuildAppOptions): Hono {
               return { text: refused ? '' : text, sources: found }
             },
             onPlan: async ({ groups, declined }) => {
-              // The clause queries are exactly what the surface already calls
-              // the sub-questions researched alongside the main question.
-              const queries = [...groups.map((g) => g.query), ...declined.map((c) => c.label)]
-              if (queries.length > 1) await send({ type: 'searched', queries })
+              // The clauses as the reader would write them - never the ask
+              // text, which carries the portal's own instructions to the
+              // generator and has no business on the page.
+              const shown = [...groups.flatMap((g) => g.clauses), ...declined]
+                .map((c) => c.entity ?? c.label)
+              if (shown.length > 1) await send({ type: 'searched', queries: shown })
             },
             onBlock: async (delta) => {
               const out = stripFenceLines(sentinels.push(delta))
