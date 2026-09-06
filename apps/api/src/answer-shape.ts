@@ -485,6 +485,8 @@ export function corpusDecline(
   opts: {
     /** No resource clears the grounding gate on meaning: say so instead of naming near misses. */
     noCloseMatch?: boolean
+    /** A study the question named that the collection holds no paper for (D7-08). */
+    missingStudy?: string
   } = {},
 ): string {
   const titles = opts.noCloseMatch
@@ -495,8 +497,14 @@ export function corpusDecline(
       Math.round(bestMatchPct)
     }%).`
     : ''
+  // Coverage told from evidence: a study the question names that no paper
+  // in the collection reports is said so plainly, rather than left to be
+  // inferred from "does not answer this question" (D7-08).
+  const missing = opts.missingStudy
+    ? ` This collection holds no paper reporting ${opts.missingStudy}.`
+    : ''
   const lead = "This portal's sources do not answer this question directly, so no answer has " +
-    `been generated.${strength}`
+    `been generated.${missing}${strength}`
   const nearest = opts.noCloseMatch
     ? ' No source in the corpus comes close to this question, so none is listed as a match.'
     : titles.length > 0
