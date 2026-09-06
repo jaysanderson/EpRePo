@@ -22,6 +22,26 @@ in its place, instead of a bare assertion left standing under a paper that does 
 Closes D8-07 and D8-09. Administration screens keep their diagnostic messages by design; they are
 passcode-gated and are not a reader surface.
 
+## PR (this loop) - 6 September 2026 - the Dravet clause regression, and second-hand on a paper with no Results
+
+For the reader: ask "Which anti-seizure medications are contraindicated in SCN1A Dravet syndrome?"
+and the answer names lamotrigine and the sodium channel blockers, cited to the international
+consensus statement. It used to open on a **phenytoin** heading, argue that phenytoin may be
+beneficial in Dravet syndrome, and then decline the question for cannabidiol and fenfluramine,
+which the reader never mentioned: clause pinning was inventing one clause per drug from the drugs
+retrieval happened to return, on a question that names no drug at all. A question that names no
+treatment is no longer decomposed by treatment, and an open "which medications" question about a
+syndrome the collection has guidance for is answered against that guidance. A category comparison
+still needs a ranking cue, so "which anti-seizure medication has the best real-world retention" is
+still answered drug by drug, and so is a named comparison. Ask the fenfluramine dose in Dravet
+syndrome with and without stiripentol and the four figures (0.7 mg/kg/day, 26 mg/day, 0.4, 17) no
+longer carry a second-hand note: a review article has no Results section, so calling its own
+dosing paragraph second-hand was reading a section heading that was never there, and a proportion
+printed beside the group a paper counted - "(physicians: n = 19, 100%)" - is that paper's own
+count wherever the extraction placed it. Regression-checked live: brivaracetam versus perampanel
+at 12 months, the placebo responder rate, anti-LGI1 relapse, the consortium mRS, and carbamazepine
+in juvenile myoclonic epilepsy.
+
 ## PR (this loop) - 6 September 2026 - D'Souza loop 8 (m2): removal is real, and the paper is read before the refusal
 
 For the reader: an answer no longer prints a figure its own footnote says it removed. Ask to
