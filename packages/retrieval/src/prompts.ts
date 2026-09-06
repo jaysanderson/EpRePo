@@ -41,7 +41,26 @@ export const DENOMINATOR_RULE =
   'denominator, say so beside the figure rather than leaving it bare. When a cited passage ' +
   'gives an effect size for the claim - a hazard ratio, odds ratio or relative risk with its ' +
   'confidence interval - state it in the sentence exactly as the source gives it rather than ' +
-  'paraphrasing it away.'
+  'paraphrasing it away. Where a source gives a proportion both in a results sentence and in a ' +
+  'table, take the results sentence and give its count as well as its percentage - "16 (30%)", ' +
+  'not "31%".'
+
+/**
+ * A figure belongs to the group the source reports it for. Applied to every
+ * variant: the commonest wrong-figure defect is a headline result sold as a
+ * subgroup's (loop 6 D6-01, where 16.0% for patients with psychiatric
+ * comorbidity was given as the rate for those who switched from
+ * levetiracetam to brivaracetam, whose rate the same paper puts at 13.9%
+ * in the next paragraph).
+ */
+export const POPULATION_RULE =
+  "When the question is about a narrower group than a source's headline result - patients who " +
+  'switched from a named drug, a comorbidity, an age band, a genotype, one arm of a trial - ' +
+  'state the figure the source reports for exactly that group and name the group in the same ' +
+  "sentence. A figure a source reports for a broader group is not that group's figure: if the " +
+  'sources report none for the group asked about, say so rather than offering the wider one. ' +
+  'Keep an outcome exactly as the source names it: "continuous seizure freedom" is not "seizure ' +
+  'freedom", and "all-cause discontinuation" is not "discontinuation for adverse events".'
 
 /** The clinical variant names each source\'s study design the first time it cites it. */
 export const DESIGN_RULE =
@@ -57,6 +76,7 @@ export function variantPreamble(variant: PromptVariant | undefined): string {
   const parts: string[] = []
   if (variant && variant !== 'default') parts.push(PROMPT_VARIANTS[variant])
   if (WITH_DENOMINATORS.has(variant ?? 'default')) parts.push(DENOMINATOR_RULE)
+  parts.push(POPULATION_RULE)
   if (variant === 'safety') parts.push(DESIGN_RULE)
   return parts.length > 0 ? parts.join(' ') + '\n\n' : ''
 }
