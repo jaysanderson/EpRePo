@@ -467,3 +467,36 @@ today. The corpus limits I met (no adherence-mortality study, no ESETT, no RANSO
 head-to-head brivaracetam-perampanel trial) were all handled honestly this loop except where the
 application filled the gap itself, which is D8-09 and D8-13. The remaining latency - a 78-second
 answer and a 4.7-second audit tail - is a P3 and is not what holds the score at 7.
+
+---
+
+## Loop 8 fixes (merged 6 September 2026, PRs #25 and #26 into `feat/eprepo-portal`)
+
+The report's boundary analysis was accepted and acted on: the loop 7 pin was applied one level
+down, to clauses.
+
+| Finding | Outcome |
+|---|---|
+| D8-02 (P0) | Removal is applied to the answer rather than recorded beneath it. The gate sweeps a kept sentence that repeats a removed figure without its own passing check, a table row keeps its place with the cell blanked, and the notice is reconciled against the emitted body before the addendum is appended. A test asserts that no figure in `figuresRemoved` appears in the body, a briefing section or the statements list. The same answer's wrong trial arm is fixed: a figure belongs to the arm its own allocation phrase names. |
+| D8-01 (P0) | A denominator must come from the figure's own sentence and a claimed analysis set must be the paper's own words, so the pooled "22% (n = 1,674, full analysis set)" is gone; clause pinning then returns the correct 23.6% of 1,674 on both wordings. |
+| D8-03, D8-06, D8-13, D8-14, D8-04, D8-05, D8-08 | Clause pinning: a question that asks for a quantity, compares two treatments or weighs a drug in a condition is decomposed before retrieval, each clause resolves to one paper (its own names, then the medications and conditions that scope it), each clause is answered as a one-paper ask, and the answers are composed with exactly one resource id per sentence. A clause resolving to nothing is declined by name while the rest stands. Two rules mattered as much as the architecture: a clause introducing no new name inherits the previous clause's paper outright, and a paper that answers every clause is asked the question as written. |
+| D8-11, D3-02, D8-18 | A paper in the retrieved list is read and its sentence quoted before any decline; sub-question decomposition is capped and skipped where clause pinning applies. |
+| Rules removed | The per-entity retrieval pin and its cap, which existed so one drug's figure was never read off another drug's paper. Clause pinning makes that structural. |
+
+Pass rates over a 56-question replay of every prior loop's P0 and P1 questions, in the reports'
+wordings: unpinned 51% to 89% clean (18 of 35 to 31 of 35), pinned 85% to 75% (17 of 20 to 15 of
+20). The three pinned regressions are recorded, not hidden: one loses a figure to the gate on the
+same Results sentence, one hedges a projection year, one hedged on a single run of three. Latency:
+done median 16.6 s to 15.8 s with much better worst cases, first word 10.1 s to 14.2 s because the
+clause path cannot stream until its first clause composes.
+
+Verified on the merged build (`4c99abccba13`): the placebo responder question returns 23.6% drawn
+from 1,674 participants; the brivaracetam and perampanel comparison attributes each drug's figure
+to its own paper; no figure listed as removed appears anywhere but in the notice that names it.
+
+Platform fact worth recording: `rag_strategies: full_resource` on a one-paper ask measured 117
+seconds against 9 for document chat's shape on the same question, and was less accurate, reading a
+cohort's age off the eligibility criteria. The clause ask uses document chat's shape instead.
+
+Left for loop 9: the consortium time-point ranking, the three pinned regressions above, and first
+word on the clause path.
