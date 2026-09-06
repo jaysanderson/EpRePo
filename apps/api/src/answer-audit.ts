@@ -2384,38 +2384,229 @@ export function yearsUnsupported(
 }
 
 // ---------------------------------------------------------------------------
-// Contraindications, both directions
+// Safety verbs, bound to their medication
 // ---------------------------------------------------------------------------
 
-const CONTRA =
-  /contraindicat|should be avoided|to be avoided|must be avoided|avoid(?:ed|ing)?\b|worsen|aggravat|exacerbat|not recommended/i
+/**
+ * A safety verb binds to a medication, never to a sentence (docs/persona-
+ * reports/dsouza-loop7.md D7-03). "Carbamazepine is contraindicated in JME"
+ * may only stand if a cited passage says that of carbamazepine: a passage
+ * calling VALPROATE contraindicated a hundred characters away is not
+ * support, and neither is one that only calls carbamazepine "not
+ * recommended". So each verb in a passage is bound to the medication
+ * nearest it, and a claim is supported only by a binding on the same
+ * medication at the same strength or stronger.
+ *
+ * The strengths, weakest last:
+ *  3 `prohibited`  - contraindicated, a black box warning, must not be used
+ *  2 `discouraged` - should be avoided, not recommended, avoid X
+ *
+ * `aggravates` (worsens, exacerbates, precipitates) and `first-line` are
+ * claims of a different kind, not weaker prohibitions, so each forms its
+ * own family: a passage calling a drug "not recommended" does not say it
+ * worsens seizures, and neither says anything about first-line use.
+ */
+export type SafetyFamily = 'safety' | 'aggravation' | 'firstline'
 
-/** Drugs named within reach of a contraindication phrase in a cited text. */
+/** How strongly a verb speaks: only a passage at or above the claim's strength supports it. */
+export const SAFETY_STRENGTH = {
+  prohibited: 3,
+  discouraged: 2,
+  aggravates: 1,
+  firstline: 1,
+} as const
+
+export type SafetyVerb = keyof typeof SAFETY_STRENGTH
+
+const VERB_PATTERNS: { verb: SafetyVerb; family: SafetyFamily; re: RegExp }[] = [
+  {
+    verb: 'prohibited',
+    family: 'safety',
+    re:
+      /contraindicat\w*|black[- ]box\w*|boxed warning|must not be (?:used|given|prescribed|taken|offered)|must be avoided|should never be (?:used|given|prescribed)|never be used/gi,
+  },
+  {
+    verb: 'discouraged',
+    family: 'safety',
+    re:
+      /should be avoided|should not be (?:used|given|prescribed|offered|considered)|to be avoided|best avoided|avoid(?:ed|ing|s)?\b|not recommended|not advised|inadvisable/gi,
+  },
+  {
+    // Aggravation is a claim about what a drug does, not a weaker way of
+    // prohibiting it: "not recommended" is not a statement that a drug
+    // worsens seizures, so it is a family of its own (D7-03).
+    verb: 'aggravates',
+    family: 'aggravation',
+    re: /worsen\w*|aggravat\w*|exacerbat\w*|precipitat\w*/gi,
+  },
+  {
+    verb: 'firstline',
+    family: 'firstline',
+    re: /first[- ]line|first[- ]choice|drug of choice|treatment of choice/gi,
+  },
+]
+
+/** Drug classes a clinical answer can call contraindicated without naming a drug. */
+const DRUG_CLASS = /\b(?:sodium[- ]channel[- ]block\w*|barbiturate\w*|benzodiazepine\w*)\b/gi
+
+/** The same class pattern without the global flag, for a stateless test. */
+const IS_DRUG_CLASS = new RegExp(DRUG_CLASS.source, 'i')
+
+/** A safety verb in a sentence, with the medication it binds to. */
+export interface VerbBinding {
+  drug: string
+  verb: SafetyVerb
+  family: SafetyFamily
+  /** The sentence the binding was read from, trimmed. */
+  sentence: string
+  /** Where the medication and the verb sit in that sentence. */
+  drugAt: number
+  verbAt: number
+  verbEnd: number
+}
+
+/** A back reference that carries the previous sentence's medications forward. */
+const ANAPHOR =
+  /\b(?:these|those|they|them|both|such)\b|\bthe (?:medications|drugs|agents|options)\b/i
+
+/** A benefit reported in the same sentence is not a safety statement. */
+const BENEFIT = /reduc|improv|effective|efficac|benefit|respon(?:se|ded)|seizure[- ]free/i
+
+/** How far a verb may sit from the medication it binds to. */
+const BIND_WINDOW = 120
+
+/** Where each medication of the lexicon (and each drug class) is named in a sentence. */
+function medicationMentions(
+  sentence: string,
+  lexicon: readonly string[],
+): { drug: string; at: number; end: number }[] {
+  const lower = sentence.toLowerCase()
+  const out: { drug: string; at: number; end: number }[] = []
+  for (const term of lexicon) {
+    const t = term.toLowerCase()
+    if (t.length < 5) continue
+    const re = new RegExp(`\\b${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'g')
+    for (const m of lower.matchAll(re)) out.push({ drug: t, at: m.index, end: m.index + t.length })
+  }
+  for (const m of sentence.matchAll(DRUG_CLASS)) {
+    out.push({ drug: m[0].toLowerCase(), at: m.index, end: m.index + m[0].length })
+  }
+  return out.sort((a, b) => a.at - b.at)
+}
+
+/** Whether a verb at an offset is negated by the words just before it ("did not worsen"). */
+function negated(sentence: string, at: number): boolean {
+  return /\b(?:not|never|n't|without|no)\s+(?:\w+\s+){0,2}$/i.test(
+    sentence.slice(Math.max(0, at - 40), at),
+  )
+}
+
+/** Every safety verb in a sentence, the stronger one standing where two overlap. */
+export function safetyVerbsIn(
+  sentence: string,
+): { verb: SafetyVerb; family: SafetyFamily; at: number; end: number }[] {
+  const hits: { verb: SafetyVerb; family: SafetyFamily; at: number; end: number }[] = []
+  for (const { verb, family, re } of VERB_PATTERNS) {
+    for (const m of sentence.matchAll(new RegExp(re.source, 'gi'))) {
+      if (negated(sentence, m.index)) continue
+      if (family === 'aggravation' && BENEFIT.test(sentence)) continue
+      hits.push({ verb, family, at: m.index, end: m.index + m[0].length })
+    }
+  }
+  return hits.filter((h) =>
+    !hits.some((o) =>
+      o !== h && o.family === h.family && o.at < h.end && h.at < o.end &&
+      (SAFETY_STRENGTH[o.verb] > SAFETY_STRENGTH[h.verb] ||
+        (SAFETY_STRENGTH[o.verb] === SAFETY_STRENGTH[h.verb] && o.at < h.at))
+    )
+  )
+}
+
+/**
+ * Every safety verb in a sentence bound to the medication nearest it. A
+ * verb with no medication within `BIND_WINDOW` characters binds to nothing
+ * and states nothing about any drug; where two verbs overlap ("must be
+ * avoided" is both a prohibition and a discouragement) the stronger stands.
+ */
+export function verbBindings(
+  raw: string,
+  lexicon: readonly string[],
+): VerbBinding[] {
+  const sentence = raw.trim()
+  const mentions = medicationMentions(sentence, lexicon)
+  if (mentions.length === 0) return []
+  const kept = safetyVerbsIn(sentence)
+  const out: VerbBinding[] = []
+  for (const hit of kept) {
+    let best: { drug: string; at: number; end: number } | undefined
+    let bestDistance = Infinity
+    for (const mention of mentions) {
+      const distance = mention.end <= hit.at
+        ? hit.at - mention.end
+        : mention.at >= hit.end
+        ? mention.at - hit.end
+        : 0
+      // A medication before the verb is its subject; one after it is the
+      // object of "avoid X". A tie goes to the subject.
+      const bias = mention.at < hit.at ? 0 : 1
+      if (distance + bias < bestDistance) {
+        bestDistance = distance + bias
+        best = mention
+      }
+    }
+    if (!best || bestDistance > BIND_WINDOW) continue
+    if (out.some((b) => b.drug === best!.drug && b.verb === hit.verb)) continue
+    out.push({
+      drug: best.drug,
+      verb: hit.verb,
+      family: hit.family,
+      sentence,
+      drugAt: best.at,
+      verbAt: hit.at,
+      verbEnd: hit.end,
+    })
+  }
+  return out
+}
+
+/**
+ * Words a sentence of prose cannot do without. A table row - "Generally
+ * avoided | Eslicarbazepine | Good | Moderate" - has a verb in a cell and
+ * no subject, so a safety verb cannot be bound in it and it is never
+ * quoted back to the reader as what the sources say (D7-03).
+ */
+const FUNCTION_WORDS =
+  /\b(?:the|an?|is|are|was|were|be|been|in|of|for|with|and|that|not|should|must|which|who|because|when|due)\b/gi
+
+/** Whether a fragment is prose a verb can have a subject in. */
+export function isProse(sentence: string): boolean {
+  if (/\|/.test(sentence)) return false
+  const words = sentence.split(/\s+/).filter((w) => /[A-Za-z]/.test(w)).length
+  if (words < 8) return true
+  return (sentence.match(FUNCTION_WORDS) ?? []).length >= 2
+}
+
+/** The sentences of a text, whitespace collapsed, short enough to bind within. */
+function safetySentences(text: string): string[] {
+  return text.replace(/\s+/g, ' ').split(/(?<=[.;!?])\s+/).filter((s) =>
+    s.length <= 500 && isProse(s)
+  )
+}
+
+/** Drugs a cited text calls contraindicated, to be avoided or seizure-worsening. */
 export function drugsFlaggedInSources(
   texts: readonly { index: number; text: string }[],
   lexicon: readonly string[],
 ): { drug: string; index: number }[] {
   const out = new Map<string, number>()
   for (const { index, text } of texts) {
-    // Same sentence only: a drug merely near an "avoid" elsewhere is not a
-    // contraindication statement about that drug.
-    const sentences = text.replace(/\s+/g, ' ').split(/(?<=[.;!?])\s+/)
-    for (const sentence of sentences) {
-      if (sentence.length > 400) continue
-      const lower = sentence.toLowerCase()
-      const hit = new RegExp(CONTRA.source, 'i').exec(lower)
-      if (!hit) continue
-      // A sentence reporting a good response ("reduction in seizures with
-      // lamotrigine or lacosamide") is not a contraindication statement.
-      if (/reduc|improv|effective|efficac|benefit|respon(?:se|ded)|seizure[- ]free/.test(lower)) {
-        continue
-      }
-      const at = hit.index
-      for (const term of lexicon) {
-        const t = term.toLowerCase()
-        if (t.length < 5 || out.has(t)) continue
-        const where = lower.indexOf(t)
-        if (where !== -1 && Math.abs(where - at) <= 90) out.set(t, index)
+    for (const sentence of safetySentences(text)) {
+      for (const binding of verbBindings(sentence, lexicon)) {
+        // The addendum names drugs the answer left out, so a class the
+        // answer may not name drug by drug is not listed.
+        if (binding.family === 'firstline' || out.has(binding.drug)) continue
+        if (IS_DRUG_CLASS.test(binding.drug)) continue
+        out.set(binding.drug, index)
       }
     }
   }
@@ -2432,24 +2623,36 @@ export function drugsMissingFromAnswer(
 }
 
 /** A drug (or drug class) the answer calls contraindicated, and the sentence saying so. */
-export interface ContraindicationClaim {
+export interface SafetyClaim {
   drug: string
+  verb: SafetyVerb
+  family: SafetyFamily
   sentence: string
 }
 
-/** Drug classes a clinical answer can call contraindicated without naming a drug. */
-const DRUG_CLASS = /\b(?:sodium[- ]channel[- ]block\w*|barbiturate\w*|benzodiazepine\w*)\b/gi
+/** What a claim's verb is called in the portal's own voice. */
+const VERB_WORDS: Record<SafetyVerb, string> = {
+  prohibited: 'contraindicated',
+  discouraged: 'to be avoided',
+  aggravates: 'seizure-aggravating',
+  firstline: 'first-line',
+}
 
-/** The drugs and classes each sentence of the answer calls contraindicated or to be avoided. */
-export function contraindicationClaims(
+/**
+ * The safety claims each sentence of an answer makes, each bound to the
+ * medication its verb governs. A negation or a hedge is not a claim.
+ */
+export function safetyClaims(
   answer: string,
   lexicon: readonly string[],
-): ContraindicationClaim[] {
-  const out: ContraindicationClaim[] = []
+): SafetyClaim[] {
+  const out: SafetyClaim[] = []
   const plain = answer.replace(/\s*\[\d{1,3}\]/g, '')
   for (const line of plain.split('\n')) {
+    // "These medications" reaches back over the paragraph it sits in, not
+    // only over the sentence before it.
+    let previous: string[] = []
     for (const sentence of line.split(/(?<=[.!?])\s+(?=[A-Z*(])/)) {
-      if (!CONTRA.test(sentence)) continue
       // A negation or a hedge is not a claim: "not contraindicated", "the
       // sources do not explicitly state that X is contraindicated".
       if (
@@ -2458,84 +2661,159 @@ export function contraindicationClaims(
       ) {
         continue
       }
-      const lower = sentence.toLowerCase()
-      const drugs = new Set<string>()
-      for (const term of lexicon) {
-        const t = term.toLowerCase()
-        if (t.length >= 5 && lower.includes(t)) drugs.add(t)
-      }
+      const bindings = verbBindings(sentence, lexicon)
       // A class is the claim only when no drug is named: "vigabatrin is
       // contraindicated as it is a sodium channel blocker" is a claim about
       // vigabatrin, and the class must not vouch for it.
-      if (drugs.size === 0) {
-        for (const m of sentence.matchAll(DRUG_CLASS)) drugs.add(m[0].toLowerCase())
+      const named = bindings.filter((b) => !IS_DRUG_CLASS.test(b.drug))
+      const chosen = named.length > 0 ? named : bindings
+      for (const binding of chosen) {
+        out.push({
+          drug: binding.drug,
+          verb: binding.verb,
+          family: binding.family,
+          sentence: binding.sentence,
+        })
       }
-      for (const drug of drugs) out.push({ drug, sentence: sentence.trim() })
+      // "Therefore, these medications are effectively contraindicated": the
+      // subject is the drugs the sentence before named, and the claim is
+      // checked against each of them (D7-03). Only an explicit back
+      // reference carries the subject forward.
+      if (chosen.length === 0 && previous.length > 0 && ANAPHOR.test(sentence)) {
+        for (const hit of safetyVerbsIn(sentence.trim())) {
+          for (const drug of previous) {
+            out.push({ drug, verb: hit.verb, family: hit.family, sentence: sentence.trim() })
+          }
+        }
+      }
+      const mentioned = medicationMentions(sentence.trim(), lexicon)
+        .filter((m) => !IS_DRUG_CLASS.test(m.drug))
+        .map((m) => m.drug)
+      previous = [...new Set([...previous, ...mentioned])]
     }
   }
   return out
 }
 
-/** Whether a cited text calls the drug contraindicated (or to be avoided, or seizure-worsening). */
-export function contraindicationSupported(drug: string, texts: readonly string[]): boolean {
-  // "sodium channel-blocking" and "sodium channel blockers" are one class.
-  const plain = drug.toLowerCase().replace(/-/g, ' ')
-  const stemmed = plain.replace(/s$/, '').slice(0, Math.max(5, plain.length - 3))
-  for (const text of texts) {
-    const sentences = text.replace(/\s+/g, ' ').split(/(?<=[.;!?])\s+/)
-    for (const sentence of sentences) {
-      if (sentence.length > 500) continue
-      const lower = sentence.toLowerCase().replace(/-/g, ' ')
-      const where = lower.indexOf(stemmed)
-      if (where === -1) continue
-      const hit = new RegExp(CONTRA.source, 'i').exec(lower)
-      if (!hit) continue
-      if (/reduc|improv|effective|efficac|benefit|respon(?:se|ded)|seizure[- ]free/.test(lower)) {
-        continue
-      }
-      if (Math.abs(where - hit.index) <= 150) return true
-    }
-  }
-  return false
+/** What the cited passages say about a drug at or below the strength claimed. */
+export interface SafetySupport {
+  supported: boolean
+  /** The passage that speaks of the drug but not strongly enough, and its marker. */
+  weaker?: { binding: VerbBinding; index?: number }
 }
 
 /**
- * The inverse check for the safety variant: every drug the answer calls
- * contraindicated must be called that by a cited passage. A sentence none of
- * whose drugs are supported is removed and replaced with a plain statement
- * that the sources do not say so; a sentence with some support keeps its
- * text and gains the statement for the drugs that lack it.
+ * Whether a cited passage calls the drug what the answer calls it. The
+ * verb must bind to that same drug, in the same family, at that strength or
+ * stronger; a weaker statement about the same drug is returned so the
+ * reader can be told what the sources actually say.
  */
-export function stripUnsupportedContraindications(
+export function safetySupport(
+  claim: Pick<SafetyClaim, 'drug' | 'verb' | 'family'>,
+  texts: readonly { index?: number; text: string }[],
+  lexicon: readonly string[],
+): SafetySupport {
+  const wanted = SAFETY_STRENGTH[claim.verb]
+  // "sodium channel-blocking" and "sodium channel blockers" are one class.
+  const plain = claim.drug.toLowerCase().replace(/-/g, ' ')
+  const stem = plain.replace(/s$/, '').slice(0, Math.max(5, plain.length - 3))
+  const same = (drug: string) => drug.toLowerCase().replace(/-/g, ' ').includes(stem)
+  let weaker: SafetySupport['weaker']
+  for (const { index, text } of texts) {
+    for (const sentence of safetySentences(text)) {
+      for (const binding of verbBindings(sentence, [...lexicon, claim.drug])) {
+        if (binding.family !== claim.family || !same(binding.drug)) continue
+        if (SAFETY_STRENGTH[binding.verb] >= wanted) return { supported: true }
+        if (!weaker) weaker = { binding, ...(index === undefined ? {} : { index }) }
+      }
+    }
+  }
+  return { supported: false, ...(weaker ? { weaker } : {}) }
+}
+
+/**
+ * The clause a binding was read from, for quoting back: from the start of
+ * the sentence the medication sits in to just past the verb, so the reader
+ * sees "Carbamazepine, which is not recommended for treatment of JME"
+ * rather than the whole extracted paragraph it was found in.
+ */
+function quoteFor(binding: VerbBinding): string {
+  const sentence = binding.sentence
+  const anchor = Math.min(binding.drugAt, binding.verbAt)
+  const before = sentence.slice(0, anchor)
+  // A sentence end the splitter could not see: a full stop carrying a
+  // reference marker ("... for JME.24 Carbamazepine, which ...").
+  let back = -1
+  for (const m of before.matchAll(/[.;!?]\d{0,3}\s+/g)) back = m.index + m[0].length
+  const from = back >= 0 ? back : Math.max(0, anchor - 120)
+  let to = sentence.length
+  const tail = sentence.slice(binding.verbEnd)
+  const stop = /[,.;:]/.exec(tail.slice(8))
+  if (stop) to = binding.verbEnd + 8 + stop.index
+  const clause = sentence.slice(from, Math.min(to, from + 260))
+    .replace(/\s*\[\d{1,3}\]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return clause.length > 240 ? `${clause.slice(0, 237).trimEnd()}...` : clause
+}
+
+/**
+ * Every drug an answer calls contraindicated, to be avoided or first-line
+ * must be called that by a cited passage, of that same drug (D7-03). A
+ * sentence none of whose drugs are supported is replaced by a plain
+ * statement that the sources do not say so - with what they do say, when
+ * they speak of the drug more weakly; a sentence with some support keeps
+ * its text and gains the statement for the drugs that lack it.
+ */
+export function stripUnsupportedSafetyClaims(
   answer: string,
-  texts: readonly string[],
+  texts: readonly { index?: number; text: string }[],
   lexicon: readonly string[],
 ): { text: string; unsupported: string[] } {
-  const claims = contraindicationClaims(answer, lexicon)
+  const claims = safetyClaims(answer, lexicon)
   if (claims.length === 0) return { text: answer, unsupported: [] }
-  const bySentence = new Map<string, string[]>()
+  const bySentence = new Map<string, SafetyClaim[]>()
   for (const claim of claims) {
     const list = bySentence.get(claim.sentence) ?? []
-    list.push(claim.drug)
+    list.push(claim)
     bySentence.set(claim.sentence, list)
   }
   const unsupported = new Set<string>()
+  // The passage a drug is quoted from is shown once: a second note about
+  // the same drug states what is missing without repeating the quote.
+  const quoted = new Set<string>()
   let text = answer
-  for (const [sentence, drugs] of bySentence) {
-    const lacking = drugs.filter((d) => !contraindicationSupported(d, texts))
+  for (const [sentence, sentenceClaims] of bySentence) {
+    const lacking: { claim: SafetyClaim; support: SafetySupport }[] = []
+    for (const claim of sentenceClaims) {
+      const support = safetySupport(claim, texts, lexicon)
+      if (!support.supported) lacking.push({ claim, support })
+    }
     if (lacking.length === 0) continue
-    for (const d of lacking) unsupported.add(d)
-    const list = lacking.join(lacking.length === 2 ? ' or ' : ', ')
-    const note = `*The cited sources do not state that ${list} ${
-      lacking.length > 1 ? 'are' : 'is'
-    } contraindicated or should be avoided here.*`
+    for (const { claim } of lacking) unsupported.add(claim.drug)
+    const list = lacking.map((l) => l.claim.drug)
+    const drugs = list.length > 1
+      ? `${list.slice(0, -1).join(', ')} or ${list[list.length - 1]}`
+      : list[0]!
+    const called = [...new Set(lacking.map((l) => VERB_WORDS[l.claim.verb]))].join(' or ')
+    const weaker = lacking.find((l) => l.support.weaker && !quoted.has(l.claim.drug))?.support
+      .weaker
+    for (const { claim } of lacking) quoted.add(claim.drug)
+    const instead = weaker
+      ? ` What the cited sources do say: "${quoteFor(weaker.binding)}"${
+        weaker.index === undefined ? '' : ` [${weaker.index}]`
+      }.`
+      : ''
+    const note = `*The cited sources do not state that ${drugs} ${
+      list.length > 1 ? 'are' : 'is'
+    } ${called} here.${instead}*`
     // Match the sentence as it stands in the answer, markers included.
     const pattern = new RegExp(
       sentence.split(/\s+/).map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join(
         '(?:\\s*\\[\\d{1,3}\\])*\\s+',
       ).replace(/\\\.$/, '(?:\\s*\\[\\d{1,3}\\])*\\.') + '(?:\\s*\\[\\d{1,3}\\])*',
     )
-    text = lacking.length === drugs.length
+    text = lacking.length === sentenceClaims.length
       ? text.replace(pattern, note)
       : text.replace(pattern, (m) => `${m} ${note}`)
   }
