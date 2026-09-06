@@ -197,7 +197,7 @@ type AssessmentQuestion = {
   source_resource_id?: string | null
   source_title?: string | null
 }
-type AssessmentObject = { questions: AssessmentQuestion[] }
+type AssessmentObject = { questions: AssessmentQuestion[]; requested?: number }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
@@ -589,6 +589,16 @@ function AssessmentQuiz({ data, slug }: { data: AssessmentObject; slug: string }
           </p>
         )}
       </div>
+
+      {(data.requested ?? 0) > data.questions.length
+        ? (
+          <p className='mt-2 text-xs leading-relaxed text-ink-3' role='note'>
+            {data.questions.length === 1 ? 'One' : data.questions.length} of the {data.requested}
+            {' '}
+            questions asked for survived the source check.
+          </p>
+        )
+        : null}
 
       <div className='mt-4 space-y-6'>
         {data.questions.map((q, qi) => (

@@ -52,10 +52,10 @@ describe('a quiz question is bound to the paper that carries its quote (D6-09)',
     expect(out.questions[0]?.source_title).toBe(
       'Rituximab use for relapse prevention in anti-NMDAR encephalitis',
     )
-    // The model's own label is kept for audit, never shown as the attribution.
-    expect(out.questions[0]?.source_label).toBe(
-      'Acute and Long-Term Immune-Treatment Strategies in Anti-LGI1 Encephalitis',
-    )
+    // A label naming a different paper from the one the quote resolved to is
+    // dropped, not carried alongside it: two attributions for one question
+    // leave the reader no way to tell which is the source (loop 7 D7-11).
+    expect(out.questions[0]?.source_label).toBe(null)
   })
 
   it('keeps the title when the quote locates nowhere', () => {
