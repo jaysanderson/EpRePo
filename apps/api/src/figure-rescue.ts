@@ -23,6 +23,7 @@
 import type { Citation, ScoredResource } from '@research-portal/core'
 import {
   abbreviationPairs,
+  bracketSpan,
   claimFeatures,
   claimWindow,
   extractNumbers,
@@ -30,6 +31,7 @@ import {
   figurePattern,
   figureSupportedBy,
   isSampleSizeFigure,
+  locateFigure,
   normaliseFigures,
   normaliseGlyphs,
   outcomeFamilies,
@@ -39,7 +41,13 @@ import {
   timepointsInMonths,
 } from './answer-audit.ts'
 import type { BoundSentence } from './citation-binding.ts'
-import { hasBodyHeadings, sectionAt, sectionSpans } from './secondhand.ts'
+import {
+  citesEarlierWork,
+  hasBodyHeadings,
+  inTableOrLegend,
+  sectionAt,
+  sectionSpans,
+} from './secondhand.ts'
 import { looksLikeReferencePassage } from './citation-binding.ts'
 import { isMedicationTerm } from './ask-prequeries.ts'
 
@@ -698,6 +706,55 @@ export function quoteCarriesClaim(
     }
   }
   return true
+}
+
+/**
+ * The sentence of a paper that carries one of the figures a gate removed,
+ * for an answer that would otherwise be declined (docs/persona-reports/
+ * dsouza-loop8.md D8-11). The check has already decided the answer did not
+ * state the figure as the paper carries it; before refusing, the portal
+ * reads the paper the removal names and quotes the sentence that does
+ * carry it - the paper's own results, not its introduction or discussion,
+ * not a table row or legend, not a sentence reporting earlier work, and
+ * about the outcome the question asked for.
+ */
+export function rescueQuote(
+  text: PreparedSource,
+  figures: readonly string[],
+  questionOutcomes: readonly string[],
+): string | undefined {
+  const spans = sectionSpans(text.original)
+  const sectioned = hasBodyHeadings(spans)
+  for (const figure of figures) {
+    for (const occ of locateFigure(figure, text)) {
+      if (occ.row) continue
+      const section = sectionAt(spans, occ.at)
+      if (section === 'introduction' || section === 'discussion') continue
+      if (sectioned && !OWN_FINDINGS.has(section)) continue
+      if (inTableOrLegend(text.original, occ.at)) continue
+      if (citesEarlierWork(text.original, occ.at)) continue
+      // The figure must be the sentence's result, not a bound of somebody
+      // else's interval: "(95%CI 61-73%)" carries 73% and reports 68%.
+      const span = bracketSpan(text.lower, occ.at)
+      if (span) {
+        const inside = text.lower.slice(span.open, span.close)
+        if (/\bcis?\b|confidence interval|\d\s*(?:-|\u2013|to)\s*\d/.test(inside)) continue
+      }
+      const sentence = occ.sentenceOriginal.replace(/\s+/g, ' ').trim()
+      if (sentence.length < 25 || sentence.length > QUOTE_MAX) continue
+      // A quote may open on a figure ("5 years after initiation of ASM
+      // withdrawal, 73% ... had experienced seizure relapses"), which is
+      // where the extraction's sentence bounds often fall; it may not open
+      // mid-clause on a lower-case word.
+      if (!/^[A-Z\u2265(\d]/.test(sentence)) continue
+      if (
+        questionOutcomes.length > 0 &&
+        !outcomeFamilies(sentence).some((o) => questionOutcomes.includes(o))
+      ) continue
+      return sentence
+    }
+  }
+  return undefined
 }
 
 export function quoteSentence(quote: string): string {

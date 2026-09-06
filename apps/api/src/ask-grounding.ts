@@ -38,6 +38,7 @@ import {
   quoteCarriesClaim,
   quoteSentence,
   replacementCue,
+  rescueQuote,
   rescueSentence,
   statesResultFigure,
   stripTemplateLeaks,
@@ -1380,13 +1381,20 @@ export async function bindAndAudit(raw: BindAndAuditInput): Promise<BindAndAudit
         if (!raw) continue
         const found = ownFigureSentence(raw, cue)
         if (!found || found.score < 4) continue
-        // A figure the gate removed is never printed back verbatim two
+        // A result the gate removed is never printed back verbatim two
         // lines under its own removal notice (docs/persona-reports/
         // dsouza-loop7.md D7-10: "the figures 3.6, 2.9, 4.4 could not be
-        // verified", then the same three quoted from the same paper). If
-        // the paper does carry the sentence, the fix is to rebind and keep
-        // it, not to contradict the notice.
-        if (removed.figures.some((f) => figurePattern(f).test(found.sentence))) continue
+        // verified", then the same three quoted from the same paper). A
+        // sample size is not that: "Data from 1,674 participants ... of
+        // which 395 (23.6%) were 50% responders" is the answer to the
+        // question the removed 22% got wrong, and the notice no longer
+        // names a figure the body carries, so quoting it contradicts
+        // nothing (loop 8 D8-01, D8-02).
+        if (
+          removed.figures.filter((f) => /%|\./.test(f)).some((f) =>
+            figurePattern(f).test(found.sentence)
+          )
+        ) continue
         // The offered sentence must be about what the question asked, not
         // only about the same outcome noun: a lacosamide retention rate is
         // not an answer under a question about implanted devices (D7-10).
@@ -1445,31 +1453,20 @@ export async function bindAndAudit(raw: BindAndAuditInput): Promise<BindAndAudit
         (/%|\./.test(f) || /^\d{3,}$/.test(f)) && !/^(?:90|95|99)%$/.test(f)
       )
       if (distinctive.length === 0) continue
-      const cue = {
-        ...replacementCue(removed.text, lexicon, questionEntities, questionOutcomes, terms),
-        strict: true,
-      }
       for (const entry of entries) {
         const raw = texts.get(entry.index)
         if (!raw) continue
-        const found = ownFigureSentence(raw, cue)
-        if (!found || found.score < 4) continue
-        // The quote must carry what the answer tried to say, in the
-        // paper's words, about the outcome the question asked for.
-        if (!distinctive.some((f) => figurePattern(f).test(found.sentence))) continue
-        if (
-          questionOutcomes.length > 0 &&
-          !outcomeFamilies(found.sentence).some((o) => questionOutcomes.includes(o))
-        ) continue
+        const found = rescueQuote(entry.text, distinctive, questionOutcomes)
+        if (!found) continue
         let marker = citations.find((c) => c.resourceId === entry.resourceId)?.index
         if (marker === undefined) {
           marker = citations.length + 1
           citations.push({ index: marker, resourceId: entry.resourceId, title: entry.title })
           textsByNew.set(marker, raw)
         }
-        const quote = quoteSentence(found.sentence).replace(/^The paper itself reports: /, '')
-        text = `*No cited passage carries the answer as it was generated, so the paper that ` +
-          `reports it is quoted instead.*\n\n${quote}[${marker}]`
+        const quote = quoteSentence(found).replace(/^The paper itself reports: /, '')
+        text = '*No cited passage carries the answer as it was generated, so the sentence the ' +
+          `paper reports it in is quoted instead.*\n\n${quote}[${marker}]`
         rescuedAnswer = true
         break
       }
@@ -1787,7 +1784,11 @@ export async function bindAndAudit(raw: BindAndAuditInput): Promise<BindAndAudit
   // sentence that carries it, so the notice stops naming it and the audit
   // reports only what actually left the answer. The body is read before
   // the addendum is appended, because the notice itself names them.
+  // A rescued answer says in its own lead that the generated sentence was
+  // not carried and the paper's sentence stands in its place, so a removal
+  // note that adds no figure to that adds nothing (D8-11).
   const removedForNote = reconcileRemovals(gated.removed, text)
+    .filter((r) => !rescuedAnswer || r.figures.length > 0)
   const figuresRemovedFromText = [...new Set(removedForNote.flatMap((r) => r.figures))]
 
   if (text.trim()) {
