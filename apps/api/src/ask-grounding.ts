@@ -27,6 +27,7 @@ import {
 import {
   carriesQualifier,
   cohortPapers,
+  cohortPhrases,
   cohortTerms,
   figuresFoundIn,
   generatedText,
@@ -51,6 +52,7 @@ import {
   bindSentences,
   looksLikeReferencePassage,
   namedEntities,
+  splitSentences,
   stripReferenceSection,
 } from './citation-binding.ts'
 import {
@@ -60,6 +62,8 @@ import {
   gateFigures,
   markUnverifiableCells,
   removalNote,
+  rowKey,
+  tableCellHeadings,
 } from './answer-gate.ts'
 import { correctAttributions, type NamedAuthor } from './ask-author.ts'
 import { choosePassage, paragraphsOf } from './evidence-passages.ts'
@@ -267,6 +271,40 @@ export interface BindAndAuditResult {
 /** Acronyms a question uses that are never study names. */
 const NOT_A_STUDY =
   /^(?:EEG|ECG|EMG|MRI|PET|CT|SPECT|ASM|ASMS|AED|AEDS|SUDEP|PNES|IGE|JME|CAE|JAE|GGE|DRE|TLE|FLE|MTLE|QOL|QALY|PRO|PROS|RCT|RCTS|CI|HR|OR|RR|SD|IQR|AUC|FDA|TGA|PBS|NHS|WHO|ILAE|SEEG|RFTC|LITT|VNS|DBS|RNS|LGS|CBD|THC|GWAS|DNA|RNA|PCR|CSF|NMDAR|LGI1|CASPR2|GABA|MOG|AQP4|GTCS|FBTCS|FS|HS|TBI|ICU|ED|GP|MDT|AI|ML|API|PDF|USA|UK|EU|II|III|IV)$/
+
+/**
+ * The answer with every sentence naming one of the given studies replaced
+ * by a note saying the collection holds no such study and no cited source
+ * states the claim. Used only for a study the answer introduced that no
+ * cited text mentions: with reference lists cut, such a sentence has
+ * nothing behind it at all (loop 6 D6-02).
+ */
+export function stripUnheldStudyClaims(
+  answer: string,
+  studies: readonly string[],
+): { text: string; removed: string[] } {
+  if (studies.length === 0) return { text: answer, removed: [] }
+  const removed: string[] = []
+  let text = answer
+  for (const study of studies) {
+    const head = study.split(' ')[0]!
+    for (const line of text.split('\n')) {
+      if (/^\s*[*|]/.test(line)) continue
+      for (const sentence of splitSentences(line)) {
+        const plain = sentence.replace(/\s*\[\d{1,3}\]/g, '').trim()
+        if (!new RegExp(`\\b${head}\\b`).test(plain)) continue
+        if (!text.includes(sentence)) continue
+        removed.push(plain)
+        text = text.replace(
+          sentence,
+          `*A sentence naming ${study} was removed: this collection holds no paper reporting ` +
+            'that study, and no cited source states the finding.*',
+        )
+      }
+    }
+  }
+  return { text, removed }
+}
 
 /** The first sentence of an answer's body: the first line that is not a heading or an italic note. */
 export function leadSentence(text: string): string {
@@ -603,10 +641,13 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
   // or is removed too. What remains has passed.
   const markerOfText = [...usableTexts.keys()]
   const textsByNew = new Map<number, string>()
+  // A table cell is checked under the column heading above it (D6-03).
+  const headings = tableCellHeadings(stripTemplateLeaks(input.text))
   let checks = verifyFigures(
     bound.sentences.map((s) => ({
       text: s.text,
       texts: s.bound.map((n) => usableTexts.get(n)).filter((t): t is string => t !== undefined),
+      ...(headings.has(rowKey(s.text)) ? { headings: headings.get(rowKey(s.text))! } : {}),
     })),
     allTexts,
     lexicon,
@@ -655,7 +696,7 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
   }
   const cohortBase = (input.cohortResourceIds ?? []).length > 0
     ? new Set(input.cohortResourceIds)
-    : cohortPapers(terms, knownResources, textOf)
+    : cohortPapers(terms, knownResources, textOf, cohortPhrases(query))
   const cohort = cohortBase.size > 0 && !designated
     ? new Set([...cohortBase, ...(input.pinnedResourceIds ?? [])])
     : cohortBase
@@ -1429,7 +1470,22 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
 
   // The corpus boundary for a study the question names.
   const citedTitles = citations.map((c) => c.title)
-  const boundary = unheldStudyNote(
+  // A study the ANSWER introduced that neither the collection holds nor
+  // any cited text mentions has nothing behind it: with the bibliographies
+  // cut, a reference title can no longer ground it, and the sentence goes
+  // rather than standing uncited (loop 6 D6-02, the RANSOM Study).
+  const questionStudy = namedStudy(query)
+  const unheldIntroduced = namedStudies(text).filter((study) => {
+    if (study === questionStudy) return false
+    const head = study.split(' ')[0]!
+    const re = new RegExp(`\\b${head.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i')
+    return !citedTitles.some((t) => re.test(t)) &&
+      !(input.catalogue ?? []).some((r) => re.test(r.title)) &&
+      ![...textsByNew.values()].some((t) => re.test(t))
+  })
+  const strippedStudies = stripUnheldStudyClaims(text, unheldIntroduced)
+  text = strippedStudies.text
+  const boundary = strippedStudies.removed.length > 0 ? undefined : unheldStudyNote(
     query,
     citedTitles,
     (input.catalogue ?? []).map((r) => r.title),
@@ -1519,7 +1575,7 @@ export async function bindAndAudit(input: BindAndAuditInput): Promise<BindAndAud
       sentencesCited: gated.sentences.filter((s) => s.bound.length > 0).length,
       denominatorsMissing: denominators.map((d) => d.figure),
       attributionsCorrected,
-      sentencesRemoved: gated.removed.length,
+      sentencesRemoved: gated.removed.length + strippedStudies.removed.length,
       figuresRemoved,
       figuresRescued: [...new Set(rescued.flatMap((r) => r.figures))],
       sentencesReplaced: replaced.length,

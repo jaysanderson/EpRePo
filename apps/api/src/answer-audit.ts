@@ -2239,7 +2239,12 @@ export function pValueListConflict(
  * it are reported so the sentence can inherit a marker.
  */
 export function verifyFigures(
-  sentences: readonly { text: string; texts: readonly string[] }[],
+  sentences: readonly {
+    text: string
+    texts: readonly string[]
+    /** For a table row, the column heading above each of its figures: the outcome the cell reports (D6-03). */
+    headings?: ReadonlyMap<string, string>
+  }[],
   allTexts: readonly string[],
   lexicon: readonly string[] = [],
   questionEntities: readonly string[] = [],
@@ -2271,6 +2276,13 @@ export function verifyFigures(
     const texts = (sentence.texts.length > 0 ? sentence.texts : allTexts).map(prepare)
     const pList = pValueListClaim(sentence.text)
     for (const figure of figures) {
+      // A table cell says what it reports in the column heading above it,
+      // and nowhere else: the heading is read as part of the claim so the
+      // cell is checked against the outcome it is filed under (D6-03).
+      const heading = sentence.headings?.get(figure)
+      const cellClaim = heading
+        ? claimFeatures(`${sentence.text} ${heading}`, lexicon, questionEntities, inherit)
+        : claim
       const supportedBy: number[] = []
       let passage: string | undefined
       let reason: FigureCheck['reason'] | undefined
@@ -2281,7 +2293,7 @@ export function verifyFigures(
           reason = 'pvalue'
           return
         }
-        const verdict = figureSupportedBy(figure, claim, text)
+        const verdict = figureSupportedBy(figure, cellClaim, text)
         if (verdict.supported) {
           supportedBy.push(i)
           if (passage === undefined) passage = verdict.passage

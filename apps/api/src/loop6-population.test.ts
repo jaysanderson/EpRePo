@@ -16,6 +16,7 @@ import {
 import { stripReferenceSection } from './citation-binding.ts'
 import { secondhandFigures, speaksOfOwnWork } from './secondhand.ts'
 import { leadSentence, namedStudies, unheldStudyNote } from './ask-grounding.ts'
+import { rowKey, tableCellHeadings } from './answer-gate.ts'
 
 /**
  * Loop 6 (docs/persona-reports/dsouza-loop6.md): a located figure is bound
@@ -361,5 +362,41 @@ describe('a flagged sentence never leads (D6-07)', () => {
       .toBe('In the cohort, 80% had a favourable score.')
     expect(leadSentence('*One sentence was removed.*\n\nRetention was 71.1%.[1]'))
       .toBe('Retention was 71.1%.')
+  })
+})
+
+describe('a table cell is checked under its column heading (D6-03)', () => {
+  // The generator puts a row's markers after its closing pipe.
+  const TABLE = [
+    '| Drug | n | 12-month retention | 12-month seizure freedom |[1]',
+    '|---|---|---|---|',
+    '| Brivaracetam | 1644 | 71.1% | 14.9% |[1]',
+  ].join('\n')
+
+  it('maps each figure to the heading above it', () => {
+    const headings = tableCellHeadings(TABLE)
+    const row = headings.get(rowKey('| Brivaracetam | 1644 | 71.1% | 14.9% |[1]'))
+    expect(row?.get('14.9%')).toBe('12-month seizure freedom')
+    expect(row?.get('71.1%')).toBe('12-month retention')
+  })
+
+  it('keeps the cell whose outcome the heading names and refuses the one it does not', () => {
+    const row = '| Brivaracetam | 1644 | 71.1% | 11.7% [1] |'
+    const headings = new Map([['11.7%', '12-month seizure freedom'], [
+      '71.1%',
+      '12-month retention',
+    ]])
+    expect(
+      verifyFigures([{ text: row, texts: [POOLED], headings }], [POOLED])
+        .filter((c) => c.figure === '11.7%').map((c) => [c.supported, c.reason]),
+    ).toEqual([[false, 'outcome']])
+    const good = '| Brivaracetam | 1644 | 71.1% | 14.9% [1] |'
+    expect(
+      verifyFigures([{
+        text: good,
+        texts: [POOLED],
+        headings: new Map([['14.9%', '12-month seizure freedom'], ['71.1%', '12-month retention']]),
+      }], [POOLED]).filter((c) => c.figure === '14.9%').map((c) => c.supported),
+    ).toEqual([true])
   })
 })
