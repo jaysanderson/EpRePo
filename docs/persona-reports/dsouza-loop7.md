@@ -348,3 +348,34 @@ new subsystem. The corpus limits I met this loop (no adherence-mortality study, 
 incidence rate, no JME EEG proportion) were all handled honestly except where the application filled
 the gap itself, which is D7-07 and D7-08. The remaining latency floor - a 32 s reformat turn and a
 47 s outlier - is a P3, and is not what holds the score at 7.
+
+---
+
+## Loop 7 fixes (merged 6 September 2026, PRs #23 and #24 into `feat/eprepo-portal`)
+
+This loop changed the architecture rather than the rules. The report's diagnosis was accepted: a
+post-hoc check over a paragraph bag holding four other cohorts' papers cannot be made safe,
+because the right answer and a plausible wrong one are both in the bag, and document chat, which
+sees one paper, answered all three P0 cases correctly.
+
+| Finding | Outcome |
+|---|---|
+| D7-01, D7-02, D7-09, D6-07, D6-01 | Retrieval is pinned to what the question names. A new resolver matches antibodies and antigens, consortia and registries, trial acronyms, quoted titles and described cohorts against the catalogue; a find inside the pinned papers decides whether the pin holds; the ask then runs with those resources as its filter, and the rescue read stays inside them. An antigen is read where the gene-symbol reader refuses it, an acronym is matched in the case the question wrote it, and a title match beats a generated summary. A drug alone never pins. |
+| D7-03 | A safety verb binds to the medication nearest it, with strength tiers so a weaker statement cannot support a stronger claim, families kept apart (not recommended is not seizure-aggravating), binding only in prose, and the clause quoted. |
+| D7-07, D7-08, D7-12, D7-11, D7-10 (part) | A removal takes its dependent sentences with it; an answer that asserts anything with no citation is refused with the closest matches; the absent-study banner no longer fires on citation fragments; a quiz quote must be a verbatim run from a paper, not a generated summary; the paper's-own-figure offer skips a figure the gate removed. |
+| Rules removed | The cohort guard and its reason code, the cohort paper and phrase lists, the restricted rescue and second-hand pools, the always-named list, the name test on a cited text under a pin, and a dead check, with the tests that locked them. The trust layer is smaller after this loop. |
+
+Verified live on the merged build (`178f439158a5`): anti-LGI1 relapse returns "16 out of 55
+patients (30%)" at "414 days, with an interquartile range of 256 to 967"; the consortium cohort
+returns "154 patients (67%)"; the carbamazepine question states that the sources do not call it
+contraindicated and quotes what they do say; BREATHS answers its endpoint of 40% against 20%
+rather than claiming the collection lacks it. Paraphrase consistency moved from one figure family
+in six to four in six across twenty wordings.
+
+Two incidental fixes worth noting: a platform 500 between two awaited calls was an unhandled
+rejection that could kill the API server, and multi-marker pruning indexed against the wrong list
+and silently dropped correct figures.
+
+Left for loop 8: questions naming only a topic (SUDEP titles five papers) get no pin and behave as
+before, which leaves three findings open; one sub-study figure is returned labelled with its own
+paper and denominator rather than the cohort's headline.
